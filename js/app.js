@@ -508,7 +508,7 @@ getRedirectResult(auth).then(async (result) => {
   }
 }).catch((e) => {
   if (e.code !== 'auth/no-auth-event') {
-    showAuthErr('login-err', 'Google login xatoligi: ' + e.message);
+    showVisibleAuthErr(friendlyGoogleAuthError(e));
   }
 });
 
