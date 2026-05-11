@@ -247,6 +247,27 @@
     <!-- Sidebar -->
     <div class="sidebar">
       <div class="sb-section">
+        <div class="sb-title">Asosiy</div>
+        <div class="nav-item active" data-panel="dashboard" onclick="showPanel('dashboard')">
+          <span class="nav-icon">🏠</span> Dashboard
+        </div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-title">Topshiriqlar</div>
+        <div class="nav-item" onclick="showTaskSegment('active')">
+          <span class="nav-icon">📋</span> Active
+        </div>
+        <div class="nav-item" onclick="showTaskSegment('completed')">
+          <span class="nav-icon">✅</span> Completed
+        </div>
+        <div class="nav-item" onclick="showTaskSegment('overdue')">
+          <span class="nav-icon">⏰</span> Overdue
+        </div>
+        <div class="nav-item" onclick="showPanel('manual')">
+          <span class="nav-icon">📝</span> Drafts
+        </div>
+      </div>
+      <div class="sb-section">
         <div class="sb-title">Hujjatlar</div>
         <div class="nav-item" data-panel="upload" onclick="showPanel('upload')">
           <span class="nav-icon">📥</span> Fayl yuklash
@@ -254,7 +275,7 @@
         <div class="nav-item" data-panel="manual" onclick="showPanel('manual')">
           <span class="nav-icon">✏️</span> Qo'lda kiritish
         </div>
-        <div class="nav-item active" data-panel="docs" onclick="showPanel('docs')">
+        <div class="nav-item" data-panel="docs" onclick="showPanel('docs')">
           <span class="nav-icon">📋</span> Barcha hujjatlar
           <span class="nav-badge" id="badge-docs">0</span>
         </div>
@@ -340,7 +361,8 @@
     <!-- Main -->
     <div class="main">
 
-      <!-- UPLOAD -->
+      <!-- DASHBOARD -->
+      <div data-panel-include="./components/panels/dashboard.html"></div><!-- UPLOAD -->
       <div data-panel-include="./components/panels/upload.html"></div><!-- MAPPING -->
       <div data-panel-include="./components/panels/mapping.html"></div><!-- MANUAL -->
       <div data-panel-include="./components/panels/manual.html"></div><!-- ===== AI CHAT PANEL - PREMIUM ===== -->

@@ -495,7 +495,7 @@ async function activateAuthenticatedUser(user, userData = null) {
 
   hideLoading();
   showApp();
-  window.showPanel?.('docs');
+  window.showPanel?.('dashboard');
   loadUserDocs();
   return true;
 }
@@ -1148,6 +1148,7 @@ async function loadUserDocs() {
     persistTashkilotStatsFromDocs(allDocs, true);
     renderTable();
     buildStats();
+    renderDashboard();
     hideLoading();
   } catch(e) {
     hideLoading();
@@ -2110,6 +2111,24 @@ window.clearFilter = () => {
   filteredDocs=[...allDocs]; currentPage=1; renderTable();
 };
 
+window.showTaskSegment = (segment) => {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  filteredDocs = (allDocs || []).filter(row => {
+    const status = normalizeDocStatus(row).key;
+    const deadline = parseDate(row.deadline);
+    if(segment === 'completed') return status === 'done';
+    if(segment === 'overdue') return status !== 'done' && deadline && daysUntil(deadline) < 0;
+    if(segment === 'active') return status !== 'done';
+    return true;
+  });
+  currentPage = 1;
+  showPanel('docs');
+  renderTable();
+  const labels = { active:'Active topshiriqlar', completed:'Completed topshiriqlar', overdue:'Overdue topshiriqlar' };
+  showToast(`${labels[segment] || 'Topshiriqlar'}: ${filteredDocs.length} ta`, 'info');
+};
+
 window.setPeriod = (val) => {
   const now=new Date(); let from=new Date(), to=new Date();
   if(val==='today'){from=new Date();}
@@ -2229,6 +2248,143 @@ function buildStats() {
           </div>`).join('')}
       </div>
     </div>`;
+}
+
+function dashboardDate(row) {
+  return parseDate(row.deadline) || parseDate(row.docDate) || null;
+}
+
+function daysUntil(date) {
+  if(!date) return null;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  return Math.round((d - today) / 86400000);
+}
+
+function weeklyPerformance(rows=allDocs) {
+  const days = [];
+  const now = new Date();
+  for(let i=6;i>=0;i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    d.setHours(0,0,0,0);
+    days.push({
+      key: d.toISOString().slice(0,10),
+      label: d.toLocaleDateString('uz-UZ', { weekday:'short' }),
+      total: 0,
+      done: 0
+    });
+  }
+  rows.forEach(row => {
+    const d = dashboardDate(row);
+    if(!d) return;
+    const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0,10);
+    const item = days.find(x => x.key === key);
+    if(!item) return;
+    item.total++;
+    if(normalizeDocStatus(row).key === 'done') item.done++;
+  });
+  return days;
+}
+
+function renderMiniBars(items=[], valueKey='total') {
+  const max = Math.max(1, ...items.map(x => Number(x[valueKey] || 0)));
+  return `<div class="mini-bars">${items.map(item => {
+    const h = Math.max(8, Math.round((Number(item[valueKey] || 0) / max) * 100));
+    return `<div class="mini-bar-item">
+      <div class="mini-bar" style="height:${h}%"></div>
+      <span>${escH(item.label)}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderDashboard() {
+  const el = document.getElementById('dashboard-content');
+  if(!el) return;
+  const rows = allDocs || [];
+  if(!rows.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div><h3>Ma'lumot yo'q</h3><p>Excel yuklang yoki qo'lda topshiriq qo'shing</p></div>`;
+    return;
+  }
+
+  const total = rows.length;
+  const counts = getStatusCounts(rows);
+  const pending = counts.proc;
+  const overdueRows = rows.filter(row => normalizeDocStatus(row).key !== 'done' && daysUntil(parseDate(row.deadline)) < 0);
+  const efficiency = total ? Math.round((counts.done / total) * 100) : 0;
+  const dueSoon = rows
+    .map(row => ({ row, days: daysUntil(parseDate(row.deadline)) }))
+    .filter(x => x.days !== null && x.days <= 3 && normalizeDocStatus(x.row).key !== 'done')
+    .sort((a,b) => a.days - b.days)
+    .slice(0, 8);
+
+  const orgCount = {};
+  rows.forEach(row => {
+    const org = normalizeOrgName(getOrgText(row)) || 'Noma\'lum';
+    orgCount[org] = (orgCount[org] || 0) + 1;
+  });
+  const topOrgs = Object.entries(orgCount).sort((a,b)=>b[1]-a[1]).slice(0, 6);
+  const weekly = weeklyPerformance(rows);
+  const latest = [...rows].slice(0, 8);
+  const recentActivities = latest.map(row => ({
+    title: row.docName || row.taskText || 'Hujjat',
+    meta: `${getOrgText(row) || 'Noma\'lum'} · ${row.docDate || row.deadline || 'sana yo\'q'}`,
+    status: getStatusText(row)
+  }));
+
+  el.innerHTML = `
+    <div class="pro-kpi-grid">
+      <div class="pro-kpi-card"><span>All Tasks</span><b>${total}</b><small>Jami topshiriqlar</small></div>
+      <div class="pro-kpi-card success"><span>Completed</span><b>${counts.done}</b><small>${efficiency}% efficiency</small></div>
+      <div class="pro-kpi-card warning"><span>Pending</span><b>${pending}</b><small>Jarayonda</small></div>
+      <div class="pro-kpi-card danger"><span>Overdue</span><b>${overdueRows.length}</b><small>Muddati o'tgan</small></div>
+      <div class="pro-kpi-card accent"><span>Efficiency</span><b>${efficiency}%</b><small>Ijro sifati</small></div>
+    </div>
+
+    <div class="pro-grid-2">
+      <div class="card pro-card">
+        <div class="card-title">Weekly Performance</div>
+        ${renderMiniBars(weekly, 'done')}
+      </div>
+      <div class="card pro-card">
+        <div class="card-title">Organization Statistics</div>
+        ${topOrgs.map(([org,count]) => `
+          <div class="pro-progress-row">
+            <div><b>${escH(org)}</b><span>${count} ta topshiriq</span></div>
+            <div class="pro-progress"><i style="width:${Math.round(count / Math.max(1, topOrgs[0][1]) * 100)}%"></i></div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="pro-grid-3">
+      <div class="card pro-card">
+        <div class="card-title">Latest Tasks</div>
+        <div class="pro-list">${latest.map(row => `
+          <div class="pro-list-row">
+            <div><b>${escH(row.docName || row.taskText || 'Hujjat')}</b><span>${escH(getOrgText(row) || row.executor || 'Noma\'lum')}</span></div>
+            ${stBadge(getStatusText(row))}
+          </div>`).join('')}</div>
+      </div>
+      <div class="card pro-card">
+        <div class="card-title">Deadline Alerts</div>
+        <div class="pro-list">${dueSoon.length ? dueSoon.map(({row, days}) => `
+          <div class="pro-list-row deadline">
+            <div><b>${escH(row.docName || row.taskText || 'Topshiriq')}</b><span>${days < 0 ? Math.abs(days) + ' kun kechikkan' : days + ' kun qoldi'} · ${escH(row.deadline || '')}</span></div>
+            <button class="btn btn-sm btn-outline" onclick="showPanel('docs')">Ochish</button>
+          </div>`).join('') : '<div class="empty-inline">Yaqin deadline yo\'q</div>'}</div>
+      </div>
+      <div class="card pro-card">
+        <div class="card-title">Recent Activities</div>
+        <div class="activity-timeline">${recentActivities.map(item => `
+          <div class="activity-item">
+            <i></i>
+            <div><b>${escH(item.title)}</b><span>${escH(item.meta)}</span></div>
+          </div>`).join('')}</div>
+      </div>
+    </div>
+  `;
 }
 
 // ===== EXCEL EXPORT =====
@@ -2545,6 +2701,7 @@ window.showPanel = (name) => {
   document.querySelectorAll('.nav-item').forEach(n => {
     if (n.dataset.panel === name) n.classList.add('active');
   });
+  if (name === 'dashboard') renderDashboard();
   if (name === 'docs') renderTable();
   if (name === 'stats') buildStats();
   if (name === 'admin' || name === 'superadmin') { loadAllUsers(); loadSuperAdminStats(); }
