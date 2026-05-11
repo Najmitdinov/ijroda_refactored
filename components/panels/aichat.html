@@ -1,0 +1,71 @@
+<div class="panel" id="panel-aichat" style="padding:0;height:calc(100vh - 54px - 56px);display:none;flex-direction:row;background:#f9fafb;">
+        <!-- Chat Sidebar -->
+        <div style="width:320px;background:white;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;box-shadow:2px 0 8px rgba(0,0,0,0.05);">
+          <!-- Header -->
+          <div style="padding:16px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:white;border-bottom:1px solid #e5e7eb;">
+            <h3 style="font-size:16px;font-weight:700;margin-bottom:4px;">💬 AI Chat</h3>
+            <p style="font-size:11px;opacity:0.9;">Gemini, Groq, OpenRouter</p>
+          </div>
+          
+          <!-- Search -->
+          <div style="padding:12px;border-bottom:1px solid #e5e7eb;">
+            <input id="chat-search" placeholder="💭 Suhbatlarni qidiring..." oninput="searchChats()" style="width:100%;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f3f4f6;font-size:12px;transition:all 0.2s;font-family:inherit;">
+          </div>
+          
+          <!-- Chat List -->
+          <div id="chat-list-wrap" style="flex:1;overflow-y:auto;padding:8px;">
+            <div style="padding:24px;text-align:center;color:#9ca3af;font-size:12px;">
+              <div style="font-size:32px;margin-bottom:8px;">💭</div>
+              <div>Hali chat yo'q</div>
+            </div>
+          </div>
+          
+          <!-- New Chat Button -->
+          <div style="padding:12px;border-top:1px solid #e5e7eb;">
+            <button onclick="newChat()" style="width:100%;padding:10px;background:#6366f1;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;transition:all 0.2s;">➕ Yangi Chat</button>
+          </div>
+        </div>
+
+        <!-- Chat Main -->
+        <div style="flex:1;display:flex;flex-direction:column;">
+          <!-- Header -->
+          <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div id="chat-avatar" style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;">A</div>
+                <div>
+                  <h3 id="chat-title" style="font-size:15px;font-weight:700;color:#1f2937;">Suhbatni tanlang</h3>
+                  <p id="chat-status" style="font-size:11px;color:#9ca3af;margin-top:2px;">Yoki yangi boshlang</p>
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button onclick="alert('Tez orada')" style="width:36px;height:36px;border-radius:8px;border:1px solid #e5e7eb;background:white;cursor:pointer;font-size:16px;transition:all 0.2s;">📥</button>
+                <button onclick="alert('Tez orada')" style="width:36px;height:36px;border-radius:8px;border:1px solid #e5e7eb;background:white;cursor:pointer;font-size:16px;transition:all 0.2s;">⚙️</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Messages -->
+          <div id="chat-messages" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16;">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#9ca3af;">
+              <div style="font-size:48px;margin-bottom:12px;">🤖</div>
+              <div style="font-size:14px;font-weight:600;">AI Chat Assistant</div>
+              <div style="font-size:12px;text-align:center;margin-top:8px;max-width:300px;line-height:1.6;">
+                Suhbat ochib boshlang va AI asistentining yordamidan foydalaning.
+              </div>
+            </div>
+          </div>
+
+          <!-- Input -->
+          <div style="padding:16px 20px;border-top:1px solid #e5e7eb;background:white;box-shadow:0 -2px 8px rgba(0,0,0,0.05);">
+            <div style="display:flex;gap:12px;align-items:flex-end;">
+              <div style="flex:1;display:flex;align-items:center;border:1.5px solid #e5e7eb;border-radius:12px;background:white;padding:8px 14px;transition:all 0.2s;">
+                <textarea id="chat-input" placeholder="AI ga savol bering..." onkeydown="chatKeydown(event)" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'" style="flex:1;border:none;outline:none;font-size:13px;font-family:inherit;max-height:100px;resize:none;background:transparent;padding:6px 0;"></textarea>
+                <button style="background:transparent;border:none;cursor:pointer;font-size:16px;opacity:0.7;transition:all 0.2s;">📎</button>
+              </div>
+              <button id="chat-send-btn" onclick="sendChatMessage()" style="width:40px;height:40px;border-radius:10px;border:none;background:#6366f1;color:white;cursor:pointer;font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.2s;">➤</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      

@@ -1,0 +1,35 @@
+<div class="panel" id="panel-manual">
+        <div class="page-hdr"><h2>✏️ Qo'lda kiritish</h2><p>Bitta hujjatni qo'lda kiriting</p></div>
+        <div class="card">
+          <div class="form-grid">
+            <div class="field"><label>Hujjat nomi *</label><input id="m-docName" placeholder="Hujjat nomi"></div>
+            <div class="field"><label>Hujjat raqami</label><input id="m-docNum" placeholder="Raqami"></div>
+            <div class="field"><label>Hujjat sanasi</label><input id="m-docDate" placeholder="KK.OO.YYYY"></div>
+            <div class="field"><label>Tashkilot chiqish raqami</label><input id="m-orgOutNum" placeholder="Chiqish raqami"></div>
+            <div class="field"><label>Kimdan keldi</label><input id="m-fromOrg" placeholder="Tashkilot nomi"></div>
+            <div class="field"><label>Rezalyutsiya (Kimga)</label><input id="m-resolution" placeholder="Kimga yo'naltirildi"></div>
+            <div class="field" style="grid-column:1/-1;"><label>Topshiriq matni</label><textarea id="m-taskText" placeholder="Topshiriq mazmuni..."></textarea></div>
+            <div class="field"><label>Ijrochi</label><input id="m-executor" placeholder="F.I.O."></div>
+            <div class="field"><label>Ijro holati</label>
+              <select id="m-status">
+                <option value="">— Tanlang —</option>
+                <option>Bajarildi</option><option>Jarayonda</option><option>Bajarilmadi</option>
+              </select>
+            </div>
+            <div class="field"><label>Ijro muddati</label><input id="m-deadline" placeholder="KK.OO.YYYY"></div>
+            <div class="field"><label>Bizdan chiqish raqami</label><input id="m-ourOutNum" placeholder="Bizning raqam"></div>
+            <div class="field"><label>Hujjat turi</label>
+              <select id="m-docType">
+                <option value="">— Tanlang —</option>
+                <option>Qaror</option><option>Farmon</option><option>Farmoyish</option>
+                <option>Buyruq</option><option>Xat</option><option>Topshiriq</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:18px;display:flex;gap:10px;">
+            <button class="btn btn-success" onclick="saveManualDoc()">💾 Saqlash</button>
+            <button class="btn btn-outline" onclick="showPanel('docs')">Bekor qilish</button>
+          </div>
+        </div>
+      </div>
+      

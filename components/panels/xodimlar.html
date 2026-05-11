@@ -1,0 +1,64 @@
+<div class="panel" id="panel-xodimlar">
+        <div class="page-hdr"><h2>👨‍💼 Xodimlar bazasi</h2><p>AI rezolutsiya uchun xodimlar ro'yxati</p></div>
+
+        <!-- IJRO.DOCX IMPORT BANNER -->
+        <div class="card" style="border-left:4px solid #7c3aed;background:linear-gradient(135deg,#f5f3ff,#ede9fe);padding:16px 20px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div style="flex:1;">
+              <div style="font-weight:800;font-size:14px;color:#4c1d95;margin-bottom:6px;">📋 Ijro.docx + ZIP — 32 xodim/lavozim profili tayyor baza</div>
+              <div style="font-size:12px;color:#6d28d9;line-height:1.7;">
+                Quyidagi xodimlar, sektorlar va lavozim profillari <b>Ijro.docx</b> hamda yuklangan ZIP lavozim yo'riqnomalaridan tahlil qilindi; har bir profilga manba hujjat va AI kalit so'zlari biriktirilgan:<br>
+                <span style="color:#5b21b6;">13 amaldagi xodim · 19 lavozim profili · boshqarma, tuman/shahar bo'limlari, arxitektura, murojaatlar, raqamli texnologiyalar, yuridik, moliya, kadrlar, kommunal va xo'jalik yo'nalishlari</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0;">
+              <button id="btn-ijro-import" onclick="importIjroXodimlar()" style="padding:10px 20px;background:#7c3aed;color:#fff;border:none;border-radius:10px;font-family:'Golos Text',sans-serif;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .2s;" onmouseover="this.style.background='#6d28d9'" onmouseout="this.style.background='#7c3aed'">
+                📋 Ijro.docx + ZIP dan yuklash
+              </button>
+              <div style="font-size:10px;color:#7c3aed;text-align:center;">20 sektor + 32 profil</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" id="x-form-title">➕ Yangi xodim qo'shish</div>
+          <input type="hidden" id="x-edit-id">
+          <div class="form-grid three">
+            <div class="field"><label>Ism *</label><input id="x-ism" placeholder="Sardor" autocomplete="given-name"></div>
+            <div class="field"><label>Familiya *</label><input id="x-familiya" placeholder="Rahimov" autocomplete="family-name"></div>
+            <div class="field"><label>Lavozim</label><input id="x-lavozim" placeholder="Sektor boshlig'i"></div>
+            <div class="field"><label>Sektor / Bo'lim</label>
+              <select id="x-sektor"><option value="">— Tanlang —</option></select>
+            </div>
+            <div class="field"><label>Email</label><input type="email" id="x-email" placeholder="email@example.com" autocomplete="email"></div>
+            <div class="field"><label>Telefon</label><input type="tel" id="x-tel" placeholder="+998 90 123 45 67" autocomplete="tel"></div>
+            <div class="field" style="grid-column:1/-1;">
+              <label>Kalit so'zlar (AI uchun)</label>
+              <input id="x-kalit" placeholder="masalan: qurilish, loyiha, tender, shartnoma — AI shu so'zlar bo'yicha moslashtiradi">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px;">
+            <button class="btn btn-primary" onclick="saveXodim()">✅ Saqlash</button>
+            <button class="btn btn-outline" onclick="clearXodimForm()">✕ Tozalash</button>
+            <label class="btn btn-outline" style="cursor:pointer;">
+              📥 Excel import
+              <input type="file" accept=".xlsx,.xls" onchange="importXodimlarExcel(this)" style="display:none">
+            </label>
+          </div>
+          <div class="alert alert-info" style="margin-top:12px;">
+            💡 Excel import ustunlari: <b>Ism, Familiya, Lavozim, Sektor, Email, Telefon, Kalit so'zlar</b>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">👥 Xodimlar ro'yxati (<span id="xodimlar-count">0</span> ta)</div>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Xodim / Lavozim</th><th>Sektor</th><th>Email</th><th>Telefon</th><th>Kalit so'zlar</th><th>Holat</th><th></th></tr></thead>
+              <tbody id="xodimlar-tbody"><tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Yuklanmoqda...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      

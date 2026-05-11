@@ -1,0 +1,43 @@
+<div class="panel" id="panel-security">
+        <div class="page-hdr">
+          <h2>🛡️ Xavfsizlik markazi</h2>
+          <p>Faol sessionlar · Qurilma boshqaruvi · Kirish tarixi · Rate limit holati</p>
+        </div>
+
+        <!-- Action bar -->
+        <div class="actions-row" style="margin-bottom:18px;">
+          <button class="btn btn-primary" onclick="loadSecurityPanel()">🔄 Yangilash</button>
+          <button class="btn btn-outline" onclick="Security.forceLogoutSession(currentUser?.uid, 'all').catch(()=&gt;{});showToast('Barcha sessionlar o\'chirildi','info');">🔴 Barcha sessiyalarni tugatish</button>
+        </div>
+
+        <!-- Stats strip -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;">
+          <div class="stat-box blue"><div class="sv" id="sec-stat-sessions">—</div><div class="sl">Faol sessionlar</div></div>
+          <div class="stat-box navy"><div class="sv" id="sec-stat-devices">—</div><div class="sl">Qurilmalar</div></div>
+          <div class="stat-box green"><div class="sv" id="sec-stat-logins">—</div><div class="sl">Bugungi loginlar</div></div>
+          <div class="stat-box red"><div class="sv" id="sec-stat-suspicious">—</div><div class="sl">Shubhali loginlar</div></div>
+        </div>
+
+        <!-- Firestore Rules reminder -->
+        <div style="background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:12px;">
+          <b>⚠️ Firestore Security Rules — majburiy!</b><br>
+          <code style="background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:11px;display:block;margin-top:8px;line-height:2;">
+            match /security/{uid}/{document=**} {<br>
+              allow read, write: if request.auth.uid == uid;<br>
+            }<br>
+            match /users/{uid} {<br>
+              allow write: if request.auth.uid == uid<br>
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin','superadmin'];<br>
+            }
+          </code>
+        </div>
+
+        <!-- Dynamic content loaded by loadSecurityPanel() -->
+        <div id="security-panel-content">
+          <div style="color:var(--muted);text-align:center;padding:40px;">
+            🛡️ Yuqoridagi "Yangilash" tugmasini bosing
+          </div>
+        </div>
+      </div>
+
+    

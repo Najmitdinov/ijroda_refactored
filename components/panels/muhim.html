@@ -1,0 +1,65 @@
+<div class="panel" id="panel-muhim">
+        <div class="page-hdr">
+          <h2>🚨 Muhim Topshiriqlar</h2>
+          <p>Barcha muhim va dolzarb topshiriqlar — saralash va boshqarish</p>
+        </div>
+
+        <!-- Quick add -->
+        <div class="card">
+          <div class="card-title">➕ Yangi muhim topshiriq qo'shish</div>
+          <div class="form-grid three">
+            <div class="field"><label>Topshiriq nomi *</label><input id="mt-nom" placeholder="Topshiriq sarlavhasi"></div>
+            <div class="field"><label>Ijrochi *</label>
+              <select id="mt-ijrochi"><option value="">— Xodim tanlang —</option></select>
+            </div>
+            <div class="field"><label>Muhimlik darajasi</label>
+              <select id="mt-daraja">
+                <option value="yuqori">🔴 Yuqori</option>
+                <option value="o'rta" selected>🟡 O'rta</option>
+                <option value="past">🟢 Past</option>
+              </select>
+            </div>
+            <div class="field"><label>Muddat *</label><input type="date" id="mt-muddat"></div>
+            <div class="field"><label>Hujjat raqami</label><input id="mt-hujjat-raqam" placeholder="masalan: 123-son"></div>
+            <div class="field"><label>Manba tashkilot</label><input id="mt-manba" placeholder="Kimdan keldi"></div>
+            <div class="field" style="grid-column:1/-1;"><label>Topshiriq mazmuni</label>
+              <textarea id="mt-mazmun" placeholder="Batafsil topshiriq matni..." style="width:100%;height:80px;padding:10px;border:1.5px solid var(--border2);border-radius:8px;font-family:'Golos Text',sans-serif;font-size:13px;resize:vertical;outline:none;"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;">
+            <button class="btn btn-danger" onclick="saveMuhimTopshiriq()">🚨 Muhim topshiriq qo'shish</button>
+            <button class="btn btn-outline" onclick="clearMuhimForm()">✕ Tozalash</button>
+          </div>
+        </div>
+
+        <!-- Sort & Filter bar -->
+        <div class="card" style="padding:14px 16px;">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <span style="font-size:12px;font-weight:700;color:var(--muted);">Saralash:</span>
+            <button class="btn btn-sm btn-outline" id="mt-sort-muddat" onclick="sortMuhim('muddat')">📅 Muddat</button>
+            <button class="btn btn-sm btn-outline" id="mt-sort-daraja" onclick="sortMuhim('daraja')">🔴 Muhimlik</button>
+            <button class="btn btn-sm btn-outline" id="mt-sort-status" onclick="sortMuhim('status')">📊 Holat</button>
+            <button class="btn btn-sm btn-outline" id="mt-sort-ijrochi" onclick="sortMuhim('ijrochi')">👤 Ijrochi</button>
+            <button class="btn btn-sm btn-outline" id="mt-sort-manba" onclick="sortMuhim('manba')">🏛️ Manba</button>
+            <span style="margin-left:auto;font-size:12px;color:var(--muted);">Tartiblash:</span>
+            <button class="btn btn-sm btn-outline active" id="mt-dir-asc" onclick="setMuhimDir('asc')">↑ O'sish</button>
+            <button class="btn btn-sm btn-outline" id="mt-dir-desc" onclick="setMuhimDir('desc')">↓ Kamayish</button>
+
+            <select id="mt-filter-status" onchange="renderMuhimTopshiriqlar()" style="padding:6px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;margin-left:8px;">
+              <option value="">Barcha holatlar</option>
+              <option value="Yangi">Yangi</option>
+              <option value="Jarayonda">Jarayonda</option>
+              <option value="Bajarildi">Bajarildi</option>
+              <option value="Kechikdi">Kechikdi</option>
+            </select>
+            <button class="btn btn-sm btn-outline" onclick="exportMuhimExcel()">📥 Excel</button>
+          </div>
+        </div>
+
+        <!-- List -->
+        <div id="muhim-list">
+          <div class="empty-state"><div class="empty-icon">🚨</div><h3>Muhim topshiriqlar yo'q</h3></div>
+        </div>
+      </div>
+
+      

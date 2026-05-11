@@ -1,0 +1,32 @@
+<div class="panel" id="panel-tashkilotlar">
+        <div class="page-hdr">
+          <h2>🏛️ Tashkilotlar ro'yxati</h2>
+          <p>Rezolutsiya olingan vaqt xat qayerdan kelgan bo'lsa u avtomatik qo'shiladi</p>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;">
+            <div class="card-title" style="margin-bottom:0;">🏛️ Tashkilotlar (<span id="tashkilotlar-count">0</span> ta)</div>
+            <div style="display:flex;gap:8px;">
+              <input id="tashkilotlar-search" placeholder="Qidirish..." oninput="renderTashkilotlar()" style="padding:7px 12px;border:1px solid var(--border2);border-radius:7px;font-size:12px;">
+              <button class="btn btn-sm btn-outline" onclick="loadTashkilotlar()">🔄</button>
+              <button class="btn btn-sm btn-success" onclick="rebuildTashkilotlarFromDocs()">🏛️ Hujjatlardan tiklash</button>
+              <button class="btn btn-sm btn-outline" onclick="exportTashkilotlarExcel()">📥 Excel</button>
+            </div>
+          </div>
+          <!-- Manual add -->
+          <div style="display:flex;gap:8px;margin-bottom:14px;">
+            <input id="tash-nom" placeholder="Tashkilot nomi qo'shish..." style="flex:1;padding:8px 12px;border:1.5px solid var(--border2);border-radius:8px;font-size:13px;outline:none;">
+            <input id="tash-manzil" placeholder="Manzil (ixtiyoriy)" style="flex:1;padding:8px 12px;border:1.5px solid var(--border2);border-radius:8px;font-size:13px;outline:none;">
+            <button class="btn btn-primary" onclick="addTashkilotManual()">➕ Qo'shish</button>
+          </div>
+          <div class="table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>#</th><th>Tashkilot nomi</th><th>Manzil</th><th>Hujjatlar soni</th><th>Oxirgi xat</th><th>Qo'shilgan</th><th></th></tr></thead>
+              <tbody id="tashkilotlar-tbody"><tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Yuklanmoqda...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      

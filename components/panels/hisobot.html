@@ -1,0 +1,72 @@
+<div class="panel" id="panel-hisobot">
+        <div class="page-hdr"><h2>📑 Hisobot generatsiya</h2><p>Kerakli ustunlarni tanlang va Excel hisobot yarating</p></div>
+
+        <!-- Filters for report -->
+        <div class="card">
+          <div class="card-title">🔍 Hisobot filtrlari</div>
+          <div class="filter-grid">
+            <div class="field"><label>Boshlanish sanasi</label><input type="date" id="hr-date-from"></div>
+            <div class="field"><label>Tugash sanasi</label><input type="date" id="hr-date-to"></div>
+            <div class="field"><label>Tez davr</label>
+              <select id="hr-period" onchange="setHisobotPeriod(this.value)">
+                <option value="">— Tanlang —</option>
+                <option value="today">Bugun</option>
+                <option value="week">Bu hafta</option>
+                <option value="month">Bu oy</option>
+                <option value="quarter">Bu chorak</option>
+                <option value="halfyear">Yarim yil</option>
+                <option value="year">Bu yil</option>
+              </select>
+            </div>
+            <div class="field"><label>Ijro holati</label>
+              <select id="hr-status">
+                <option value="">Barchasi</option>
+                <option>Bajarildi</option>
+                <option>Jarayonda</option>
+                <option>Bajarilmadi</option>
+              </select>
+            </div>
+            <div class="field"><label>Manba</label>
+              <select id="hr-src">
+                <option value="">Barchasi</option>
+                <option value="VM">Vazirlar Mahkamasi</option>
+                <option value="PF">Prezident farmonlari</option>
+                <option value="VH">Viloyat hokimligi</option>
+                <option value="OTHER">Boshqa</option>
+              </select>
+            </div>
+            <div class="field"><label>Tashkilot (kimdan)</label>
+              <input id="hr-org" placeholder="masalan: Vazirlar Mahkamasi">
+            </div>
+          </div>
+        </div>
+
+        <!-- Column selector like EDO.IJROda -->
+        <div class="card">
+          <div class="card-title">📋 Ustunlarni tanlang (keraklilarni belgilang)</div>
+          <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-outline" onclick="hisobotSelectAll()">✅ Barchasini tanlash</button>
+            <button class="btn btn-sm btn-outline" onclick="hisobotClearAll()">✕ Barchasini tozalash</button>
+          </div>
+          <div id="hisobot-col-chips" style="display:flex;flex-wrap:wrap;gap:8px;">
+            <!-- chips rendered by JS -->
+          </div>
+        </div>
+
+        <!-- Preview count -->
+        <div class="card" id="hisobot-preview-info" style="display:none;">
+          <div id="hisobot-preview-txt" style="font-size:13px;color:var(--blue-mid);font-weight:600;"></div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">
+          <button class="btn btn-primary" onclick="previewHisobot()">👁 Ko'rish</button>
+          <button class="btn btn-success" onclick="generateHisobot()">📥 Excel yuklab olish</button>
+          <button class="btn btn-outline" onclick="resetHisobot()">🔄 Tozalash</button>
+        </div>
+
+        <!-- Preview table -->
+        <div id="hisobot-table-wrap"></div>
+      </div>
+
+      

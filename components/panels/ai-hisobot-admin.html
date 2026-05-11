@@ -1,0 +1,67 @@
+<div class="panel" id="panel-ai-hisobot-admin">
+        <div class="page-hdr">
+          <h2>🤖 AI Hisobot Buyruqlari</h2>
+          <p>Admin AI ga qanday hisobot ma'lumotlarini va qaysi tashkilot xatlarini so'rasin — buyruq bering</p>
+        </div>
+
+        <!-- New AI command -->
+        <div class="card">
+          <div class="card-title">➕ Yangi AI hisobot buyrug'i</div>
+          <div class="form-grid">
+            <div class="field"><label>Buyruq nomi *</label><input id="ahb-nom" placeholder="masalan: Oylik ijro hisoboti"></div>
+            <div class="field"><label>Tashkilot (qaysi tashkilot xatlari)</label>
+              <div id="ahb-tashkilot-list" style="max-height:180px;overflow:auto;border:1.5px solid var(--border2);border-radius:8px;background:var(--surface2);">
+                <div style="font-size:12px;color:var(--muted);padding:8px;">Yuklanmoqda...</div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:5px;">Bir nechta tashkilotni belgilang. Hech biri belgilanmasa, barchasi olinadi.</div>
+            </div>
+            <div class="field"><label>Hisobot turi</label>
+              <select id="ahb-tur">
+                <option value="excel">📊 Excel hisobot</option>
+                <option value="word">📄 Word hisobot</option>
+                <option value="summary">📝 Qisqa xulosa</option>
+              </select>
+            </div>
+            <div class="field"><label>Davr</label>
+              <select id="ahb-davr">
+                <option value="month">Bu oy</option>
+                <option value="quarter">Bu chorak</option>
+                <option value="year">Bu yil</option>
+                <option value="all">Hammasi</option>
+              </select>
+            </div>
+            <div class="field"><label>Ijro holati filtri</label>
+              <select id="ahb-status">
+                <option value="">Barchasi</option>
+                <option value="Bajarildi">Bajarildi</option>
+                <option value="Jarayonda">Jarayonda</option>
+                <option value="Bajarilmadi">Bajarilmadi</option>
+              </select>
+            </div>
+            <div class="field" style="grid-column:1/-1;"><label>Hisobotda so'raladigan ma'lumotlar</label>
+              <textarea id="ahb-fields" placeholder="Rasmiy jadval avtomatik tuziladi: hujjat nomi, raqam/sana, yuqori tashkilot qarori, kirish qaydi, rahbar rezolyutsiyasi, ijro holati va muhokama/choralar." style="width:100%;height:64px;padding:10px;border:1.5px solid var(--border2);border-radius:8px;font-family:'Golos Text',sans-serif;font-size:13px;resize:vertical;outline:none;"></textarea>
+            </div>
+            <div class="field" style="grid-column:1/-1;"><label>AI ga maxsus ko'rsatma (ixtiyoriy)</label>
+              <textarea id="ahb-korstma" placeholder="masalan: Faqat kechikkan topshiriqlarni ko'rsating. Ijrochi bo'yicha guruhlang. Yuqori muhimlik topshiriqlarni birinchi qator qilib chiqaring..." style="width:100%;height:80px;padding:10px;border:1.5px solid var(--border2);border-radius:8px;font-family:'Golos Text',sans-serif;font-size:13px;resize:vertical;outline:none;"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="saveAiHisobotBuyruq()">💾 Buyruqni saqlash</button>
+            <button class="btn btn-success" onclick="executeAiHisobotBuyruq()">🤖 Hozir bajarish</button>
+            <button class="btn btn-outline" onclick="clearAiHisobotForm()">✕ Tozalash</button>
+          </div>
+        </div>
+
+        <!-- Saved commands -->
+        <div class="card">
+          <div class="card-title">📋 Saqlangan buyruqlar</div>
+          <div id="ahb-list">
+            <div class="empty-state"><div class="empty-icon">🤖</div><h3>Buyruqlar yo'q</h3><p>Yangi buyruq qo'shing</p></div>
+          </div>
+        </div>
+
+        <!-- AI result area -->
+        <div id="ahb-result" style="display:none;"></div>
+      </div>
+
+      

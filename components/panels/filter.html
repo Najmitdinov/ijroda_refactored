@@ -1,0 +1,55 @@
+<div class="panel" id="panel-filter">
+        <div class="page-hdr"><h2>🔍 Filtr &amp; Qidiruv</h2><p>Istalgan parametr bo'yicha qidiring va Excel chiqaring</p></div>
+        <div class="card">
+          <div class="filter-grid">
+            <div class="field"><label>Tashkilot / Kimdan</label>
+              <input id="f-org" placeholder="masalan: Vazirlar Mahkamasi"></div>
+            <div class="field"><label>Boshlanish sanasi</label><input type="date" id="f-date-from"></div>
+            <div class="field"><label>Tugash sanasi</label><input type="date" id="f-date-to"></div>
+            <div class="field"><label>Tez davr</label>
+              <select id="f-period" onchange="setPeriod(this.value)">
+                <option value="">— Tanlang —</option>
+                <option value="today">Bugun</option><option value="week">Bu hafta</option>
+                <option value="month">Bu oy</option><option value="quarter">Bu chorak</option>
+                <option value="halfyear">Yarim yil</option><option value="year">Bu yil</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="applyFilter()" style="align-self:end;">🔍 Filtrla</button>
+          </div>
+          <div class="filter-grid">
+            <div class="field"><label>Hujjat turi</label>
+              <select id="f-type">
+                <option value="">Barchasi</option>
+                <option value="qaror">Qaror</option><option value="farmon">Farmon</option>
+                <option value="farmoyish">Farmoyish</option><option value="buyruq">Buyruq</option>
+                <option value="xat">Xat</option>
+              </select>
+            </div>
+            <div class="field"><label>Ijro holati</label>
+              <select id="f-status">
+                <option value="">Barchasi</option>
+                <option>Bajarildi</option><option>Jarayonda</option><option>Bajarilmadi</option>
+              </select>
+            </div>
+            <div class="field"><label>Manba</label>
+              <select id="f-src">
+                <option value="">Barchasi</option>
+                <option value="VM">Vazirlar Mahkamasi</option>
+                <option value="PF">Prezident farmonlari</option>
+                <option value="VH">Viloyat hokimligi</option>
+                <option value="OTHER">Boshqa</option>
+              </select>
+            </div>
+            <div class="field"><label>Matn qidiruv</label><input id="f-search" placeholder="Istalgan so'z..."></div>
+            <button class="btn btn-outline" onclick="clearFilter()" style="align-self:end;">✕ Tozala</button>
+          </div>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-success" onclick="exportExcel('filtered')">📤 Filtrlangan Excel</button>
+          <button class="btn btn-outline" onclick="exportExcel('all')">📦 Hammasi Excel</button>
+        </div>
+        <div class="table-wrap" id="table-wrap-f"></div>
+        <div class="pagination" id="pagination-f"></div>
+      </div>
+
+      

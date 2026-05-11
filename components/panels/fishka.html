@@ -1,0 +1,70 @@
+<div class="panel" id="panel-fishka">
+        <div class="page-hdr">
+          <h2>🎯 Rezolutsiya / Fishka — AI tahlil</h2>
+          <p>PDF, Word, screenshot yoki matn yuklang — Gemini AI kimga tegishli ekanini va ijro muddatini aniqlaydi</p>
+        </div>
+
+        <!-- API Key Status -->
+        <div class="card" style="border-left:4px solid var(--blue-mid);padding:12px 16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div style="font-size:13px;">
+              🔑 <b>Gemini AI:</b> <span id="api-key-status" style="color:var(--muted);">Kiritilmagan</span>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-sm btn-primary" onclick="setApiKey()">🔑 Gemini kalit kiriting</button>
+              <button class="btn btn-sm btn-outline" onclick="clearApiKey()">✕ Kalitni o'chirish</button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px;">ℹ️ Gemini API kalit localStorage da saqlanadi (sahifa yopilsa o'chmaydi). Kalitni <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--blue-mid);">aistudio.google.com</a> dan oling.</div>
+        </div>
+
+        <!-- Xodimlar quick-check -->
+        <div id="fishka-xodim-tip" class="card" style="border-left:4px solid #7c3aed;padding:12px 16px;display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+            <div style="font-size:13px;color:#5b21b6;">⚠️ <b>Xodimlar bazasi bo'sh!</b> AI to'g'ri aniqlashi uchun avval xodimlarni qo'shing.</div>
+            <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:8px;" onclick="showPanel('xodimlar')">👨‍💼 Xodimlar bazasiga o'tish →</button>
+          </div>
+        </div>
+
+        <!-- Upload zone -->
+        <div class="card">
+          <div class="card-title">📎 Hujjat yuklash (PDF / Word / Screenshot / Matn)</div>
+          <div class="fishka-upload-zone" onclick="document.getElementById('fishka-file-input').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleFishkaDrop(event,this)">
+            <div style="font-size:36px;margin-bottom:8px;">🤖</div>
+            <div style="font-weight:700;font-size:15px;margin-bottom:4px;">Fayl tashlang yoki bosing</div>
+            <div style="font-size:12px;color:var(--muted);">.pdf · .doc · .docx · .txt · .png · .jpg</div>
+          </div>
+          <input type="file" id="fishka-file-input" accept=".pdf,.doc,.docx,.txt,.text,.png,.jpg,.jpeg,.webp" multiple onchange="handleFishkaFiles(this)" style="display:none">
+
+          <div style="margin-top:14px;">
+            <div class="card-title" style="font-size:12px;margin-bottom:8px;">✍️ Yoki matn kiriting</div>
+            <textarea id="fishka-text-input" placeholder="Hujjat matnini shu yerga yoping yoki yozing..." style="width:100%;height:120px;padding:12px;border:1.5px solid var(--border2);border-radius:8px;font-family:'Golos Text',sans-serif;font-size:13px;resize:vertical;outline:none;"></textarea>
+            <button class="btn btn-primary" style="margin-top:8px;" onclick="analyzeFishkaText()">🤖 AI bilan tahlil qil</button>
+          </div>
+        </div>
+
+        <!-- AI result -->
+        <div id="fishka-ai-status" style="display:none;margin-bottom:16px;"></div>
+
+        <!-- Filter & list -->
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+            <div class="card-title" style="margin-bottom:0;">📋 Barcha fishkalar</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <select id="fishka-sektor-filter" onchange="filterFishkalar()" style="padding:6px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;">
+                <option value="">Barcha sektorlar</option>
+              </select>
+              <select id="fishka-status-filter" onchange="filterFishkalar()" style="padding:6px 10px;border:1px solid var(--border2);border-radius:7px;font-size:12px;">
+                <option value="">Barcha statuslar</option>
+                <option>Yangi</option><option>Jarayonda</option><option>Bajarildi</option><option>Kechikdi</option>
+              </select>
+              <button class="btn btn-sm btn-outline" onclick="loadFishkalar()">🔄</button>
+            </div>
+          </div>
+          <div id="fishka-list">
+            <div class="empty-state"><div class="empty-icon">🎯</div><h3>Fishkalar yo'q</h3><p>Hujjat yuklang va AI tahlil qilsin</p></div>
+          </div>
+        </div>
+      </div>
+
+      

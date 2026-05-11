@@ -1,0 +1,16 @@
+<div class="panel active" id="panel-docs">
+        <div class="page-hdr"><h2>📋 Hujjatlar</h2><p>Serverda saqlangan barcha hujjatlaringiz</p></div>
+        <div class="actions-row">
+          <button class="btn btn-primary" onclick="showPanel('upload')">📥 Fayl yuklash</button>
+          <button class="btn btn-success" onclick="showPanel('manual')">✏️ Qo'shish</button>
+          <button class="btn btn-outline" onclick="loadUserDocs()">🔄 Yangilash</button>
+          <button class="btn btn-outline" onclick="exportExcel('all')">📤 Excel</button>
+          <button class="btn btn-danger btn-sm" onclick="clearAllDocs()">🗑️ Hammasini o'chirish</button>
+        </div>
+        <div class="table-wrap" id="table-wrap">
+          <div class="empty-state"><div class="empty-icon">📭</div><h3>Hujjat yo'q</h3><p>Excel yuklang yoki qo'lda kiriting</p></div>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+
+      

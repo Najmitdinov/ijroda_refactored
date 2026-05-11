@@ -1,0 +1,26 @@
+<div class="panel" id="panel-sektorlar">
+        <div class="page-hdr"><h2>🏢 Sektorlar / Bo'limlar</h2><p>AI hujjatni qaysi bo'limga tegishli ekanini shu ro'yxat asosida aniqlaydi</p></div>
+
+        <div class="card">
+          <div class="card-title">➕ Yangi sektor qo'shish</div>
+          <input type="hidden" id="s-edit-id">
+          <div class="form-grid">
+            <div class="field"><label>Sektor nomi *</label><input id="s-nom" placeholder="masalan: Qurilish sektori"></div>
+            <div class="field"><label>Tavsif</label><input id="s-tavsif" placeholder="Qisqacha ta'rif"></div>
+            <div class="field" style="grid-column:1/-1;">
+              <label>Kalit so'zlar (AI uchun) *</label>
+              <input id="s-kalit" placeholder="qurilish, ta'mirlash, loyiha, tender, arxitektura — vergul bilan ajrating">
+            </div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:12px;" onclick="saveSektor()">✅ Saqlash</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title">🏢 Sektorlar ro'yxati</div>
+          <div id="sektorlar-list" style="display:flex;flex-direction:column;gap:8px;">
+            <div style="color:var(--muted);font-size:13px;padding:12px;">Yuklanmoqda...</div>
+          </div>
+        </div>
+      </div>
+
+      

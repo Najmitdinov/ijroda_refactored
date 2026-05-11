@@ -1,0 +1,14 @@
+<div class="panel" id="panel-upload">
+        <div class="page-hdr"><h2>📥 Excel yuklash</h2><p>Edu.ijrodadan yuklab olingan faylni yuklang — ma'lumotlar serverda saqlanadi</p></div>
+        <div class="card">
+          <div class="upload-zone" id="uz" onclick="document.getElementById('fi').click()">
+            <div class="upload-icon">📊</div>
+            <div class="upload-title">Excel faylni bosing yoki tashlang</div>
+            <div class="upload-sub">.xlsx · .xls · .csv</div>
+          </div>
+          <input type="file" id="fi" accept=".xlsx,.xls,.csv" onchange="handleFile(this)" style="display:none">
+        </div>
+        <div class="alert alert-info">💡 <span>Ma'lumotlar Firebase serverida saqlanadi. Brauzer yopilsa ham yo'qolmaydi.</span></div>
+      </div>
+
+      
