@@ -601,6 +601,34 @@ function showAuthErr(id, msg) {
   if (el) el.textContent = msg;
 }
 
+function visibleAuthErrorId() {
+  const registerPanel = document.getElementById('panel-register');
+  return registerPanel && registerPanel.style.display !== 'none' ? 'reg-err' : 'login-err';
+}
+
+function showVisibleAuthErr(msg) {
+  showAuthErr('login-err', msg);
+  showAuthErr('reg-err', msg);
+  showToast(msg, 'error');
+}
+
+function friendlyGoogleAuthError(e) {
+  const host = location.hostname || '';
+  const domainHint = host
+    ? ` Firebase Console > Authentication > Settings > Authorized domains bo'limiga "${host}" domainini qo'shing.`
+    : '';
+  const msgs = {
+    'auth/unauthorized-domain': 'Bu sayt domeni Firebase Google login uchun ruxsat etilmagan.' + domainHint,
+    'auth/operation-not-allowed': 'Firebase Authentication ichida Google provider yoqilmagan. Sign-in method bo\'limidan Google ni Enable qiling.',
+    'auth/popup-blocked': 'Popup bloklangan. Redirect orqali qayta uriniladi.',
+    'auth/popup-closed-by-user': 'Google oynasi yopildi. Qaytadan urinib ko\'ring.',
+    'auth/cancelled-popup-request': 'Google login bekor qilindi.',
+    'auth/account-exists-with-different-credential': 'Bu email boshqa usulda ro\'yxatdan o\'tgan. Email/parol bilan kirib ko\'ring.',
+    'auth/network-request-failed': 'Internet ulanishi xatoligi.'
+  };
+  return msgs[e?.code] || (e?.message ? 'Google login xatoligi: ' + e.message : 'Google login xatoligi.');
+}
+
 // ===== EMAIL/PASSWORD LOGIN =====
 window.doLogin = async () => {
   const email = document.getElementById('login-email').value.trim();
@@ -730,45 +758,39 @@ window.doEmailRegister = async () => {
 window.doGoogleLogin = async () => {
   try {
     await authPersistenceReady;
+    showAuthErr('login-err', '');
+    showAuthErr('reg-err', '');
     showLoading('Google orqali kirish...');
     const provider = new GoogleAuthProvider();
     provider.addScope('email');
     provider.addScope('profile');
-    // Force account chooser — prevent auto-login with cached credential
     provider.setCustomParameters({ prompt: 'select_account' });
+
+    if (location.protocol === 'https:' && location.hostname.endsWith('github.io')) {
+      await signInWithRedirect(auth, provider);
+      return;
+    }
+
     try {
       await signInWithPopup(auth, provider);
-      // onAuthStateChanged handles the rest
     } catch(popupErr) {
-      if (
-        popupErr.code === 'auth/popup-blocked' ||
-        popupErr.code === 'auth/popup-closed-by-user'
-      ) {
-        // Popup blocked — fall back to redirect
-        if (popupErr.code === 'auth/popup-blocked') {
-          showLoading('Popup bloklangan — redirect orqali urinilmoqda...');
-          await signInWithRedirect(auth, provider);
-          return;
-        }
-        hideLoading();
-        showAuthErr('login-err', 'Oyna yopildi. Qaytadan urinib ko\'ring.');
-      } else {
-        throw popupErr;
+      if (popupErr.code === 'auth/popup-blocked') {
+        showLoading('Popup bloklangan, redirect orqali urinilmoqda...');
+        await signInWithRedirect(auth, provider);
+        return;
       }
+      if (popupErr.code === 'auth/popup-closed-by-user') {
+        hideLoading();
+        showAuthErr(visibleAuthErrorId(), 'Google oynasi yopildi. Qaytadan urinib ko\'ring.');
+        return;
+      }
+      throw popupErr;
     }
   } catch(e) {
     hideLoading();
-    const msgs = {
-      'auth/popup-blocked': 'Popup bloklangan. Brauzer sozlamalarini tekshiring.',
-      'auth/popup-closed-by-user': 'Oyna yopildi. Qaytadan urinib ko\'ring.',
-      'auth/cancelled-popup-request': 'Popup bekor qilindi.',
-      'auth/account-exists-with-different-credential': 'Bu email boshqa usulda ro\'yxatdan o\'tgan.',
-      'auth/network-request-failed': 'Internet ulanishi xatoligi.'
-    };
-    showAuthErr('login-err', msgs[e.code] || e.message);
+    showVisibleAuthErr(friendlyGoogleAuthError(e));
   }
 };
-
 // ===== PHONE AUTH =====
 async function ensureRecaptcha() {
   try {
