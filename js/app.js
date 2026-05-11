@@ -1068,18 +1068,18 @@ const COL_LABELS = {
 };
 
 const COL_KEYWORDS = {
-  docName:['hujjat nomi','nom','title','наименование'],
-  docNum:['hujjat raqami','raqami','number','номер'],
-  docDate:['hujjat sanasi','sana','date','дата'],
-  orgOutNum:['tashkilot chiqish','chiqish raqami','исходящий'],
-  fromOrg:['kimdan','kimdan keldi','manba','from','источник','tashkilot nomi','tashkilot','отправитель','организация','юборувчи','кемдан'],
-  resolution:['rezalyutsiya','kimga','resolution','кому','адресат'],
-  taskText:['topshiriq','vazifa','matn','task','задание','содержание'],
-  executor:['ijrochi','bajaruvchi','executor','исполнитель'],
-  status:['holat','status','состояние','ijro holati','ijro statusi','ijro natijasi','natija','состояние исполнения','статус','исполнение','результат'],
-  deadline:['muddat','deadline','срок','tugash'],
-  ourOutNum:['bizdan','наш исходящий','наш номер'],
-  docType:['tur','type','вид','тип']
+  docName:['hujjat nomi','ҳужжат номи','хужжат номи','документ номи','номи','mavzu','қисқача мазмун','qisqacha mazmun','title','subject','name'],
+  docNum:['kirish raqami','кириш рақами','кириш раками','hujjat raqami','ҳужжат рақами','хужжат раками','raqami','raqam','registratsiya raqami','ro\'yxat raqami','royxat raqami','number','num','№','номер'],
+  docDate:['kiruvchi sana','кирувчи сана','hujjat sanasi','ҳужжат санаси','sana','келган сана','qabul qilingan sana','ro\'yxat sanasi','royxat sanasi','date','дата'],
+  orgOutNum:['chiqish raqami','чиқиш рақами','чикиш раками','chiquvchi raqam','чиқувчи рақам','tashkilot chiqish','tashkilot raqami','yuboruvchi raqami','sender number','outgoing','исходящий номер'],
+  fromOrg:['yuboruvchi','юборувчи','jo\'natuvchi','jonatuvchi','кимдан','kimdan','kimdan keldi','yuborgan','kelgan tashkilot','tashkilot nomi','tashkilot','manba','манба','idora','muassasa','from','sender','source','organization','организация','ташкилот'],
+  resolution:['rezolyutsiya','rezalyutsiya','резолюция','kimga','kimga berildi','rahbar rezolyutsiyasi','резолюцияни имзолаган раҳбар','юқори турувчи орган топшириғи','resolution','addressed'],
+  taskText:['topshiriq mazmuni','топшириқ мазмуни','topshiriq matni','ҳужжатнинг қисқача мазмуни','хужжатнинг кискача мазмуни','topshiriq','топшириқ','vazifa','ijro mazmuni','matn','mazmun','qisqacha mazmun','task','assignment','content'],
+  executor:['asosiy ijrochi','асосий ижрочи','ijrochi','ижрочи','ijrochilar','ижрочилар','masul','mas\'ul','masul xodim','bajaruvchi','xodim','executor','исполнитель'],
+  status:['topshiriq holati','топшириқ ҳолати','holat','status','ijro holati','ijro statusi','ijro natijasi','natija','bajarilishi','состояние','статус'],
+  deadline:['bajarish muddati','бажариш муддати','muddat','ijro muddati','oxirgi muddat','deadline','due date','срок','срок исполнения','tugash'],
+  ourOutNum:['bizdan','bizdan chiqish','ichki raqam','биздан чиқиш','ички рақам'],
+  docType:['hujjat turi','ҳужжат тури','хужжат тури','topshiriq turi','топшириқ тури','tur','xat turi','type','тип','вид']
 };
 
 // ===== FIRESTORE DOCS =====
@@ -1124,8 +1124,51 @@ function orgKey(name) {
   return normalizeOrgName(name).toLowerCase();
 }
 
+function makeTashkilotLocalId(name) {
+  const key = orgKey(name).replace(/[^a-z0-9а-яёёўқғҳъь]+/gi, '_').replace(/^_+|_+$/g, '');
+  return 'org_' + (key || ('item_' + Date.now().toString(36)));
+}
+
+function getTashkilotRowId(t={}) {
+  return t.row_id || t.local_id || (t.id ? `fs_${t.id}` : makeTashkilotLocalId(t.nom || ''));
+}
+
 function localTashkilotKey() {
   return `ijroda_tashkilotlar_${currentUser?.uid || 'guest'}`;
+}
+
+function ignoredTashkilotKey() {
+  return `ijroda_tashkilotlar_ignored_${currentUser?.uid || 'guest'}`;
+}
+
+function readIgnoredTashkilotKeys() {
+  try {
+    const raw = localStorage.getItem(ignoredTashkilotKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch(e) { return new Set(); }
+}
+
+function writeIgnoredTashkilotKeys(keys) {
+  try {
+    localStorage.setItem(ignoredTashkilotKey(), JSON.stringify([...keys]));
+  } catch(e) { console.warn('Ignored tashkilotlar saqlanmadi:', e); }
+}
+
+function ignoreTashkilotName(name) {
+  const key = orgKey(name);
+  if(!key) return;
+  const ignored = readIgnoredTashkilotKeys();
+  ignored.add(key);
+  writeIgnoredTashkilotKeys(ignored);
+}
+
+function unignoreTashkilotName(name) {
+  const key = orgKey(name);
+  if(!key) return;
+  const ignored = readIgnoredTashkilotKeys();
+  ignored.delete(key);
+  writeIgnoredTashkilotKeys(ignored);
 }
 
 function readLocalTashkilotlar() {
@@ -1144,16 +1187,20 @@ function writeLocalTashkilotlar(list=[]) {
 
 function upsertLocalTashkilotlar(items=[]) {
   const merged = new Map(readLocalTashkilotlar().map(t => [orgKey(t.nom), t]));
+  const ignored = readIgnoredTashkilotKeys();
   (items||[]).forEach(item => {
     const nom = normalizeOrgName(item.nom);
     if(!isValidOrgName(nom)) return;
     const key = orgKey(nom);
+    if(ignored.has(key)) return;
     const old = merged.get(key) || {};
     const incomingCount = Number(item.hujjatlar_soni ?? item.count ?? 1);
     merged.set(key, {
       ...old,
       ...item,
       id: old.id || item.id || '',
+      local_id: old.local_id || item.local_id || makeTashkilotLocalId(nom),
+      row_id: old.row_id || item.row_id || (old.id || item.id ? `fs_${old.id || item.id}` : (old.local_id || item.local_id || makeTashkilotLocalId(nom))),
       nom,
       hujjatlar_soni: Math.max(Number(old.hujjatlar_soni||0), incomingCount),
       oxirgi_xat: item.oxirgi_xat || item.lastDate || old.oxirgi_xat || new Date().toLocaleDateString('uz-UZ'),
@@ -1192,12 +1239,16 @@ function getOrgText(row={}) {
 
 function buildTashkilotStatsFromDocs(rows=allDocs) {
   const map = new Map();
+  const ignored = readIgnoredTashkilotKeys();
   (rows||[]).forEach(row => {
     const nom = normalizeOrgName(getOrgText(row));
     if(!isValidOrgName(nom)) return;
     const key = orgKey(nom);
+    if(ignored.has(key)) return;
     const cur = map.get(key) || {
       id: '',
+      local_id: makeTashkilotLocalId(nom),
+      row_id: makeTashkilotLocalId(nom),
       nom,
       manzil: '',
       hujjatlar_soni: 0,
@@ -1214,14 +1265,17 @@ function buildTashkilotStatsFromDocs(rows=allDocs) {
 
 function mergeTashkilotSources(dbRows=[], docStats=buildTashkilotStatsFromDocs(), localRows=readLocalTashkilotlar()) {
   const merged = new Map();
-  docStats.forEach((v,k)=>merged.set(k, {...v}));
+  const ignored = readIgnoredTashkilotKeys();
+  docStats.forEach((v,k)=>{ if(!ignored.has(k)) merged.set(k, {...v}); });
   [...(localRows||[]), ...(dbRows||[])].forEach(t => {
     const key = orgKey(t.nom);
-    if(!key) return;
+    if(!key || ignored.has(key)) return;
     const fromDocs = merged.get(key);
     merged.set(key, {
       ...fromDocs,
       ...t,
+      local_id: t.local_id || fromDocs?.local_id || makeTashkilotLocalId(t.nom),
+      row_id: t.id ? `fs_${t.id}` : (t.row_id || t.local_id || fromDocs?.row_id || fromDocs?.local_id || makeTashkilotLocalId(t.nom)),
       hujjatlar_soni: Math.max(Number(t.hujjatlar_soni||0), Number(fromDocs?.hujjatlar_soni||0)),
       oxirgi_xat: t.oxirgi_xat || fromDocs?.oxirgi_xat || '',
       from_docs: !!fromDocs,
@@ -1499,16 +1553,15 @@ window.handleFile = (input) => {
       const json = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
       if(json.length < 2){ hideLoading(); showToast('Fayl bo\'sh yoki noto\'g\'ri format','error'); return; }
 
-      // Find header row (first row with >= 3 non-empty cells)
-      let headerRowIdx = 0;
-      for(let i=0;i<Math.min(5,json.length);i++){
-        if(json[i].filter(c=>String(c||'').trim()).length >= 3){ headerRowIdx=i; break; }
-      }
-      const headers = json[headerRowIdx].map(h=>String(h||'').trim());
+      // Find the real header row. Some Excel files have title/filter rows above the table.
+      const headerRowIdx = detectExcelHeaderRow(json);
+      const headers = makeUniqueHeaders(json[headerRowIdx].map(h=>String(h||'').trim()));
       const dataRows = json.slice(headerRowIdx+1).filter(r=>r.some(c=>c!==''&&c!==undefined));
 
-      // Auto detect columns
-      autoDetectCols(headers);
+      // Auto detect columns by header aliases + sample values, then let Gemini refine it.
+      autoDetectCols(headers, dataRows);
+      await refineExcelMappingWithGemini(headers, dataRows, file.name);
+      normalizeExcelMapping(headers, dataRows);
 
       // Build preview info
       const detected = Object.entries(COL_LABELS)
@@ -1540,6 +1593,7 @@ function showAutoPreview(fname, rowCount, detected, headers) {
       <div style="background:var(--blue-light);border-radius:8px;padding:14px;margin-bottom:14px;font-size:12px;line-height:1.8;">
         <b>📄 Fayl:</b> ${escH(fname)}<br>
         <b>📊 Qatorlar:</b> ${rowCount} ta hujjat aniqlandi<br>
+        <b>AI saralash:</b> ${escH(window._excelMappingSource || 'Local heuristic')} ${window._excelMappingNotes ? `<small style="color:var(--muted);">- ${escH(window._excelMappingNotes)}</small>` : ''}<br>
         <b>🔗 Moslashtirilgan ustunlar:</b> ${detected||'<i style="color:var(--muted)">Aniqlanmadi — barcha ustunlar saqlanadi</i>'}
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">
@@ -1602,12 +1656,308 @@ window.autoSaveExcel = async () => {
   showPanel('docs');
 };
 
-function autoDetectCols(headers) {
-  const lh = headers.map(h=>h.toLowerCase());
-  Object.keys(COL_KEYWORDS).forEach(key => {
-    const idx = lh.findIndex(h=>COL_KEYWORDS[key].some(kw=>h.includes(kw)));
-    colMap[key] = idx>=0 ? headers[idx] : '';
+function normHeaderText(value) {
+  return normalizeText(value)
+    .replace(/[№#]/g, ' raqam ')
+    .replace(/[_\-./\\]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function makeUniqueHeaders(headers=[]) {
+  const seen = new Map();
+  return headers.map((h, idx) => {
+    const base = String(h||'').trim() || `Ustun ${idx + 1}`;
+    const key = base.toLowerCase();
+    const count = (seen.get(key) || 0) + 1;
+    seen.set(key, count);
+    return count === 1 ? base : `${base} (${count})`;
   });
+}
+
+const EXACT_EXCEL_HEADER_MAP = {
+  docName: ['Ҳужжат номи', 'Хужжат номи', 'Hujjat nomi'],
+  docNum: ['Кириш рақами', 'Кириш раками', 'Kirish raqami', 'Ҳужжат рақами', 'Hujjat raqami'],
+  docDate: ['Кирувчи сана', 'Kiruvchi sana', 'Келган сана', 'Ҳужжат санаси', 'Hujjat sanasi'],
+  orgOutNum: ['Чиқиш рақами', 'Чикиш раками', 'Chiqish raqami', 'Чиқувчи рақам', 'Chiquvchi raqam'],
+  fromOrg: ['Юборувчи', 'Yuboruvchi', 'Жўнатувчи', 'Jo\'natuvchi', 'Jonatuvchi', 'Кимдан', 'Manba'],
+  docType: ['Ҳужжат тури', 'Хужжат тури', 'Hujjat turi', 'Топшириқ тури', 'Topshiriq turi'],
+  taskText: ['Топшириқ мазмуни', 'Topshiriq mazmuni', 'Ҳужжатнинг қисқача мазмуни', 'Hujjatning qisqacha mazmuni', 'Қисқача мазмун'],
+  executor: ['Асосий ижрочи', 'Asosiy ijrochi', 'Ижрочи', 'Ijrochi', 'Ижрочилар', 'Ijrochilar', 'Охирги ижрочи'],
+  status: ['Топшириқ ҳолати', 'Topshiriq holati', 'Ijro holati', 'Holat', 'Status'],
+  deadline: ['Бажариш муддати', 'Bajarish muddati', 'Ijro muddati', 'Muddat'],
+  resolution: ['Юқори турувчи орган топшириғи', 'Yuqori turuvchi organ topshirig\'i', 'Резолюцияни имзолаган раҳбар', 'Rezolyutsiyani imzolagan rahbar'],
+  ourOutNum: ['Биздан чиқиш рақами', 'Bizdan chiqish raqami', 'Ички рақам']
+};
+
+const EXCEL_FIELD_PRIORITY = [
+  'docName', 'docNum', 'docDate', 'orgOutNum', 'fromOrg', 'docType',
+  'taskText', 'executor', 'status', 'deadline', 'resolution', 'ourOutNum'
+];
+
+function findExactHeader(headers=[], aliases=[]) {
+  const normalized = headers.map(h => ({ raw: h, norm: normHeaderText(h) }));
+  for(const alias of aliases) {
+    const target = normHeaderText(alias);
+    const exact = normalized.find(item => item.norm === target);
+    if(exact) return exact.raw;
+  }
+  for(const alias of aliases) {
+    const target = normHeaderText(alias);
+    const loose = normalized.find(item => item.norm && target && (item.norm.includes(target) || target.includes(item.norm)));
+    if(loose) return loose.raw;
+  }
+  return '';
+}
+
+function applyExactExcelMapping(headers=[]) {
+  Object.entries(EXACT_EXCEL_HEADER_MAP).forEach(([field, aliases]) => {
+    const found = findExactHeader(headers, aliases);
+    if(found) colMap[field] = found;
+  });
+}
+
+function normalizeExcelMapping(headers=[], rows=[]) {
+  const allowed = new Set(headers);
+  applyExactExcelMapping(headers);
+
+  const selected = {};
+  const used = new Set();
+  EXCEL_FIELD_PRIORITY.forEach(field => {
+    const header = colMap[field];
+    if(header && allowed.has(header) && !used.has(header)) {
+      selected[field] = header;
+      used.add(header);
+    } else {
+      selected[field] = '';
+    }
+  });
+
+  EXCEL_FIELD_PRIORITY.forEach(field => {
+    if(selected[field]) return;
+    const candidates = headers
+      .map((header, idx) => ({
+        header,
+        idx,
+        score: inferFieldScore(header, (rows||[]).map(r => r?.[idx]), field)
+      }))
+      .filter(c => c.score >= 45 && !used.has(c.header))
+      .sort((a,b) => b.score - a.score);
+    if(candidates[0]) {
+      selected[field] = candidates[0].header;
+      used.add(candidates[0].header);
+    }
+  });
+
+  Object.keys(colMap).forEach(field => { colMap[field] = selected[field] || ''; });
+  return colMap;
+}
+
+function isLikelyDateValue(value) {
+  if(value instanceof Date) return true;
+  const s = String(value||'').trim();
+  if(!s) return false;
+  return /^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/.test(s) || /^\d{4}[./-]\d{1,2}[./-]\d{1,2}$/.test(s);
+}
+
+function isLikelyOrgValue(value) {
+  const s = normHeaderText(value);
+  if(!s || s.length < 5) return false;
+  return /(vazirlik|vazirligi|hokimlik|hokimligi|boshqarma|boshqarmasi|qo'mita|qomita|qo‘mita|agentlik|departament|idora|muassasa|markaz|mchj|aj |aksiyadorlik|universitet|institut|organization|министер|хоким|управлен|организац|комитет|агентств|учрежден)/i.test(s);
+}
+
+function isLikelyStatusValue(value) {
+  return normalizeDocStatus(String(value||'')).key !== 'unknown';
+}
+
+function inferFieldScore(header, values, key) {
+  const h = normHeaderText(header);
+  let score = 0;
+  const aliases = COL_KEYWORDS[key] || [];
+  aliases.forEach(alias => {
+    const a = normHeaderText(alias);
+    if(!a) return;
+    if(h === a) score += 80;
+    else if(h.includes(a) || a.includes(h)) score += 35;
+  });
+  const sample = (values||[]).filter(v => String(v||'').trim()).slice(0, 30);
+  if(!sample.length) return score;
+  const dateRatio = sample.filter(isLikelyDateValue).length / sample.length;
+  const orgRatio = sample.filter(isLikelyOrgValue).length / sample.length;
+  const statusRatio = sample.filter(isLikelyStatusValue).length / sample.length;
+  const avgLen = sample.reduce((a,v)=>a+String(v||'').trim().length,0) / sample.length;
+
+  if(key === 'fromOrg') score += orgRatio * 55;
+  if(key === 'docDate' || key === 'deadline') score += dateRatio * 45;
+  if(key === 'status') score += statusRatio * 55;
+  if(key === 'taskText' && avgLen > 45) score += 24;
+  if(key === 'docName' && avgLen > 18 && avgLen <= 90) score += 14;
+  if(key === 'docNum' && sample.filter(v=>/^\s*[A-Za-zА-Яа-я0-9№#\/.-]{1,25}\s*$/.test(String(v))).length/sample.length > .6) score += 18;
+  if(key === 'executor' && sample.filter(v=>String(v).trim().split(/\s+/).length <= 4 && /[A-Za-zА-Яа-я]/.test(String(v))).length/sample.length > .55) score += 12;
+  return score;
+}
+
+function detectExcelHeaderRow(rows=[]) {
+  let bestIdx = 0, bestScore = -1;
+  const maxRows = Math.min(rows.length, 25);
+  for(let i=0;i<maxRows;i++) {
+    const row = rows[i] || [];
+    const nonEmpty = row.filter(c=>String(c||'').trim()).length;
+    if(nonEmpty < 2) continue;
+    const aliasHits = row.reduce((sum, cell) => {
+      const h = normHeaderText(cell);
+      if(!h) return sum;
+      const hit = Object.values(COL_KEYWORDS).flat().some(kw => {
+        const a = normHeaderText(kw);
+        return a && (h.includes(a) || a.includes(h));
+      });
+      return sum + (hit ? 1 : 0);
+    }, 0);
+    const nextRows = rows.slice(i+1, i+8);
+    const valueSignals = row.reduce((sum, _cell, colIdx) => {
+      const vals = nextRows.map(r=>r?.[colIdx]).filter(v=>String(v||'').trim());
+      return sum + (vals.some(isLikelyDateValue) || vals.some(isLikelyOrgValue) || vals.some(isLikelyStatusValue) ? 1 : 0);
+    }, 0);
+    const score = nonEmpty + aliasHits * 8 + valueSignals * 2 - (row.filter(isLikelyDateValue).length * 3);
+    if(score > bestScore) { bestScore = score; bestIdx = i; }
+  }
+  return bestIdx;
+}
+
+function autoDetectCols(headers, rows=[]) {
+  Object.keys(colMap).forEach(k => colMap[k] = '');
+  const candidates = [];
+  headers.forEach((header, idx) => {
+    const values = (rows||[]).map(r=>r?.[idx]);
+    Object.keys(COL_KEYWORDS).forEach(key => {
+      const score = inferFieldScore(header, values, key);
+      if(score >= 18) candidates.push({ key, idx, header, score });
+    });
+  });
+  candidates.sort((a,b)=>b.score-a.score);
+  const usedFields = new Set();
+  const usedCols = new Set();
+  candidates.forEach(c => {
+    if(usedFields.has(c.key) || usedCols.has(c.idx)) return;
+    colMap[c.key] = headers[c.idx];
+    usedFields.add(c.key);
+    usedCols.add(c.idx);
+  });
+  normalizeExcelMapping(headers, rows);
+}
+
+async function refineExcelMappingWithGemini(headers=[], rows=[], fileName='') {
+  let key = localStorage.getItem('GEMINI_API_KEY') || '';
+  if(!key) {
+    const shouldAsk = confirm('Excel ustunlarini Gemini AI yordamida chuqur saralash uchun API kalit kerak. Kalit kiritasizmi?\n\nKalit bo\'lmasa oddiy avtomatik analiz ishlaydi.');
+    if(shouldAsk) {
+      const entered = prompt('Google Gemini API kalitini kiriting (AIza...):\nhttps://aistudio.google.com/app/apikey');
+      if(entered && entered.trim().startsWith('AIza')) {
+        key = entered.trim();
+        localStorage.setItem('GEMINI_API_KEY', key);
+      }
+    }
+  }
+  if(!key) {
+    window._excelMappingSource = 'Local heuristic';
+    return false;
+  }
+
+  const sampleRows = (rows||[]).slice(0, 18).map(row => {
+    const obj = {};
+    headers.forEach((h,i)=>{ obj[h] = row?.[i] instanceof Date ? fmtDate(row[i]) : String(row?.[i] ?? '').slice(0, 180); });
+    return obj;
+  });
+  const fields = Object.keys(COL_LABELS).map(k => `${k}: ${COL_LABELS[k]}`).join('\n');
+  const promptText = `Sen Excel import mapping ekspertsan. O'zbek/rus/ingliz aralash ustun nomlari va namunaviy qiymatlarga qarab qaysi Excel ustuni qaysi tizim maydoniga tegishli ekanini aniqlaysan.
+
+Qoidalar:
+- FAQAT quyidagi tizim maydonlarini ishlat: ${Object.keys(COL_LABELS).join(', ')}
+- Qiymatlar faqat berilgan headers ichidagi ustun nomi bo'lsin yoki bo'sh string.
+- "jo'natuvchi", "jonatuvchi", "jo‘natuvchi", "yuboruvchi", "kimdan", "tashkilot", "sender", "from" odatda fromOrg.
+- Har bir Excel ustuni eng mos bitta maydonga tushsin.
+- Noma'lum ustunlarni majburlab noto'g'ri joyga qo'yma; ular _raw ichida saqlanadi.
+- Header nomi noaniq bo'lsa sampleRows qiymatlariga qarab xulosa qil.
+- Jadvaldagi bosh/title qatorlar alohida maydon emas, ularni mappingga qo'shma.
+
+Tizim maydonlari:
+${fields}
+
+Fayl: ${fileName}
+Headers:
+${JSON.stringify(headers, null, 2)}
+
+Sample rows:
+${JSON.stringify(sampleRows, null, 2)}
+
+Javob FAQAT valid JSON:
+{
+  "mapping": {
+    "docName": "",
+    "docNum": "",
+    "docDate": "",
+    "orgOutNum": "",
+    "fromOrg": "",
+    "resolution": "",
+    "taskText": "",
+    "executor": "",
+    "status": "",
+    "deadline": "",
+    "ourOutNum": "",
+    "docType": ""
+  },
+  "confidence": 0,
+  "notes": "qisqa izoh"
+}`;
+
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  let lastError = '';
+  for(const model of models) {
+    try {
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          generationConfig: {
+            temperature: 0.05,
+            maxOutputTokens: 1800,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+      if(!resp.ok) {
+        const errData = await resp.json().catch(()=>({}));
+        lastError = errData?.error?.message || `HTTP ${resp.status}`;
+        if(resp.status === 404) continue;
+        if(resp.status === 400 || resp.status === 403) localStorage.removeItem('GEMINI_API_KEY');
+        throw new Error(lastError);
+      }
+      const data = await resp.json();
+      const text = (data?.candidates?.[0]?.content?.parts || []).map(p=>p.text||'').join('\n').trim();
+      const parsed = parseAIJson(text);
+      const aiMap = parsed?.mapping || {};
+      const allowedHeaders = new Set(headers);
+      let applied = 0;
+      Object.keys(COL_LABELS).forEach(field => {
+        const h = String(aiMap[field] || '').trim();
+        if(h && allowedHeaders.has(h)) {
+          colMap[field] = h;
+          applied++;
+        }
+      });
+      window._excelMappingSource = `Gemini AI (${parsed?.confidence || '?'}%)`;
+      window._excelMappingNotes = parsed?.notes || '';
+      if(applied) showToast(`Gemini AI ${applied} ta ustunni saraladi`, 'success');
+      return applied > 0;
+    } catch(e) {
+      lastError = e.message;
+      console.warn('Gemini Excel mapping failed:', e);
+    }
+  }
+  window._excelMappingSource = 'Local heuristic';
+  if(lastError) showToast('Gemini mapping ishlamadi, oddiy analiz ishlatildi: ' + lastError, 'info');
+  return false;
 }
 
 function buildMappingUI(headers) {
@@ -1897,8 +2247,9 @@ window.exportExcel = (mode='filtered') => {
 
 // ===== HELPERS =====
 function getC(row,key){
-  const col=colMap[key]; if(!col) return '';
-  const v=row[col]; if(!v&&v!==0) return '';
+  const col=colMap[key];
+  const v = col ? row[col] : '';
+  if(!v&&v!==0) return '';
   if(v instanceof Date) return fmtDate(v);
   return String(v).trim();
 }
@@ -1913,10 +2264,15 @@ function fmtDate(d){
   return String(d);
 }
 
+
 function normalizeText(s) {
   return String(s||'')
     .toLowerCase()
-    .replace(/[ʼ‘’`´]/g, "'")
+    .replace(/[ʻ‘’`´]/g, "'")
+    .replace(/[ўӯ]/g, 'у')
+    .replace(/ғ/g, 'г')
+    .replace(/қ/g, 'к')
+    .replace(/ҳ/g, 'х')
     .replace(/ё/g, 'е')
     .replace(/\s+/g, ' ')
     .trim();
@@ -4196,7 +4552,7 @@ function renderTashkilotlar() {
       <td style="font-weight:700;color:var(--blue-mid);">${t.hujjatlar_soni||0}</td>
       <td>${escH(t.oxirgi_xat||'—')}</td>
       <td style="font-size:11px;color:var(--muted);">${t.createdAt?.toDate ? t.createdAt.toDate().toLocaleDateString('uz-UZ') : '—'}</td>
-      <td>${t.id?`<button class="btn btn-sm btn-danger" onclick="deleteTashkilot('${t.id}')">✕</button>`:'<span style="font-size:11px;color:var(--muted);">Hujjatdan</span>'}</td>
+      <td><button class="btn btn-sm btn-danger" title="O'chirish" onclick="deleteTashkilotByRowId('${encodeURIComponent(getTashkilotRowId(t))}')">X</button></td>
     </tr>`).join('');
 }
 window.renderTashkilotlar = renderTashkilotlar;
@@ -4231,10 +4587,12 @@ window.addTashkilotManual = async () => {
   const nom = document.getElementById('tash-nom')?.value.trim();
   const manzil = document.getElementById('tash-manzil')?.value.trim();
   if(!nom) { showToast('Tashkilot nomi kiritilmagan','error'); return; }
+  unignoreTashkilotName(nom);
   const exists = tashkilotlarCache.find(t=>orgKey(t.nom)===orgKey(nom));
   if(exists) { showToast('Bu tashkilot allaqachon mavjud','error'); return; }
   const localItem = {
     id:'',
+    local_id: 'loc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
     nom: normalizeOrgName(nom),
     manzil: manzil||'',
     hujjatlar_soni: 0,
@@ -4242,6 +4600,7 @@ window.addTashkilotManual = async () => {
     auto_added: false,
     from_docs: false
   };
+  localItem.row_id = localItem.local_id;
   upsertLocalTashkilotlar([localItem]);
   tashkilotlarCache = mergeTashkilotSources([...tashkilotlarCache, localItem], buildTashkilotStatsFromDocs(allDocs));
   renderTashkilotlar();
@@ -4257,15 +4616,61 @@ window.addTashkilotManual = async () => {
   }
 };
 
-window.deleteTashkilot = async (id) => {
+window.deleteTashkilotByKey = async (encodedKey, id='') => {
+  const key = decodeURIComponent(encodedKey || '');
+  const item = tashkilotlarCache.find(t => orgKey(t.nom) === key || t.id === id);
+  if(!item) { showToast('Tashkilot topilmadi', 'error'); return; }
   if(!confirm('Bu tashkilotni o\'chirmoqchimisiz?')) return;
+  ignoreTashkilotName(item.nom);
+  tashkilotlarCache = tashkilotlarCache.filter(t => orgKey(t.nom) !== key && t.id !== id);
+  writeLocalTashkilotlar(readLocalTashkilotlar().filter(t => orgKey(t.nom) !== key && t.id !== id));
+  renderTashkilotlar();
+  updateTashkilotlarBadge();
+  populateAhbTashkilot();
+
+  if(!id) {
+    showToast('Tashkilot ro\'yxatdan o\'chirildi', 'info');
+    return;
+  }
+
   try {
     await deleteDoc(doc(db,'tashkilotlar',id));
-    tashkilotlarCache=tashkilotlarCache.filter(t=>t.id!==id);
-    writeLocalTashkilotlar(readLocalTashkilotlar().filter(t=>t.id!==id));
-    renderTashkilotlar();
     showToast('O\'chirildi','info');
-  } catch(e) { showToast('Xatolik: '+e.message,'error'); }
+  } catch(e) {
+    showToast('Serverdan o\'chirilmadi, lekin lokal ro\'yxatdan olib tashlandi: '+e.message,'info');
+  }
+};
+
+window.deleteTashkilotByRowId = async (encodedRowId) => {
+  const rowId = decodeURIComponent(encodedRowId || '');
+  const item = tashkilotlarCache.find(t => getTashkilotRowId(t) === rowId);
+  if(!item) { showToast('Tashkilot topilmadi', 'error'); return; }
+  if(!confirm('Bu tashkilotni o\'chirmoqchimisiz?')) return;
+
+  ignoreTashkilotName(item.nom);
+  tashkilotlarCache = tashkilotlarCache.filter(t => getTashkilotRowId(t) !== rowId);
+  writeLocalTashkilotlar(readLocalTashkilotlar().filter(t => getTashkilotRowId(t) !== rowId));
+  renderTashkilotlar();
+  updateTashkilotlarBadge();
+  populateAhbTashkilot();
+
+  if(!item.id) {
+    showToast('Tashkilot ro\'yxatdan o\'chirildi', 'info');
+    return;
+  }
+
+  try {
+    await deleteDoc(doc(db,'tashkilotlar',item.id));
+    showToast('O\'chirildi','info');
+  } catch(e) {
+    showToast('Serverdan o\'chirilmadi, lekin lokal ro\'yxatdan olib tashlandi: '+e.message,'info');
+  }
+};
+
+window.deleteTashkilot = async (id) => {
+  const item = tashkilotlarCache.find(t=>t.id===id);
+  if(!item) { showToast('Tashkilot topilmadi', 'error'); return; }
+  return window.deleteTashkilotByRowId(encodeURIComponent(getTashkilotRowId(item)));
 };
 
 window.exportTashkilotlarExcel = () => {
