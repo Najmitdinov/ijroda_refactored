@@ -1,6 +1,10 @@
-# Ijroda Refactored
+# Ijro Hisoboti
 
 Bu papka monolit `ijroda_v4_fixed.html` faylidan ajratilgan statik loyiha variantidir.
+
+Joriy versiya GitHub Pages uchun static/Firebase build sifatida ishlaydi. Production-level mini ERP / monitoring system arxitekturasi alohida hujjatda yozildi:
+
+- [Production Architecture](./docs/PRODUCTION_ARCHITECTURE.md)
 
 ## Tuzilma
 
@@ -35,3 +39,18 @@ Keyin brauzerda `http://127.0.0.1:5177` ni oching.
 Muhim: `index.html`ni to'g'ridan-to'g'ri ikki marta bosib `file://` orqali ochmang. Komponentlar `fetch()` orqali yuklanadi, shuning uchun lokal server kerak.
 
 Ajratilgan panel soni: 19.
+
+## Production yo'nalishi
+
+Keyingi katta bosqich uchun tavsiya etilgan stack:
+
+- Next.js 15
+- TypeScript
+- TailwindCSS
+- shadcn/ui
+- Supabase
+- PostgreSQL
+- Supabase Auth
+- Supabase Storage
+
+Maqsad: dashboardni oddiy CRUD emas, balki monitoring, analytics, AI insights, automation va reporting system darajasiga olib chiqish.
