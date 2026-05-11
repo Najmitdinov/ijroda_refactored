@@ -5,7 +5,7 @@ import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   RecaptchaVerifier, signInWithPhoneNumber,
   PhoneAuthProvider, signInWithCredential,
-  browserLocalPersistence, setPersistence
+  browserLocalPersistence, setPersistence, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, setDoc, getDoc, getDocs,
@@ -650,7 +650,7 @@ window.doLogin = async () => {
     hideLoading();
     Security.recordLoginAttempt(email, false); // muvaffaqiyatsiz — sanab bor
     const msgs = {
-      'auth/invalid-credential':    'Email yoki parol noto\'g\'ri',
+      'auth/invalid-credential':    'Email yoki parol noto\'g\'ri. Agar bu email Gmail orqali ochilgan bo\'lsa, Gmail bilan kiring yoki parolni tiklang.',
       'auth/user-not-found':        'Bu email ro\'yxatdan o\'tmagan',
       'auth/wrong-password':        'Parol noto\'g\'ri',
       'auth/invalid-email':         'Email manzil noto\'g\'ri formatda',
@@ -660,6 +660,27 @@ window.doLogin = async () => {
       'auth/quota-exceeded':        '⚠️ Kunlik limit tugadi. Ertaga urinib ko\'ring.',
     };
     err.textContent = msgs[e.code] || ('Xatolik: ' + e.message);
+  }
+};
+
+window.resetLoginPassword = async () => {
+  const email = document.getElementById('login-email')?.value.trim();
+  const err = document.getElementById('login-err');
+  if(!email) {
+    if(err) err.textContent = 'Avval email manzilni kiriting.';
+    return;
+  }
+  try {
+    await sendPasswordResetEmail(auth, email);
+    if(err) err.textContent = 'Parolni tiklash linki emailingizga yuborildi.';
+    showToast('Parolni tiklash linki yuborildi', 'success');
+  } catch(e) {
+    const msgs = {
+      'auth/invalid-email': 'Email manzil noto\'g\'ri.',
+      'auth/user-not-found': 'Bu email ro\'yxatdan o\'tmagan.',
+      'auth/network-request-failed': 'Internet ulanishi xatoligi.'
+    };
+    if(err) err.textContent = msgs[e.code] || ('Xatolik: ' + e.message);
   }
 };
 
