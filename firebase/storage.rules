@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasUserDoc() {
+      return signedIn() && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function role() {
+      return hasUserDoc() ? firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role : 'user';
+    }
+
+    function isAdmin() {
+      return role() in ['superadmin', 'admin'];
+    }
+
+    function isOrgAdmin() {
+      return role() in ['superadmin', 'admin', 'org_admin'];
+    }
+
+    function isAllowedFile() {
+      return request.resource == null
+        || request.resource.size < 25 * 1024 * 1024;
+    }
+
+    match /ai_templates/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (request.auth.uid == uid || isOrgAdmin()) && isAllowedFile();
+    }
+
+    match /ai_knowledge/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (request.auth.uid == uid || isOrgAdmin()) && isAllowedFile();
+    }
+
+    match /legal_base/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (request.auth.uid == uid || isOrgAdmin()) && isAllowedFile();
+    }
+
+    match /documents/{uid}/{fileName} {
+      allow read, write: if signedIn() && (request.auth.uid == uid || isAdmin()) && isAllowedFile();
+    }
+
+    match /exports/{uid}/{fileName} {
+      allow read, write: if signedIn() && (request.auth.uid == uid || isAdmin()) && isAllowedFile();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

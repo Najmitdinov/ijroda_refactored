@@ -372,6 +372,7 @@ const Security = {
       const deviceResult = await this.registerDevice(uid);
       const flags        = await this.analyzeSuspicion(uid, deviceResult);
       await this.startSession(uid);
+      sendTelegramLoginAlert(uid, deviceResult, flags).catch(console.warn);
       setTimeout(() => this.showSuspicionAlerts(flags), 1500);
     } catch(e) { console.warn('Security post-login xatolik:', e); }
   }
@@ -2980,15 +2981,75 @@ window.renderIntegrationsPanel = () => {
   const el = document.getElementById('integrations-content');
   if(!el) return;
   const hasGemini = !!localStorage.getItem('GEMINI_API_KEY');
+  const hasGroq = !!localStorage.getItem('GROQ_API_KEY');
   const hasOpenRouter = !!localStorage.getItem('OPENROUTER_API_KEY');
-  el.innerHTML = `<div class="module-grid">
-    <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
-    <div class="module-card"><h3>Gemini AI</h3><p>Excel saralash va AI tahlil uchun kalit holati.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
-    <div class="module-card"><h3>OpenRouter</h3><p>Qo‘shimcha AI provider sifatida ishlaydi.</p><span class="badge ${hasOpenRouter?'badge-done':'badge-fail'}">${hasOpenRouter?'Kalit bor':'Kalit yo‘q'}</span></div>
-    <div class="module-card"><h3>Telegram bot</h3><p>Keyingi bosqich: deadline va login alertlarni Telegramga yuborish.</p><span class="badge badge-proc">Reja</span></div>
-    <div class="module-card"><h3>PDF / Excel</h3><p>Excel export mavjud. PDF/Word rasmiy shakl keyingi modulga tayyor.</p><span class="badge badge-done">Faol</span></div>
-    <div class="module-card"><h3>Security Rules</h3><p>Namuna firebase/firestore.rules.example ichida.</p><span class="badge badge-proc">Console talab qilinadi</span></div>
-  </div>`;
+  const tg = getTelegramSettings();
+  const tgReady = telegramIsConfigured(tg);
+  const rulesProject = firebaseConfig?.projectId || 'Firebase loyiha';
+  el.innerHTML = `
+    <div class="module-grid">
+      <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
+      <div class="module-card"><h3>Gemini AI</h3><p>Javob xati, Excel saralash va AI tahlil uchun asosiy provider.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
+      <div class="module-card"><h3>Groq / OpenRouter</h3><p>AI fallback zanjiri: Gemini → Groq → OpenRouter.</p><span class="badge ${(hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
+      <div class="module-card"><h3>PDF / Excel</h3><p>Excel import/export, Word yuklash va hujjat tahlili faol.</p><span class="badge badge-done">Faol</span></div>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+      <div class="card-title">Telegram bot</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <span class="badge ${tgReady?'badge-done':'badge-fail'}">${tgReady?'Faol':'Sozlanmagan'}</span>
+        <span style="font-size:12px;color:var(--muted);">Deadline, login va xavfsizlik alertlari Telegramga yuboriladi.</span>
+      </div>
+      <div class="form-grid">
+        <label class="field"><span>Bot token</span><input id="tg-bot-token" type="password" value="${escH(tg.botToken || '')}" placeholder="123456789:AA..."></label>
+        <label class="field"><span>Chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="-1001234567890 yoki user chat_id"></label>
+        <label class="toggle-row"><input type="checkbox" id="tg-enabled" ${tg.enabled?'checked':''}> <span>Telegram botni yoqish</span></label>
+        <label class="toggle-row"><input type="checkbox" id="tg-deadline" ${tg.deadlineAlerts?'checked':''}> <span>Deadline alertlari</span></label>
+        <label class="toggle-row"><input type="checkbox" id="tg-login" ${tg.loginAlerts?'checked':''}> <span>Login alertlari</span></label>
+        <label class="toggle-row"><input type="checkbox" id="tg-security" ${tg.securityAlerts?'checked':''}> <span>Xavfsizlik alertlari</span></label>
+      </div>
+      <div class="actions-row" style="margin-top:14px;">
+        <button class="btn btn-primary" onclick="saveTelegramSettings()">Saqlash</button>
+        <button class="btn btn-success" onclick="testTelegramBot()">Test xabar</button>
+        <button class="btn btn-outline" onclick="sendTelegramDeadlineDigest()">Deadline digest yuborish</button>
+        <button class="btn btn-danger" onclick="clearTelegramSettings()">O‘chirish</button>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);line-height:1.7;">
+        BotFather orqali bot yarating, botni kerakli guruhga qo‘shing, guruh chat_id ni kiriting. Token ushbu brauzer localStorage xotirasida saqlanadi.
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+      <div class="card-title">Security Rules</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+        <span class="badge badge-done">Production rules tayyor</span>
+        <span style="font-size:12px;color:var(--muted);">${escH(rulesProject)} uchun Firestore va Storage rules fayllari dasturga bog‘landi.</span>
+      </div>
+      <div class="module-grid">
+        <div class="module-card">
+          <h3>Firestore Rules</h3>
+          <p><code>firebase/firestore.rules</code> fayli foydalanuvchi roli, tashkilot scope, audit log, AI, huquqiy baza va xavfsizlik kolleksiyalari uchun tayyor.</p>
+          <span class="badge badge-done">Tayyor</span>
+        </div>
+        <div class="module-card">
+          <h3>Storage Rules</h3>
+          <p><code>firebase/storage.rules</code> fayli shablon, huquqiy baza va AI knowledge fayllari uchun autentifikatsiya va role check bilan tayyor.</p>
+          <span class="badge badge-done">Tayyor</span>
+        </div>
+      </div>
+      <div class="actions-row" style="margin-top:14px;">
+        <button class="btn btn-primary" onclick="copySecurityRules('firestore')">Firestore nusxalash</button>
+        <button class="btn btn-outline" onclick="downloadSecurityRules('firestore')">Firestore yuklash</button>
+        <button class="btn btn-primary" onclick="copySecurityRules('storage')">Storage nusxalash</button>
+        <button class="btn btn-outline" onclick="downloadSecurityRules('storage')">Storage yuklash</button>
+        <button class="btn btn-success" onclick="openFirebaseRulesConsole()">Firebase Console</button>
+        <button class="btn btn-outline" onclick="previewSecurityRules('firestore')">Ko‘rish</button>
+      </div>
+      <pre id="security-rules-preview" style="display:none;background:#0d1a2b;color:#bfdbfe;border-radius:10px;padding:16px;font-size:11px;overflow:auto;max-height:360px;line-height:1.6;margin-top:14px;"></pre>
+      <div style="margin-top:12px;font-size:12px;color:var(--muted);line-height:1.7;">
+        Real Firebase himoyasi rules faylini Console ichida Publish qilgandan keyin kuchga kiradi. Dastur rules fayllarini tayyorlab, nusxalash va yuklashni avtomatlashtirdi.
+      </div>
+    </div>`;
   applyLanguage(el);
 };
 
@@ -3026,13 +3087,15 @@ function buildSystemNotifications(rows = allDocs) {
 }
 
 function updateNotificationBadge() {
-  const count = buildSystemNotifications(allDocs).length;
+  const notices = buildSystemNotifications(allDocs);
+  const count = notices.length;
   ['notification-badge','badge-notifications'].forEach(id => {
     const el = document.getElementById(id);
     if(!el) return;
     el.textContent = count;
     el.style.display = count ? '' : 'none';
   });
+  notifyTelegramDeadlines(notices).catch(console.warn);
   const list = document.getElementById('notifications-list');
   if(list) renderNotifications();
 }
@@ -3319,6 +3382,217 @@ async function writeAIRequestLog(data={}) {
     await addDoc(collection(db,'aiLogs'), { uid: currentUser?.uid || '', provider: data.provider || '', ok: !!data.ok, error: data.error || '', chars: data.chars || 0, tokensApprox: Math.ceil((data.chars || 0) / 4), model: data.model || '', createdAt: serverTimestamp(), createdAtLocal: nowIso() });
   } catch(e) { console.warn('ai log skipped', e.message); }
 }
+
+// ===== TELEGRAM BOT + SECURITY RULES INTEGRATION =====
+const TELEGRAM_CONFIG_KEY = 'ijroda_telegram_bot_config_v1';
+const TELEGRAM_SENT_KEY = 'ijroda_telegram_sent_v1';
+
+function simpleHash(input='') {
+  let hash = 0;
+  const text = String(input || '');
+  for(let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function getTelegramSettings() {
+  const defaults = {
+    enabled: false,
+    botToken: '',
+    chatId: '',
+    deadlineAlerts: true,
+    loginAlerts: true,
+    securityAlerts: true
+  };
+  try {
+    return { ...defaults, ...(JSON.parse(localStorage.getItem(TELEGRAM_CONFIG_KEY) || '{}') || {}) };
+  } catch(e) {
+    return defaults;
+  }
+}
+
+function telegramIsConfigured(cfg = getTelegramSettings()) {
+  return !!(cfg.enabled && cfg.botToken && cfg.chatId);
+}
+
+function maskSecret(value='') {
+  const s = String(value || '');
+  if(!s) return '';
+  if(s.length <= 10) return '••••';
+  return `${s.slice(0, 6)}••••${s.slice(-4)}`;
+}
+
+function telegramTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+}
+
+async function sendTelegramMessage(text, options = {}) {
+  const cfg = getTelegramSettings();
+  if(!telegramIsConfigured(cfg)) return { skipped:true, reason:'Telegram sozlanmagan' };
+  const token = cfg.botToken.trim();
+  const payload = {
+    chat_id: cfg.chatId.trim(),
+    text: String(text || '').slice(0, 3900),
+    disable_web_page_preview: true
+  };
+  const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const data = await resp.json().catch(()=>({}));
+  if(!resp.ok || data.ok === false) {
+    throw new Error(data?.description || `Telegram HTTP ${resp.status}`);
+  }
+  if(options.audit !== false) {
+    writeAudit('telegram.message_sent', { kind: options.kind || 'manual', chatId: maskSecret(cfg.chatId) }).catch(()=>{});
+  }
+  return data.result || data;
+}
+
+function buildTelegramHeader(title='Ijro Hisobot') {
+  const user = currentUserData?.fullName || currentUser?.email || 'Noma’lum foydalanuvchi';
+  const org = currentUserData?.org || 'Tashkilot ko‘rsatilmagan';
+  return `${title}\nTizim: Ijro Hisobot\nFoydalanuvchi: ${user}\nTashkilot: ${org}\nVaqt: ${new Date().toLocaleString('uz-UZ')}`;
+}
+
+async function sendTelegramLoginAlert(uid, deviceResult={}, flags=[]) {
+  const cfg = getTelegramSettings();
+  const hasWarning = (flags || []).some(f => f.level === 'warning');
+  if(!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
+  if(!cfg.loginAlerts && !(cfg.securityAlerts && hasWarning)) return;
+  const flagText = flags?.length ? flags.map(f => `- ${f.msg || f.type}`).join('\n') : '- Shubhali holat aniqlanmadi';
+  const text = `${buildTelegramHeader(hasWarning ? 'Xavfsizlik ogohlantirishi' : 'Login xabarnomasi')}\n\nUID: ${uid}\nQurilma: ${deviceResult.deviceName || Security.getDeviceName()}\nYangi qurilma: ${deviceResult.isNewDevice ? 'Ha' : 'Yo‘q'}\n\nHolatlar:\n${flagText}`;
+  await sendTelegramMessage(text, { kind: hasWarning ? 'security_login' : 'login' });
+}
+
+function readTelegramSentMap() {
+  try { return JSON.parse(localStorage.getItem(TELEGRAM_SENT_KEY) || '{}') || {}; }
+  catch(e) { return {}; }
+}
+
+function writeTelegramSentMap(map) {
+  try { localStorage.setItem(TELEGRAM_SENT_KEY, JSON.stringify(map || {})); } catch(e) {}
+}
+
+async function notifyTelegramDeadlines(notices=[], force=false) {
+  const cfg = getTelegramSettings();
+  if(!cfg.enabled || !cfg.deadlineAlerts || !cfg.botToken || !cfg.chatId) return { skipped:true };
+  const rows = (notices || []).filter(n => ['danger','warning'].includes(n.level)).slice(0, 20);
+  if(!rows.length) return { skipped:true, reason:'Bildirishnoma yo‘q' };
+  const day = telegramTodayKey();
+  const sent = readTelegramSentMap();
+  const selected = force ? rows.slice(0, 12) : rows.filter(n => {
+    const key = `${day}_${simpleHash(`${n.level}|${n.title}|${n.body}|${n.meta}`)}`;
+    return !sent[key];
+  }).slice(0, 12);
+  if(!selected.length) return { skipped:true, reason:'Bugun yuborilgan' };
+  const lines = selected.map((n, i) => `${i+1}. [${n.level === 'danger' ? 'MUHIM' : 'OGOHLANTIRISH'}] ${n.title}\n${n.body}${n.meta ? `\nMuddat: ${n.meta}` : ''}`).join('\n\n');
+  const text = `${buildTelegramHeader('Deadline alert')}\n\n${lines}`;
+  await sendTelegramMessage(text, { kind:'deadline_digest' });
+  selected.forEach(n => {
+    const key = `${day}_${simpleHash(`${n.level}|${n.title}|${n.body}|${n.meta}`)}`;
+    sent[key] = nowIso();
+  });
+  writeTelegramSentMap(sent);
+  return { sent:selected.length };
+}
+
+window.saveTelegramSettings = function() {
+  const cfg = {
+    enabled: !!document.getElementById('tg-enabled')?.checked,
+    botToken: sanitize(document.getElementById('tg-bot-token')?.value || '', 160),
+    chatId: sanitize(document.getElementById('tg-chat-id')?.value || '', 80),
+    deadlineAlerts: !!document.getElementById('tg-deadline')?.checked,
+    loginAlerts: !!document.getElementById('tg-login')?.checked,
+    securityAlerts: !!document.getElementById('tg-security')?.checked
+  };
+  localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
+  showToast('Telegram bot sozlamalari saqlandi', 'success');
+  writeAudit('telegram.settings_saved', { enabled: cfg.enabled, chatId: maskSecret(cfg.chatId), deadlineAlerts: cfg.deadlineAlerts, loginAlerts: cfg.loginAlerts, securityAlerts: cfg.securityAlerts }).catch(()=>{});
+  if(cfg.enabled && cfg.deadlineAlerts) notifyTelegramDeadlines(notificationCache.length ? notificationCache : buildSystemNotifications(allDocs)).catch(console.warn);
+  renderIntegrationsPanel();
+};
+
+window.clearTelegramSettings = function() {
+  if(!confirm('Telegram bot sozlamalari o‘chirilsinmi?')) return;
+  localStorage.removeItem(TELEGRAM_CONFIG_KEY);
+  showToast('Telegram sozlamalari o‘chirildi', 'info');
+  renderIntegrationsPanel();
+};
+
+window.testTelegramBot = async function() {
+  try {
+    await sendTelegramMessage(`${buildTelegramHeader('Test xabar')}\n\nTelegram bot Ijro Hisobot dasturiga muvaffaqiyatli ulandi.`, { kind:'test' });
+    showToast('Telegram test xabari yuborildi', 'success');
+  } catch(e) {
+    showToast('Telegram yuborilmadi: ' + e.message, 'error');
+  }
+};
+
+window.sendTelegramDeadlineDigest = async function() {
+  try {
+    const notices = notificationCache.length ? notificationCache : buildSystemNotifications(allDocs);
+    const result = await notifyTelegramDeadlines(notices, true);
+    showToast(result.sent ? `Telegramga ${result.sent} ta alert yuborildi` : 'Yuboriladigan alert yo‘q', result.sent ? 'success' : 'info');
+  } catch(e) {
+    showToast('Telegram deadline alert yuborilmadi: ' + e.message, 'error');
+  }
+};
+
+async function loadSecurityRulesText() {
+  try {
+    const resp = await fetch('./firebase/firestore.rules?ts=' + Date.now(), { cache:'no-store' });
+    if(resp.ok) return await resp.text();
+  } catch(e) {}
+  return `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+}
+
+async function loadStorageRulesText() {
+  try {
+    const resp = await fetch('./firebase/storage.rules?ts=' + Date.now(), { cache:'no-store' });
+    if(resp.ok) return await resp.text();
+  } catch(e) {}
+  return `rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} {\n      allow read, write: if request.auth != null;\n    }\n  }\n}`;
+}
+
+window.copySecurityRules = async function(kind='firestore') {
+  try {
+    const text = kind === 'storage' ? await loadStorageRulesText() : await loadSecurityRulesText();
+    await navigator.clipboard.writeText(text);
+    showToast(kind === 'storage' ? 'Storage rules nusxalandi' : 'Firestore rules nusxalandi', 'success');
+  } catch(e) {
+    showToast('Rules nusxalanmadi: ' + e.message, 'error');
+  }
+};
+
+window.downloadSecurityRules = async function(kind='firestore') {
+  const text = kind === 'storage' ? await loadStorageRulesText() : await loadSecurityRulesText();
+  const blob = new Blob([text], { type:'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = kind === 'storage' ? 'storage.rules' : 'firestore.rules';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+window.previewSecurityRules = async function(kind='firestore') {
+  const el = document.getElementById('security-rules-preview');
+  if(!el) return;
+  el.textContent = kind === 'storage' ? await loadStorageRulesText() : await loadSecurityRulesText();
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+window.openFirebaseRulesConsole = function() {
+  const projectId = firebaseConfig?.projectId || '';
+  const url = projectId
+    ? `https://console.firebase.google.com/project/${encodeURIComponent(projectId)}/firestore/rules`
+    : 'https://console.firebase.google.com/';
+  window.open(url, '_blank', 'noopener');
+};
 
 // ===== LEGAL AI AND DOCUMENT ANALYSIS MODULE =====
 const LEGAL_AI_MAX_FILE_SIZE = 18 * 1024 * 1024;

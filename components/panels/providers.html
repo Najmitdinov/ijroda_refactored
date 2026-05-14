@@ -1,129 +1,38 @@
 <div class="panel" id="panel-providers">
-        <div class="page-hdr"><h2>🔧 AI Sozlamalar</h2><p>API kalitlar va provider boshqaruvi</p></div>
+  <div class="page-hdr">
+    <h2>AI Sozlamalar</h2>
+    <p>API kalitlar, fallback providerlar va xavfsizlik fayllari</p>
+  </div>
 
-        <div class="card">
-          <div class="card-title">🔑 AI Providerlar — Fallback tartib: Gemini → OpenRouter</div>
-          <div style="background:var(--yellow-light);border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--yellow);">
-            ⚠️ <b>Xavfsizlik eslatmasi:</b> API kalitlar faqat <b>sizning brauzeringiz localStorage</b> da saqlanadi. Server ga yuborilmaydi. Ammo production loyiha uchun backend proxy tavsiya etiladi.
-          </div>
-          <div id="provider-status">Yuklanmoqda...</div>
-        </div>
+  <div class="card">
+    <div class="card-title">AI Providerlar - fallback tartib: Gemini -> Groq -> OpenRouter</div>
+    <div style="background:var(--yellow-light);border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--yellow);">
+      <b>Xavfsizlik eslatmasi:</b> API kalitlar brauzer localStorage xotirasida saqlanadi. Production darajada backend proxy tavsiya etiladi.
+    </div>
+    <div id="provider-status">Yuklanmoqda...</div>
+  </div>
 
-        <div class="card">
-          <div class="card-title">📊 Rate Limit — Soatiga 20 ta so'rov (har foydalanuvchi uchun)</div>
-          <div style="font-size:13px;color:var(--muted);line-height:2;">
-            <b>Maqsad:</b> API kalitni suiiste'moldan himoya qilish.<br>
-            <b>Tizim:</b> localStorage da tekshiriladi — 1 soat oynasida max 20 so'rov.<br>
-            <b>Premium foydalanuvchilar</b> uchun kelajakda limit oshirilishi mumkin.
-          </div>
-        </div>
+  <div class="card">
+    <div class="card-title">Rate Limit - soatlik limit</div>
+    <div style="font-size:13px;color:var(--muted);line-height:2;">
+      <b>Maqsad:</b> API kalitni suiiste'moldan himoya qilish.<br>
+      <b>Tizim:</b> localStorage da 1 soatlik oynada tekshiriladi.<br>
+      <b>Limit:</b> Super Admin "SaaS" sozlamalarida bepul va premium limitlarni boshqaradi.
+    </div>
+  </div>
 
-        <div class="card">
-          <div class="card-title">🔐 Firestore Security Rules (nusxalab Firebase Console ga qo'ying)</div>
-          <pre style="background:#0d1a2b;color:#63b3ed;border-radius:10px;padding:16px;font-size:11px;overflow-x:auto;line-height:1.7;font-family:'JetBrains Mono',monospace;">rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    // Users: faqat o'z profilini o'qiy/yozishi mumkin
-    // Admin/superadmin barchani boshqara oladi
-    match /users/{uid} {
-      allow read: if request.auth != null;
-      allow create: if request.auth.uid == uid;
-      allow update: if request.auth.uid == uid
-        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-           in ['admin', 'superadmin'];
-      allow delete: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-           == 'superadmin';
-    }
-
-    // Documents: o'z hujjatlarini CRUD qiladi
-    // Admin/superadmin barchasini ko'ra oladi
-    match /documents/{docId} {
-      allow read: if request.auth != null
-        &amp;&amp; (resource.data.userId == request.auth.uid
-          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-             in ['admin', 'superadmin']);
-      allow create: if request.auth != null
-        &amp;&amp; request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null
-        &amp;&amp; (resource.data.userId == request.auth.uid
-          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-             in ['admin', 'superadmin']);
-    }
-
-    // AI Chat: faqat o'z chatlarini boshqaradi
-    match /users/{uid}/chats/{chatId} {
-      allow read, write: if request.auth.uid == uid;
-      match /messages/{msgId} {
-        allow read, write: if request.auth.uid == uid;
-      }
-    }
-
-    // AI Usage: faqat o'z statsini yozadi, admin o'qiy oladi
-    match /aiUsage/{docId} {
-      allow create, update: if request.auth != null
-        &amp;&amp; request.resource.data.uid == request.auth.uid;
-      allow read: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-        in ['admin', 'superadmin'];
-    }
-
-    // Fishkalar: autentifikatsiya talab qilinadi
-    match /fishkalar/{id} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Xodimlar, Sektorlar
-    match /xodimlar/{id} { allow read, write: if request.auth != null; }
-    match /sektorlar/{id} { allow read, write: if request.auth != null; }
-    match /tashkilotlar/{id} { allow read, write: if request.auth != null; }
-    match /muhim_topshiriqlar/{id} { allow read, write: if request.auth != null; }
-    match /ai_hisobot_buyruqlar/{id} {
-      allow read: if request.auth != null;
-      allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-        in ['admin', 'superadmin'];
-    }
-
-    // AI shablonlar va avtomatik hujjat yaratish
-    match /ai_document_templates/{id} {
-      allow read, write: if request.auth != null
-        &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-          in ['org_admin', 'admin', 'superadmin'];
-    }
-    match /ai_knowledge_documents/{id} {
-      allow read, write: if request.auth != null
-        &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-          in ['org_admin', 'admin', 'superadmin'];
-    }
-    match /legal_knowledge_base/{id} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-          in ['org_admin', 'admin', 'superadmin'];
-    }
-    match /ai_generated_documents/{id} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}</pre>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Firebase Storage Rules (shablon fayllari uchun)</div>
-          <pre style="background:#0d1a2b;color:#63b3ed;border-radius:10px;padding:16px;font-size:11px;overflow-x:auto;line-height:1.7;font-family:'JetBrains Mono',monospace;">rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /ai_templates/{uid}/{fileName} {
-      allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
-    }
-    match /ai_knowledge/{uid}/{fileName} {
-      allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
-    }
-    match /legal_base/{uid}/{fileName} {
-      allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
-    }
-  }
-}</pre>
-        </div>
-      </div>
-
-      
+  <div class="card">
+    <div class="card-title">Firebase Security Rules</div>
+    <p style="font-size:13px;color:var(--muted);line-height:1.8;margin-top:0;">
+      Firestore va Storage uchun production rules fayllari loyihaga bog'langan:
+      <code>firebase/firestore.rules</code> va <code>firebase/storage.rules</code>.
+    </p>
+    <div class="actions-row">
+      <button class="btn btn-primary" onclick="copySecurityRules('firestore')">Firestore nusxalash</button>
+      <button class="btn btn-outline" onclick="downloadSecurityRules('firestore')">Firestore yuklash</button>
+      <button class="btn btn-primary" onclick="copySecurityRules('storage')">Storage nusxalash</button>
+      <button class="btn btn-outline" onclick="downloadSecurityRules('storage')">Storage yuklash</button>
+      <button class="btn btn-success" onclick="openFirebaseRulesConsole()">Firebase Console</button>
+    </div>
+  </div>
+</div>
