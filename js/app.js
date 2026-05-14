@@ -6045,6 +6045,7 @@ function renderTemplateSelects() {
     : '<option value="">Standart rasmiy javob xati</option>';
   const respDate = document.getElementById('resp-date');
   if(respDate) respDate.value = formatDateInput(new Date());
+  setupResponseNumberInput();
   const resp = document.getElementById('resp-responsible');
   if(resp) {
     const users = xodimlarCache.length ? xodimlarCache : [{ id:'', ism:'', familiya:currentUserData?.fullName || currentUser?.email || '' }];
@@ -6057,6 +6058,24 @@ function renderTemplateSelects() {
 
 function aiKnowledgeContext() {
   return aiKnowledgeCache.slice(0, 8).map(k => `${k.title || k.fileName}: ${k.analysis?.summary || ''}\nFaktlar: ${(k.analysis?.usable_facts || []).join('; ')}`).join('\n\n').slice(0, 9000);
+}
+
+function normalizeOfficialOutNumber(value = '') {
+  const suffix = String(value).replace(/^01-22\//, '').replace(/\D/g, '');
+  return suffix ? `01-22/${suffix}` : '01-22/';
+}
+
+function setupResponseNumberInput() {
+  const input = document.getElementById('resp-user-number');
+  if(!input || input.dataset.officialNumberReady) return;
+  input.dataset.officialNumberReady = '1';
+  input.value = normalizeOfficialOutNumber(input.value);
+  input.addEventListener('input', () => {
+    input.value = normalizeOfficialOutNumber(input.value);
+  });
+  input.addEventListener('blur', () => {
+    input.value = normalizeOfficialOutNumber(input.value);
+  });
 }
 
 function pad2(n) {
@@ -6099,11 +6118,12 @@ window.generateResponseDocument = async function() {
     extractedText: ''
   };
   const file = document.getElementById('resp-file')?.files?.[0];
-  const userNumber = document.getElementById('resp-user-number')?.value?.trim();
+  const rawOutNumber = document.getElementById('resp-user-number')?.value?.trim() || '';
+  const outNum = normalizeOfficialOutNumber(rawOutNumber);
+  const userNumber = outNum.replace('01-22/', '');
   const now = new Date();
   const date = formatDateInput(now);
   const officialDate = formatOfficialDate(now);
-  const outNum = userNumber ? `01-22/${userNumber}` : '';
   const responsible = document.getElementById('resp-responsible')?.value || '';
   const recipientOrg = document.getElementById('resp-org-name')?.value?.trim() || '';
   const objectName = document.getElementById('resp-object-name')?.value?.trim() || '';
@@ -6111,8 +6131,7 @@ window.generateResponseDocument = async function() {
   const manualTaskText = document.getElementById('resp-task-text')?.value?.trim() || '';
   const extra = document.getElementById('resp-extra')?.value?.trim() || '';
   const status = document.getElementById('resp-status');
-  if(!userNumber) { showToast('Xat raqamini kiriting. Raqam kiritilmasa hujjat yaratilmaydi.', 'error'); return; }
-  if(!/^\d+$/.test(userNumber)) { showToast('Xat raqami faqat raqamlardan iborat bo‘lishi kerak', 'error'); return; }
+  if(!userNumber) { showToast('Xat raqamini kiriting. 01-22/ dan keyin raqam yozilmasa hujjat yaratilmaydi.', 'error'); return; }
   if(!file && !manualTaskText) { showToast('Topshiriq matni yoki topshiriq fayli majburiy', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
