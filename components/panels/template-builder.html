@@ -57,12 +57,14 @@
       <div class="card">
         <div class="card-title">Topshiriqqa javob xati</div>
         <input id="resp-user-number" type="hidden" value="">
+        <input id="resp-recipient-org" type="hidden" value="">
+        <input id="resp-executor-name" type="hidden" value="">
+        <input id="resp-executor-phone" type="hidden" value="">
         <div id="resp-number-summary" class="template-ai-number-summary">Chiquvchi raqam “Yangi xat yaratish” oynasida kiritiladi.</div>
         <div class="form-grid">
           <div class="field"><label>Shablon</label><select id="resp-template"></select></div>
           <div class="field"><label>Sana</label><input id="resp-date" type="date" readonly></div>
           <div class="field"><label>Mas'ul shaxs</label><select id="resp-responsible"></select></div>
-          <div class="field"><label>Tashkilot nomi</label><input id="resp-org-name" placeholder="Yuqori turuvchi tashkilot nomi"></div>
           <div class="field"><label>Obyekt nomi</label><input id="resp-object-name" placeholder="Qurilish obyekti nomi"></div>
           <div class="field"><label>Hudud</label><input id="resp-region" placeholder="Tuman, shahar yoki viloyat"></div>
           <div class="field wide"><label>Topshiriq matni</label><textarea id="resp-task-text" placeholder="Topshiriq, ko'rsatma, farmoyish, qaror yoki so'rov mazmunini kiriting"></textarea></div>
@@ -101,6 +103,20 @@
         <span>01-22/</span>
         <input id="resp-modal-user-number" inputmode="numeric" pattern="[0-9]*" placeholder="156">
       </label>
+      <label class="template-ai-modal-field">
+        <span>Qabul qiluvchi tashkilot</span>
+        <textarea id="resp-modal-recipient" placeholder="Masalan: Qurilish va uy-joy kommunal xo‘jaligi vazirligiga"></textarea>
+      </label>
+      <div class="template-ai-modal-grid">
+        <label class="template-ai-modal-field">
+          <span>Ijrochi</span>
+          <input id="resp-modal-executor" placeholder="F.O. yoki F.I.Sh.">
+        </label>
+        <label class="template-ai-modal-field">
+          <span>Tel raqami</span>
+          <input id="resp-modal-phone" placeholder="79-220-50-11">
+        </label>
+      </div>
       <div id="resp-modal-error" class="template-ai-modal-error"></div>
       <div class="actions-row">
         <button class="btn btn-success" onclick="confirmResponseNumberAndGenerate()">Hujjat yaratish</button>

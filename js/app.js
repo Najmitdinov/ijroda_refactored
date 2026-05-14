@@ -3688,6 +3688,9 @@ function buildLegalAiShell() {
             <input id="legal-ai-template-file" type="file" accept=".doc,.docx,.pdf" style="display:none" onchange="handleLegalTemplateFile(this.files && this.files[0])">
             <div class="legal-ai-grid compact">
               <label class="wide">Chiquvchi raqami<input id="legal-ai-out-number" value="01-22/" placeholder="01-22/156"></label>
+              <label class="wide">Qabul qiluvchi tashkilot<textarea id="legal-ai-recipient" rows="2" placeholder="Masalan: Qurilish va uy-joy kommunal xo‘jaligi vazirligiga"></textarea></label>
+              <label>Ijrochi<input id="legal-ai-executor" placeholder="F.O. yoki F.I.Sh."></label>
+              <label>Tel raqami<input id="legal-ai-executor-phone" placeholder="79-220-50-11"></label>
               <label class="wide">Topshiriq xati
                 <div class="legal-ai-mini-upload" onclick="document.getElementById('legal-ai-task-letter-file').click()">
                   <b>Topshiriq hujjati</b>
@@ -3925,9 +3928,16 @@ window.generateLegalTemplateAnswer = async function() {
   const taskFile = legalAiState.taskLetterFile;
   const outNumber = normalizeOfficialOutNumber(document.getElementById('legal-ai-out-number')?.value?.trim() || '');
   const userNumber = outNumber.replace('01-22/', '');
+  const recipient = document.getElementById('legal-ai-recipient')?.value?.trim() || '';
+  const executorName = document.getElementById('legal-ai-executor')?.value?.trim() || '';
+  const executorPhone = document.getElementById('legal-ai-executor-phone')?.value?.trim() || '';
   const status = document.getElementById('legal-ai-template-status');
   if(!templateFile || !taskFile || !userNumber) {
     showToast('Chiquvchi raqam va topshiriq xatini kiriting', 'error');
+    return;
+  }
+  if(!recipient) {
+    showToast('Qabul qiluvchi tashkilotni kiriting', 'error');
     return;
   }
   if(status) {
@@ -3953,6 +3963,9 @@ window.generateLegalTemplateAnswer = async function() {
     legalAiState.generatedAnswer = {
       ...answer,
       outNumber,
+      recipient,
+      executorName,
+      executorPhone,
       templateFileName: legalAiState.templateFileName || DEFAULT_RESPONSE_TEMPLATE.fileName,
       taskLetterFileName: taskFile.name,
       createdAt: nowIso()
@@ -4873,10 +4886,27 @@ window.legalAiReset = function() {
 window.downloadLegalGeneratedAnswer = function() {
   const answer = legalAiState.generatedAnswer;
   if(!answer) return;
-  const html = answer.html || `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;color:#111;margin:42px 56px;}
-    .meta{text-align:right;margin-bottom:20px}.body{white-space:pre-wrap}
-  </style></head><body><div class="meta">Chiquvchi raqam: ${escH(answer.outNumber || '')}</div><div class="body">${escH(answer.answer_text || answer.summary || '')}</div></body></html>`;
+  const html = buildGeneratedDocHtml({
+    id: 'legal-ai',
+    outNumber: answer.outNumber || '',
+    officialDate: formatOfficialDate(new Date()),
+    responsible: answer.signature_block || 'O.Shodiyev',
+    requisites: {
+      recipientOrg: answer.recipient || '',
+      executorName: answer.executorName || '',
+      executorPhone: answer.executorPhone || ''
+    },
+    content: {
+      title: answer.title || 'Javob xati',
+      recipient: answer.recipient || '',
+      out_number: answer.outNumber || '',
+      date: formatOfficialDate(new Date()),
+      body: answer.answer_text || answer.summary || '',
+      signature_block: answer.signature_block || 'O.Shodiyev',
+      executor_name: answer.executorName || '',
+      executor_phone: answer.executorPhone || ''
+    }
+  });
   const blob = new Blob([html], { type:'application/msword;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -6408,12 +6438,18 @@ window.openResponseNumberModal = function() {
   const modal = document.getElementById('response-number-modal');
   const input = document.getElementById('resp-modal-user-number');
   const hidden = document.getElementById('resp-user-number');
+  const recipientInput = document.getElementById('resp-modal-recipient');
+  const executorInput = document.getElementById('resp-modal-executor');
+  const phoneInput = document.getElementById('resp-modal-phone');
   const error = document.getElementById('resp-modal-error');
   if(error) error.textContent = '';
   if(input) {
     input.value = extractUserNumber(hidden?.value || '');
     input.oninput = () => { input.value = input.value.replace(/\D/g, ''); };
   }
+  if(recipientInput) recipientInput.value = document.getElementById('resp-recipient-org')?.value || '';
+  if(executorInput) executorInput.value = document.getElementById('resp-executor-name')?.value || '';
+  if(phoneInput) phoneInput.value = document.getElementById('resp-executor-phone')?.value || '';
   if(modal) {
     modal.classList.add('active');
     modal.setAttribute('aria-hidden', 'false');
@@ -6431,17 +6467,32 @@ window.closeResponseNumberModal = function() {
 
 window.confirmResponseNumberAndGenerate = function() {
   const input = document.getElementById('resp-modal-user-number');
+  const recipientInput = document.getElementById('resp-modal-recipient');
+  const executorInput = document.getElementById('resp-modal-executor');
+  const phoneInput = document.getElementById('resp-modal-phone');
   const error = document.getElementById('resp-modal-error');
   const userNumber = extractUserNumber(input?.value || '');
   if(!userNumber) {
     if(error) error.textContent = 'Xat raqami uchun son kiriting.';
     return;
   }
+  const recipient = (recipientInput?.value || '').trim();
+  if(!recipient) {
+    if(error) error.textContent = 'Qabul qiluvchi tashkilotni kiriting.';
+    recipientInput?.focus();
+    return;
+  }
   const outNumber = `01-22/${userNumber}`;
   const hidden = document.getElementById('resp-user-number');
+  const recipientHidden = document.getElementById('resp-recipient-org');
+  const executorHidden = document.getElementById('resp-executor-name');
+  const phoneHidden = document.getElementById('resp-executor-phone');
   const summary = document.getElementById('resp-number-summary');
   if(hidden) hidden.value = outNumber;
-  if(summary) summary.textContent = `Chiquvchi raqam: ${outNumber}`;
+  if(recipientHidden) recipientHidden.value = recipient;
+  if(executorHidden) executorHidden.value = (executorInput?.value || '').trim();
+  if(phoneHidden) phoneHidden.value = (phoneInput?.value || '').trim();
+  if(summary) summary.textContent = `Chiquvchi raqam: ${outNumber}. Qabul qiluvchi: ${recipient}`;
   closeResponseNumberModal();
   generateResponseDocument(true);
 };
@@ -6493,7 +6544,9 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
   const date = formatDateInput(now);
   const officialDate = formatOfficialDate(now);
   const responsible = document.getElementById('resp-responsible')?.value || '';
-  const recipientOrg = document.getElementById('resp-org-name')?.value?.trim() || '';
+  const recipientOrg = document.getElementById('resp-recipient-org')?.value?.trim() || '';
+  const executorName = document.getElementById('resp-executor-name')?.value?.trim() || '';
+  const executorPhone = document.getElementById('resp-executor-phone')?.value?.trim() || '';
   const objectName = document.getElementById('resp-object-name')?.value?.trim() || '';
   const region = document.getElementById('resp-region')?.value?.trim() || '';
   const manualTaskText = document.getElementById('resp-task-text')?.value?.trim() || '';
@@ -6503,6 +6556,7 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
     openResponseNumberModal();
     return;
   }
+  if(!recipientOrg) { openResponseNumberModal(); return; }
   if(!file && !manualTaskText) { showToast('Topshiriq matni yoki topshiriq fayli majburiy', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
@@ -6568,6 +6622,11 @@ Hurmat bilan,
 [LAVOZIM]
 
 ENG MUHIM TALAB: javob foydalanuvchi yuklagan yoki tizimdagi standart shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub va joylashuv bo'yicha quyidagi shablon tahliliga qat'iy amal qil, biroq majburiy tashkilot rekvizitlari, sana va xat raqamini o'zgartirma.
+QIZIL HUDUDDAGI HEADER/GERB/REKVIZIT BLOKI O'ZGARTIRILMASIN.
+YASHIL HUDUD: sana va xat raqami chap tomonda alohida qatorlarda ko'rsatiladi.
+SABZI RANG HUDUD: qabul qiluvchi tashkilot o'ng tomonda, qalin (bold), Times New Roman 14 pt ko'rinishida bo'ladi.
+KO'K HUDUD: faqat asosiy javob xati matni yoziladi. Matn Times New Roman 14 pt, rasmiy, qisqa, asoslangan va individual bo'lsin.
+SARIQ HUDUD: ijrochi va telefon past chapda italic ko'rinishida yoziladi.
 
 Shablon nomi: ${tpl.name}
 Hujjat turi: ${tpl.docType}
@@ -6590,6 +6649,8 @@ Chiquvchi xat raqami: ${outNum}
 Sana: ${officialDate}
 Mas'ul shaxs: ${responsible}
 Tashkilot nomi: ${recipientOrg}
+Ijrochi: ${executorName || 'Kiritilmagan'}
+Ijrochi telefon raqami: ${executorPhone || 'Kiritilmagan'}
 Obyekt nomi: ${objectName}
 Hudud: ${region}
 Foydalanuvchi kiritgan topshiriq matni: ${manualTaskText || 'Kiritilmagan'}
@@ -6619,7 +6680,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
       parsed = buildLocalResponseDocument({
         header, outNum, officialDate, recipientOrg, responsible,
         taskText: manualTaskText || taskText,
-        objectName, region, extra,
+        objectName, region, extra, executorName, executorPhone,
         legalContext: legalRagContext,
         providerError:e.message
       });
@@ -6632,7 +6693,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
     const generated = {
       org: aiDocOrgScope(), userId:currentUser.uid, templateId:tpl.id, templateName:tpl.name,
       sourceFileName:file?.name || '', outNumber:outNum, date, officialDate, responsible,
-      requisites:{ userNumber, recipientOrg, objectName, region, header },
+      requisites:{ userNumber, recipientOrg, objectName, region, header, executorName, executorPhone },
       content:parsed,
       createdAt:serverTimestamp(), createdAtLocal:nowIso()
     };
@@ -6646,7 +6707,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
   }
 };
 
-function buildLocalResponseDocument({ header='', outNum='', officialDate='', recipientOrg='', responsible='', taskText='', objectName='', region='', extra='', legalContext='', providerError='' } = {}) {
+function buildLocalResponseDocument({ header='', outNum='', officialDate='', recipientOrg='', responsible='', taskText='', objectName='', region='', extra='', executorName='', executorPhone='', legalContext='', providerError='' } = {}) {
   const task = String(taskText || '').replace(/\s+/g, ' ').trim();
   const context = String(legalContext || '').split('\n').filter(Boolean).slice(0, 8).join(' ');
   const body = `Sizning ${task ? `topshiriqda bayon etilgan ${task.slice(0, 420)} masalasi` : 'yuborgan topshirig‘ingiz'} yuzasidan Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi tomonidan vakolat doirasida ko‘rib chiqildi.\n\n${objectName || region ? `Ko‘rib chiqish davomida ${objectName ? `"${objectName}" obyekti` : 'tegishli obyekt'}${region ? `, ${region} hududi` : ''} bo‘yicha shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari, texnik nazorat va normativ talablarga rioya etilishi masalalari tahlil qilindi.` : 'Ko‘rib chiqish davomida shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari, texnik nazorat va normativ talablarga rioya etilishi masalalari tahlil qilindi.'}\n\n${context && !context.includes('topilmadi') ? `Huquqiy baza ma’lumotlariga ko‘ra, masala quyidagi normativ kontekst doirasida baholandi: ${context.slice(0, 900)}.` : 'Huquqiy bazada topshiriq mazmuniga bevosita mos amaldagi normativ hujjat aniqlanmaganligi sababli uydirma modda yoki bandlar keltirilmaydi.'}\n\n${extra ? `Qo‘shimcha ma’lumot sifatida ${extra} inobatga olindi.` : ''} Topshiriq ijrosi bo‘yicha mas’ul bo‘linmalarga belgilangan tartibda ko‘rsatmalar berilib, zarur hujjatlar va asoslantirilgan ma’lumotlar tayyorlanishi ta’minlanadi.\n\n${providerError ? `Eslatma: AI provayder vaqtincha javob bermaganligi sababli zaxira rasmiy javob shakllantirildi (${providerError}).` : ''}`;
@@ -6660,6 +6721,8 @@ function buildLocalResponseDocument({ header='', outNum='', officialDate='', rec
     body,
     footer: '',
     signature_block: responsible || 'Rahbar',
+    executor_name: executorName,
+    executor_phone: executorPhone,
     style_notes: 'Lokal RAG fallback: huquqiy bazadagi mavjud kontekst asosida, uydirma normativlarsiz shakllantirildi.',
     html: ''
   };
@@ -6669,21 +6732,39 @@ function buildGeneratedDocHtml(g) {
   const c = g?.content || {};
   const header = c.header || g.requisites?.header || officialResponseHeader(g.officialDate || c.date || g.date || formatOfficialDate(new Date()), c.out_number || g.outNumber || '');
   const recipient = c.recipient || g.requisites?.recipientOrg || '';
+  const outNumber = c.out_number || g.outNumber || '';
+  const docDate = c.date || g.officialDate || g.date || '';
+  const executorName = c.executor_name || g.requisites?.executorName || '';
+  const executorPhone = c.executor_phone || g.requisites?.executorPhone || '';
+  const signature = c.signature_block || g.responsible || 'Rahbar';
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    @page{size:A4;margin:20mm 18mm 18mm 22mm}
-    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;color:#111;margin:0;}
-    .hdr{white-space:pre-wrap;text-align:center;font-size:12pt;font-weight:bold;line-height:1.28;margin-bottom:24px}
-    .recipient{text-align:right;white-space:pre-wrap;margin:12px 0 24px 42%;font-weight:bold}
-    .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:18px 0}
-    .body{white-space:pre-wrap;text-align:justify}
-    .sig{margin-top:34px;white-space:pre-wrap;font-weight:bold}
-    .ftr{white-space:pre-wrap;font-size:11pt;color:#222;margin-top:24px}
+    @page{size:A4;margin:10mm 16mm 14mm 16mm}
+    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.15;color:#111;margin:0;}
+    .ijro-line{font-size:10pt;color:#cc0000;font-weight:bold;margin-bottom:24px;}
+    .hdr{text-align:center;font-weight:bold;line-height:1.05;margin-bottom:8px;}
+    .hdr img{width:66px;height:66px;display:block;margin:0 auto 6px;}
+    .hdr-main{font-size:11pt;text-transform:uppercase;}
+    .hdr-address{font-size:7.5pt;font-weight:bold;margin-top:8px;}
+    .meta{font-size:14pt;font-weight:bold;line-height:1.4;margin:8px 0 18px;}
+    .recipient{font-size:14pt;font-weight:bold;text-align:center;white-space:pre-wrap;margin:0 0 22px 58%;line-height:1.18;}
+    .body{font-size:14pt;line-height:1.16;text-align:justify;text-indent:34px;white-space:pre-wrap;margin-top:0;}
+    .sig-row{display:flex;align-items:flex-start;justify-content:space-between;margin-top:44px;font-size:14pt;font-weight:bold;}
+    .sig-title{min-width:220px;}
+    .sig-name{text-align:right;min-width:140px;}
+    .executor{position:fixed;left:16mm;bottom:16mm;font-size:8pt;font-style:italic;line-height:1.2;}
+    .ftr{display:none;}
   </style></head><body>
-    <div class="hdr">${escH(header)}</div>
+    <div class="ijro-line">IJRO.GOV.UZ tizimi orqali ERI bilan tasdiqlangan, Hujjat kodi: ${escH(g.id || '')}</div>
+    <div class="hdr">
+      <img src="https://najmitdinov.github.io/ijroda_refactored/assets/logo.svg" alt="">
+      <div class="hdr-main">O‘ZBEKISTON RESPUBLIKASI<br>QURILISH VA UY-JOY KOMMUNAL XO‘JALIGI VAZIRLIGI<br>NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL<br>XO‘JALIGI BOSH BOSHQARMASI</div>
+      <div class="hdr-address">210100, Navoiy shahri, Zarapetyan ko‘chasi, 10-uy, Tel: (79)220-50-08, Faks: (79)220-50-08, E-mail: navqurilish@nv.uz, Sayt: navqurilish.uz</div>
+    </div>
+    <div class="meta">${escH(docDate)}<br>№ ${escH(outNumber)}</div>
     <div class="recipient">${escH(recipient)}</div>
-    <div class="title">${escH(c.title || 'Javob xati')}</div>
     <div class="body">${escH(c.body || '')}</div>
-    <div class="sig">${escH(c.signature_block || g.responsible || '')}</div>
+    <div class="sig-row"><div class="sig-title">Boshqarma boshlig‘i v.v.b</div><div class="sig-name">${escH(signature)}</div></div>
+    ${executorName || executorPhone ? `<div class="executor">Ijrochi: ${escH(executorName)}<br>Tel: ${escH(executorPhone)}</div>` : ''}
     <div class="ftr">${escH(c.footer || '')}</div>
   </body></html>`;
 }
@@ -6692,7 +6773,7 @@ function renderGeneratedPreview(g) {
   const el = document.getElementById('resp-preview');
   if(!el) return;
   const c = g.content || {};
-  el.innerHTML = `<h3>${escH(c.title || 'Javob xati')}</h3><div style="font-weight:700;color:var(--text);margin-bottom:10px;">${escH(g.outNumber || c.out_number || '')} | ${escH(g.officialDate || c.date || g.date || '')}</div><div>${escH(c.header || g.requisites?.header || '').replace(/\n/g,'<br>')}</div><hr style="border:0;border-top:1px solid var(--border);margin:14px 0;"><div>${escH(c.body || '').replace(/\n/g,'<br>')}</div>
+  el.innerHTML = `<h3>${escH(c.title || 'Javob xati')}</h3><div style="font-weight:700;color:var(--text);margin-bottom:10px;">${escH(g.outNumber || c.out_number || '')} | ${escH(g.officialDate || c.date || g.date || '')}</div><div style="font-weight:900;text-align:right;margin-bottom:12px;">${escH(c.recipient || g.requisites?.recipientOrg || '')}</div><div>${escH(c.header || g.requisites?.header || '').replace(/\n/g,'<br>')}</div><hr style="border:0;border-top:1px solid var(--border);margin:14px 0;"><div>${escH(c.body || '').replace(/\n/g,'<br>')}</div>${g.requisites?.executorName || g.requisites?.executorPhone ? `<div style="font-style:italic;font-size:12px;margin-top:18px;">Ijrochi: ${escH(g.requisites?.executorName || '')}<br>Tel: ${escH(g.requisites?.executorPhone || '')}</div>` : ''}
     <div class="actions-row" style="margin-top:16px;"><button class="btn btn-primary" onclick="downloadGeneratedDocument('${g.id}')">Word yuklash</button></div>`;
 }
 
