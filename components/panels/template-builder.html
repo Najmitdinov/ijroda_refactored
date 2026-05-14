@@ -56,15 +56,8 @@
     <div class="template-ai-grid" data-tpl-panel="response" style="display:none;">
       <div class="card">
         <div class="card-title">Topshiriqqa javob xati</div>
-        <div class="template-ai-number-box">
-          <div>
-            <b>Xat raqamini kiriting</b>
-            <span>Asosiy tashkilot kodi avtomatik qo'shiladi: 01-22/</span>
-          </div>
-          <div class="template-ai-number-input">
-            <input id="resp-user-number" inputmode="numeric" value="01-22/" placeholder="01-22/156">
-          </div>
-        </div>
+        <input id="resp-user-number" type="hidden" value="">
+        <div id="resp-number-summary" class="template-ai-number-summary">Chiquvchi raqam “Yangi xat yaratish” oynasida kiritiladi.</div>
         <div class="form-grid">
           <div class="field"><label>Shablon</label><select id="resp-template"></select></div>
           <div class="field"><label>Sana</label><input id="resp-date" type="date" readonly></div>
@@ -77,7 +70,7 @@
           <div class="field wide"><label>Qo'shimcha ma'lumot</label><textarea id="resp-extra" placeholder="Javob xatida alohida yoritilishi kerak bo'lgan dalillar, ijro holati, huquqiy asoslar yoki izohlar"></textarea></div>
         </div>
         <div class="actions-row">
-          <button class="btn btn-success" onclick="generateResponseDocument()">Rasmiy javob xatini yaratish</button>
+          <button class="btn btn-success" onclick="openResponseNumberModal()">Yangi xat yaratish</button>
         </div>
         <div id="resp-status" class="template-ai-status"></div>
       </div>
@@ -91,6 +84,27 @@
       <div class="card">
         <div class="card-title">Yaratilgan hujjatlar</div>
         <div id="gen-list" class="template-ai-list">Yuklanmoqda...</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="response-number-modal" class="template-ai-modal" aria-hidden="true">
+    <div class="template-ai-modal-card" role="dialog" aria-modal="true" aria-labelledby="response-number-title">
+      <div class="template-ai-modal-head">
+        <div>
+          <h3 id="response-number-title">Xat raqamini kiriting</h3>
+          <p>Faqat son kiriting. Tizim chiquvchi raqamni avtomatik 01-22/{son} formatida shakllantiradi.</p>
+        </div>
+        <button type="button" class="template-ai-modal-close" onclick="closeResponseNumberModal()">×</button>
+      </div>
+      <label class="template-ai-modal-number">
+        <span>01-22/</span>
+        <input id="resp-modal-user-number" inputmode="numeric" pattern="[0-9]*" placeholder="156">
+      </label>
+      <div id="resp-modal-error" class="template-ai-modal-error"></div>
+      <div class="actions-row">
+        <button class="btn btn-success" onclick="confirmResponseNumberAndGenerate()">Hujjat yaratish</button>
+        <button class="btn btn-outline" onclick="closeResponseNumberModal()">Bekor qilish</button>
       </div>
     </div>
   </div>

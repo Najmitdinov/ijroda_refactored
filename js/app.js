@@ -6153,8 +6153,12 @@ function aiKnowledgeContext() {
 }
 
 function normalizeOfficialOutNumber(value = '') {
-  const suffix = String(value).replace(/^01-22\//, '').replace(/\D/g, '');
+  const suffix = extractUserNumber(value);
   return suffix ? `01-22/${suffix}` : '01-22/';
+}
+
+function extractUserNumber(value = '') {
+  return String(value).replace(/^01-22\//, '').replace(/\D/g, '');
 }
 
 function setupResponseNumberInput() {
@@ -6174,6 +6178,48 @@ function setupOfficialNumberInput(id) {
   });
 }
 
+window.openResponseNumberModal = function() {
+  const modal = document.getElementById('response-number-modal');
+  const input = document.getElementById('resp-modal-user-number');
+  const hidden = document.getElementById('resp-user-number');
+  const error = document.getElementById('resp-modal-error');
+  if(error) error.textContent = '';
+  if(input) {
+    input.value = extractUserNumber(hidden?.value || '');
+    input.oninput = () => { input.value = input.value.replace(/\D/g, ''); };
+  }
+  if(modal) {
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    setTimeout(() => input?.focus(), 0);
+  }
+};
+
+window.closeResponseNumberModal = function() {
+  const modal = document.getElementById('response-number-modal');
+  if(modal) {
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+};
+
+window.confirmResponseNumberAndGenerate = function() {
+  const input = document.getElementById('resp-modal-user-number');
+  const error = document.getElementById('resp-modal-error');
+  const userNumber = extractUserNumber(input?.value || '');
+  if(!userNumber) {
+    if(error) error.textContent = 'Xat raqami uchun son kiriting.';
+    return;
+  }
+  const outNumber = `01-22/${userNumber}`;
+  const hidden = document.getElementById('resp-user-number');
+  const summary = document.getElementById('resp-number-summary');
+  if(hidden) hidden.value = outNumber;
+  if(summary) summary.textContent = `Chiquvchi raqam: ${outNumber}`;
+  closeResponseNumberModal();
+  generateResponseDocument(true);
+};
+
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
@@ -6183,7 +6229,7 @@ function formatDateInput(date = new Date()) {
 }
 
 function formatOfficialDate(date = new Date()) {
-  return `${pad2(date.getDate())}.${pad2(date.getMonth() + 1)}.${date.getFullYear()} yil`;
+  return `${pad2(date.getDate())}.${pad2(date.getMonth() + 1)}.${date.getFullYear()}`;
 }
 
 function officialResponseHeader(dateText, outNumber) {
@@ -6203,7 +6249,7 @@ ${dateText}
 № ${outNumber}`;
 }
 
-window.generateResponseDocument = async function() {
+window.generateResponseDocument = async function(numberConfirmed=false) {
   if(!requirePermission('ai.template', 'AI javob xati yaratish')) return;
   const tpl = aiTemplatesCache.find(t => t.id === document.getElementById('resp-template')?.value) || {
     id: '',
@@ -6227,7 +6273,10 @@ window.generateResponseDocument = async function() {
   const manualTaskText = document.getElementById('resp-task-text')?.value?.trim() || '';
   const extra = document.getElementById('resp-extra')?.value?.trim() || '';
   const status = document.getElementById('resp-status');
-  if(!userNumber) { showToast('Xat raqamini kiriting. 01-22/ dan keyin raqam yozilmasa hujjat yaratilmaydi.', 'error'); return; }
+  if(!userNumber || !numberConfirmed) {
+    openResponseNumberModal();
+    return;
+  }
   if(!file && !manualTaskText) { showToast('Topshiriq matni yoki topshiriq fayli majburiy', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
@@ -6238,11 +6287,58 @@ window.generateResponseDocument = async function() {
       tpl.analysis = DEFAULT_RESPONSE_TEMPLATE.analysis;
     }
     const header = officialResponseHeader(officialDate, outNum);
-    const prompt = `Siz professional davlat tashkiloti yuristi, qurilish sohasi eksperti va rasmiy hujjatlar bilan ishlovchi sun'iy intellektsiz.
+    const prompt = `Siz O'zbekiston Respublikasi davlat tashkilotlari uchun ishlovchi professional AI yuridik assistentsiz. Sizning asosiy vazifangiz yuqori turuvchi tashkilotlardan kelgan topshiriq, farmoyish, qaror, ko'rsatma yoki so'rovlarga avtomatik ravishda professional rasmiy javob xati yaratishdir.
 
-Vazifa: yuqori turuvchi tashkilotdan kelgan topshiriq, ko'rsatma, farmoyish, qaror yoki so'rovga professional rasmiy javob xati tayyorlang.
+TIZIM LOGIKASI:
+1. Foydalanuvchi "Yangi xat yaratish" tugmasini bosadi.
+2. Tizim avval "Xat raqamini kiriting" oynasini chiqaradi.
+3. Foydalanuvchi faqat son kiritadi.
+4. Tizim avtomatik ravishda chiquvchi raqamni 01-22/{user_number} formatida yaratadi.
+5. Tizim hujjat yaratilgan sanani avtomatik qo'yadi.
+6. AI foydalanuvchi kiritgan topshiriq asosida to'liq professional javob xatini yaratadi.
 
-ENG MUHIM TALAB: javob foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub va joylashuv bo'yicha quyidagi shablon tahliliga qat'iy amal qil, biroq quyidagi tashkilot rekvizitlari, sana va xat raqamini o'zgartirma.
+AUTO_DATE: ${officialDate}
+AUTO_NUMBER: ${outNum}
+
+AI VAZIFASI:
+- Kelgan topshiriq mazmunini tahlil qilish.
+- Qurilish sohasi bo'yicha professional yuridik javob yozish.
+- O'zbekiston Respublikasi qonunlari, Prezident farmonlari, Vazirlar Mahkamasi qarorlari, SHNQ, KMK va boshqa normativ-huquqiy hujjatlari asosida javobni shakllantirish.
+- Zarur band va moddalarni keltirish.
+- Rasmiy davlat uslubida yozish.
+- Grammatik va yuridik xatolarsiz yozish.
+- Javobni professional davlat hujjati darajasida tayyorlash.
+
+MAJBURIY TALABLAR:
+- Javob faqat rasmiy yuridik tilda yozilsin.
+- Oddiy yoki norasmiy gaplar ishlatilmasin.
+- Qurilish sohasi terminlari professional ishlatilsin.
+- Hujjat davlat tashkiloti formatida bo'lsin.
+- Javob qisqa, aniq va asoslangan bo'lsin.
+- Keraksiz gaplar yozilmasin.
+- Har bir javob individual yozilsin.
+- AI hech qachon umumiy yoki shablon javob bermasin.
+- Javob mazmuni topshiriqqa to'liq mos bo'lsin.
+
+HUJJAT STRUCTURE:
+${header}
+
+---
+
+[KIMGA]
+
+[MAVZU]
+
+[JAVOB MATNI]
+
+---
+
+Hurmat bilan,
+
+[RAHBAR F.I.SH]
+[LAVOZIM]
+
+ENG MUHIM TALAB: javob foydalanuvchi yuklagan yoki tizimdagi standart shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub va joylashuv bo'yicha quyidagi shablon tahliliga qat'iy amal qil, biroq majburiy tashkilot rekvizitlari, sana va xat raqamini o'zgartirma.
 
 Shablon nomi: ${tpl.name}
 Hujjat turi: ${tpl.docType}
@@ -6265,21 +6361,22 @@ Hudud: ${region}
 Foydalanuvchi kiritgan topshiriq matni: ${manualTaskText || 'Kiritilmagan'}
 Qo'shimcha ma'lumot: ${extra}
 
+KIRISH MA'LUMOTLARI JSON:
+{
+  "tashkilot": ${JSON.stringify(recipientOrg)},
+  "topshiriq": ${JSON.stringify(manualTaskText || taskText || '')},
+  "obyekt": ${JSON.stringify(objectName)},
+  "hudud": ${JSON.stringify(region)},
+  "user_number": ${JSON.stringify(userNumber)},
+  "qoshimcha": ${JSON.stringify(extra)}
+}
+
 Yuqori tashkilot topshirig'i matni:
 ${(taskText || '').slice(0, 16000)}
 
-Asosiy talablar:
-- Javob faqat rasmiy yuridik tilda yozilsin.
-- Grammatik va imloviy xatolar bo'lmasin.
-- Davlat tashkiloti uslubida yozilsin.
-- Qurilish sohasi terminlari professional ishlatilsin.
-- O'zbekiston Respublikasining amaldagi qonunlari, Prezident farmonlari, Vazirlar Mahkamasi qarorlari, SHNQ, KMK va boshqa normativ-huquqiy hujjatlariga tayangan holda javob shakllantirilsin.
-- Zarur hollarda modda, band va hujjat raqamlari keltirilsin.
-- Javob mazmunan asoslangan, aniq va idoraviy yozishma standartlariga mos bo'lsin.
-
 FAQAT JSON qaytar:
 {"title":"","recipient":"","out_number":"","date":"","responsible":"","header":"","body":"","footer":"","signature_block":"","style_notes":"","html":""}
-header maydonida aynan majburiy header matnini qaytar. body maydonida asosiy javob xati matnini ber. html maydoni ixtiyoriy.`;
+header maydonida aynan majburiy header matnini qaytar. body maydonida individual, topshiriqqa mos, asoslangan rasmiy javob xati matnini ber. html maydoni ixtiyoriy.`;
     const parsed = parseAIJson(await callTemplateAi(prompt, file ? filePart : null, true));
     if(!parsed) throw new Error('AI javobi JSON formatda kelmadi');
     parsed.header = header;
