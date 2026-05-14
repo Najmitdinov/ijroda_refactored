@@ -1585,7 +1585,7 @@ function mergeTashkilotSources(dbRows=[], docStats=buildTashkilotStatsFromDocs()
       ...t,
       local_id: t.local_id || fromDocs?.local_id || makeTashkilotLocalId(t.nom),
       row_id: t.id ? `fs_${t.id}` : (t.row_id || t.local_id || fromDocs?.row_id || fromDocs?.local_id || makeTashkilotLocalId(t.nom)),
-      hujjatlar_soni: Math.max(Number(t.hujjatlar_soni||0), Number(fromDocs?.hujjatlar_soni||0)),
+      hujjatlar_soni: fromDocs ? Number(fromDocs.hujjatlar_soni||0) : Number(t.hujjatlar_soni||0),
       oxirgi_xat: t.oxirgi_xat || fromDocs?.oxirgi_xat || '',
       from_docs: !!fromDocs,
       auto_added: t.auto_added || !!fromDocs?.auto_added,
@@ -1593,6 +1593,23 @@ function mergeTashkilotSources(dbRows=[], docStats=buildTashkilotStatsFromDocs()
     });
   });
   return [...merged.values()].sort((a,b)=>(a.nom||'').localeCompare(b.nom||'', 'uz'));
+}
+
+function refreshTashkilotCacheFromDocs() {
+  const stats = buildTashkilotStatsFromDocs(allDocs);
+  tashkilotlarCache = tashkilotlarCache.map(t => {
+    const stat = stats.get(orgKey(t.nom));
+    return {
+      ...t,
+      hujjatlar_soni: Number(stat?.hujjatlar_soni || 0),
+      oxirgi_xat: stat?.oxirgi_xat || '',
+      from_docs: !!stat
+    };
+  });
+  stats.forEach((item, key) => {
+    if(!tashkilotlarCache.some(t => orgKey(t.nom) === key)) tashkilotlarCache.push(item);
+  });
+  tashkilotlarCache.sort((a,b)=>(a.nom||'').localeCompare(b.nom||'', 'uz'));
 }
 
 async function syncTashkilotlarFromDocs(rows=[]) {
@@ -1648,7 +1665,6 @@ async function syncTashkilotlarFromDocs(rows=[]) {
 
 async function persistTashkilotStatsFromDocs(rows=allDocs, silent=true) {
   const stats = buildTashkilotStatsFromDocs(rows);
-  if(!stats.size) return;
   upsertLocalTashkilotlar([...stats.values()].map(item => ({
     nom: item.nom,
     hujjatlar_soni: item.hujjatlar_soni,
@@ -1660,18 +1676,21 @@ async function persistTashkilotStatsFromDocs(rows=allDocs, silent=true) {
     const snap = await getDocs(collection(db,'tashkilotlar'));
     const existing = new Map(snap.docs.map(d => [orgKey(d.data().nom), { id:d.id, ...d.data() }]));
     const ops = [];
+    existing.forEach((found, key) => {
+      const item = stats.get(key);
+      const nextCount = Number(item?.hujjatlar_soni || 0);
+      const nextLast = item?.oxirgi_xat || '';
+      if(Number(found.hujjatlar_soni||0) !== nextCount || (nextLast && found.oxirgi_xat !== nextLast)) {
+        ops.push(updateDoc(doc(db,'tashkilotlar',found.id), {
+          hujjatlar_soni: nextCount,
+          oxirgi_xat: nextLast,
+          updatedAt: serverTimestamp()
+        }));
+      }
+    });
     stats.forEach(item => {
       const found = existing.get(orgKey(item.nom));
-      if(found) {
-        const nextCount = Math.max(Number(found.hujjatlar_soni||0), Number(item.hujjatlar_soni||0));
-        if(nextCount !== Number(found.hujjatlar_soni||0) || (!found.oxirgi_xat && item.oxirgi_xat)) {
-          ops.push(updateDoc(doc(db,'tashkilotlar',found.id), {
-            hujjatlar_soni: nextCount,
-            oxirgi_xat: found.oxirgi_xat || item.oxirgi_xat || '',
-            updatedAt: serverTimestamp()
-          }));
-        }
-      } else {
+      if(!found) {
         ops.push(addDoc(collection(db,'tashkilotlar'), {
           nom: item.nom,
           manzil: '',
@@ -1737,9 +1756,13 @@ window.deleteDoc2 = async (id) => {
     await deleteDoc(doc(db,'documents',id));
     allDocs = allDocs.filter(d=>d._id!==id);
     filteredDocs = filteredDocs.filter(d=>d._id!==id);
+    refreshTashkilotCacheFromDocs();
     renderTable();
     buildStats();
+    updateTashkilotlarBadge();
+    if(document.getElementById('panel-tashkilotlar')?.classList.contains('active')) renderTashkilotlar();
     updateNotificationBadge();
+    await persistTashkilotStatsFromDocs(allDocs, true);
     await writeAudit('task.delete', { id, docName: target.docName || '', docNum: target.docNum || '' });
     showToast('Hujjat o\'chirildi','success');
   } catch(e) {
@@ -2360,29 +2383,30 @@ window.saveManualDoc = async () => {
 
 // ===== FILTER =====
 window.applyFilter = () => {
-  const org = document.getElementById('f-org')?.value.trim().toLowerCase()||'';
+  const org = normalizeText(document.getElementById('f-org')?.value.trim()||'');
   const df = document.getElementById('f-date-from')?.value||'';
   const dt = document.getElementById('f-date-to')?.value||'';
-  const type = document.getElementById('f-type')?.value.toLowerCase()||'';
-  const status = document.getElementById('f-status')?.value.toLowerCase()||'';
+  const type = normalizeText(document.getElementById('f-type')?.value||'');
+  const status = document.getElementById('f-status')?.value||'';
   const src = document.getElementById('f-src')?.value||'';
-  const search = document.getElementById('f-search')?.value.toLowerCase()||'';
+  const search = normalizeText(document.getElementById('f-search')?.value||'');
 
   const dfrom = df ? new Date(df) : null;
   const dto = dt ? new Date(dt+'T23:59:59') : null;
 
   filteredDocs = allDocs.filter(row=>{
-    if(org && !normalizeText(getOrgText(row)).includes(org) && !(row.docName||'').toLowerCase().includes(org)) return false;
+    const hay = normalizeText(Object.values(row._raw || {}).join(' ') + ' ' + Object.values(row).filter(v => typeof v !== 'object').join(' '));
+    if(org && !normalizeText(getOrgText(row)).includes(org) && !normalizeText(row.docName||'').includes(org)) return false;
     if(src && row.source !== src) return false;
-    if(type) { const t=((row.docType||'')+(row.docName||'')).toLowerCase(); if(!t.includes(type)) return false; }
+    if(type) { const t=normalizeText(`${row.docType||''} ${row.docName||''} ${getRawField(row, ['hujjat turi','tur','type'])}`); if(!t.includes(type)) return false; }
     if(status && !statusMatches(row, status)) return false;
     if(dfrom||dto) {
       const d = parseDate(row.docDate)||parseDate(row.deadline);
-      if(d){ if(dfrom&&d<dfrom)return false; if(dto&&d>dto)return false; }
+      if(!d) return false;
+      if(dfrom&&d<dfrom)return false; if(dto&&d>dto)return false;
     }
     if(search) {
-      const txt = Object.values(row).join(' ').toLowerCase();
-      if(!txt.includes(search)) return false;
+      if(!hay.includes(search)) return false;
     }
     return true;
   });
@@ -2431,8 +2455,10 @@ window.setPeriod = (val) => {
 // ===== RENDER TABLE =====
 function renderTable() {
   updateBadges();
-  const wrap=document.getElementById('table-wrap');
-  const pageWrap=document.getElementById('pagination');
+  const filterActive = document.getElementById('panel-filter')?.classList.contains('active');
+  const wrap=document.getElementById(filterActive ? 'table-wrap-f' : 'table-wrap') || document.getElementById('table-wrap');
+  const pageWrap=document.getElementById(filterActive ? 'pagination-f' : 'pagination') || document.getElementById('pagination');
+  if(!wrap || !pageWrap) return;
   if(!filteredDocs.length){
     wrap.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><h3>Hujjat topilmadi</h3><p>Fayl yuklang yoki filtrni o\'zgartiring</p></div>';
     pageWrap.innerHTML=''; return;
@@ -3601,10 +3627,18 @@ function buildLegalAiShell() {
           <h2>${escH(legalT('moduleTitle'))}</h2>
           <p>${escH(legalT('moduleSub'))}</p>
         </div>
-        <div class="legal-ai-badge">${escH(legalT('strictMode'))}</div>
+        <div class="legal-ai-hero-stats">
+          <div><b>${legalAiState.audit.length}</b><span>Audit</span></div>
+          <div><b>${legalAiState.result?.tasks?.length || 0}</b><span>Topshiriq</span></div>
+          <div class="legal-ai-badge">${escH(legalT('strictMode'))}</div>
+        </div>
       </div>
       <div class="legal-ai-layout">
         <div class="legal-ai-control">
+          <div class="legal-ai-control-head">
+            <b>Hujjat tahlili</b>
+            <span>${providerReady ? escH(legalT('providerReady')) : escH(legalT('providerMissing'))}</span>
+          </div>
           <div class="legal-ai-section-title">${escH(legalT('upload'))}</div>
           <div class="legal-ai-drop" onclick="document.getElementById('legal-ai-file').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleLegalAiDrop(event)">
             <div class="legal-ai-drop-icon">AI</div>
@@ -3628,6 +3662,10 @@ function buildLegalAiShell() {
           <div id="legal-ai-provider" class="legal-ai-provider">${escH(legalT('provider'))}: ${providerReady ? escH(legalT('providerReady')) : escH(legalT('providerMissing'))}</div>
         </div>
         <div class="legal-ai-workspace">
+          <div class="legal-ai-workspace-head">
+            <div><b>Natijalar</b><span>${legalAiState.fileName ? escH(legalAiState.fileName) : 'Hujjat tanlanmagan'}</span></div>
+            <button class="btn btn-sm btn-outline" onclick="reanalyzeLegalAi()">Qayta tahlil</button>
+          </div>
           <div id="legal-ai-tabs" class="legal-ai-tabs"></div>
           <div id="legal-ai-result" class="legal-ai-body"></div>
         </div>
@@ -4717,6 +4755,7 @@ window.showPanel = (name) => {
   if (name === 'integrations') renderIntegrationsPanel();
   if (name === 'legal-ai') window.initLegalAiPanel?.();
   if (name === 'docs') renderTable();
+  if (name === 'filter') renderTable();
   if (name === 'stats') buildStats();
   if (name === 'admin' || name === 'superadmin') { loadAllUsers(); loadSuperAdminStats(); }
   if (name === 'hisobot') initHisobotPanel();
@@ -5072,6 +5111,10 @@ window.saveXodim = async () => {
 window.editXodim = (id) => {
   const x = xodimlarCache.find(x=>x.id===id);
   if(!x) return;
+  const sektorSelect = document.getElementById('x-sektor');
+  if(sektorSelect && x.sektor && ![...sektorSelect.options].some(o => o.value === x.sektor)) {
+    sektorSelect.insertAdjacentHTML('beforeend', `<option value="${escH(x.sektor)}">${escH(x.sektor)}</option>`);
+  }
   document.getElementById('x-ism').value      = x.ism||'';
   document.getElementById('x-familiya').value = x.familiya||'';
   document.getElementById('x-lavozim').value  = x.lavozim||'';
@@ -5082,6 +5125,8 @@ window.editXodim = (id) => {
   document.getElementById('x-edit-id').value  = id;
   document.getElementById('x-form-title').textContent = '✏️ Xodimni tahrirlash';
   document.getElementById('x-ism').scrollIntoView({behavior:'smooth'});
+  document.getElementById('x-ism').focus();
+  showToast('Xodim maʼlumotlari tahrirlash formasiga yuklandi', 'info');
 };
 
 window.deleteXodim = async (id) => {
@@ -6971,6 +7016,24 @@ function ahbOrgMatches(doc, selected=[]) {
   return selected.some(org => canonicalOrgName(org) === docOrg);
 }
 
+function ahbDateInRange(doc={}, fromValue='', toValue='') {
+  const from = fromValue ? new Date(fromValue + 'T00:00:00') : null;
+  const to = toValue ? new Date(toValue + 'T23:59:59') : null;
+  if(!from && !to) return true;
+  const d = parseDate(doc.deadline) || parseDate(doc.docDate) || parseDate(getRawField(doc, ['muddat','ijro muddati','sana','hujjat sanasi']));
+  if(!d) return false;
+  if(from && d < from) return false;
+  if(to && d > to) return false;
+  return true;
+}
+
+function ahbDateLabel(from='', to='') {
+  if(from && to) return `${from} - ${to}`;
+  if(from) return `${from} dan`;
+  if(to) return `${to} gacha`;
+  return 'Barcha muddatlar';
+}
+
 function getOurOrgName() {
   const org = normalizeOrgName(currentUserData?.org || '');
   if(org && !/maktabgacha|maktab ta'?lim/i.test(org)) return org;
@@ -7293,7 +7356,7 @@ function renderAhbList() {
           <div style="font-size:12px;color:var(--muted);line-height:1.6;">
             🏛️ ${escH(parseAhbTashkilotlar(b.tashkilot).join(', ')||'Barcha')} &nbsp;|&nbsp; 
             📊 ${escH(b.tur||'excel')} &nbsp;|&nbsp; 
-            📅 ${escH(b.davr||'month')} &nbsp;|&nbsp;
+            📅 ${escH(ahbDateLabel(b.dateFrom || b.muddatFrom, b.dateTo || b.muddatTo))} &nbsp;|&nbsp;
             📋 ${escH(b.status||'Barchasi')}
           </div>
           ${b.korstma?`<div style="font-size:11px;color:#5b21b6;margin-top:4px;font-style:italic;">AI ko'rsatma: ${escH(b.korstma)}</div>`:''}
@@ -7314,7 +7377,8 @@ window.saveAiHisobotBuyruq = async () => {
   const data = {
     nom, tashkilot:selectedOrgs.join('||'),
     tur:document.getElementById('ahb-tur')?.value||'excel',
-    davr:document.getElementById('ahb-davr')?.value||'month',
+    dateFrom:document.getElementById('ahb-date-from')?.value||'',
+    dateTo:document.getElementById('ahb-date-to')?.value||'',
     status:document.getElementById('ahb-status')?.value||'',
     fields:document.getElementById('ahb-fields')?.value.trim()||'',
     korstma:document.getElementById('ahb-korstma')?.value.trim()||'',
@@ -7331,8 +7395,8 @@ window.saveAiHisobotBuyruq = async () => {
 };
 
 window.clearAiHisobotForm = () => {
-  ['ahb-nom','ahb-fields','ahb-korstma'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  ['ahb-tur','ahb-davr','ahb-status'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=e.options?.[0]?.value||'';});
+  ['ahb-nom','ahb-fields','ahb-korstma','ahb-date-from','ahb-date-to'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['ahb-tur','ahb-status'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=e.options?.[0]?.value||'';});
   document.querySelectorAll('.ahb-org-check').forEach(ch=>ch.checked=false);
   const all=document.getElementById('ahb-org-all'); if(all) all.checked=true;
 };
@@ -7349,11 +7413,12 @@ window.executeAiHisobotBuyruq = () => {
   const nom = document.getElementById('ahb-nom')?.value.trim();
   const tashkilot = getSelectedAhbTashkilotlar().join('||');
   const tur = document.getElementById('ahb-tur')?.value||'excel';
-  const davr = document.getElementById('ahb-davr')?.value||'month';
+  const dateFrom = document.getElementById('ahb-date-from')?.value||'';
+  const dateTo = document.getElementById('ahb-date-to')?.value||'';
   const status = document.getElementById('ahb-status')?.value||'';
   const fields = document.getElementById('ahb-fields')?.value.trim()||'';
   const korstma = document.getElementById('ahb-korstma')?.value.trim()||'';
-  const fake = {nom:nom||'Hisobot',tashkilot,tur,davr,status,fields,korstma};
+  const fake = {nom:nom||'Hisobot',tashkilot,tur,dateFrom,dateTo,status,fields,korstma};
   runAhbBuyruq(JSON.stringify(fake));
 };
 
@@ -7374,21 +7439,7 @@ window.runAhbBuyruq = async (buyruqJson) => {
     const selectedOrgs = parseAhbTashkilotlar(b.tashkilot);
     if(selectedOrgs.length) docs = docs.filter(d=>ahbOrgMatches(d, selectedOrgs));
     if(b.status) docs = docs.filter(d=>statusMatches(d, b.status));
-
-    // Davr filter
-    const now = new Date();
-    if(b.davr !== 'all') {
-      const from = new Date();
-      if(b.davr==='month') from.setMonth(from.getMonth()-1);
-      else if(b.davr==='quarter') from.setMonth(from.getMonth()-3);
-      else if(b.davr==='year') from.setFullYear(from.getFullYear()-1);
-      docs = docs.filter(d => {
-        if(!d.docDate) return true;
-        const parts = d.docDate.split('.');
-        if(parts.length===3) { const dt=new Date(parts[2],parts[1]-1,parts[0]); return dt>=from; }
-        return true;
-      });
-    }
+    docs = docs.filter(d => ahbDateInRange(d, b.dateFrom || b.muddatFrom || '', b.dateTo || b.muddatTo || ''));
 
     const total = docs.length;
     const statusCounts = getStatusCounts(docs);
@@ -7406,7 +7457,7 @@ window.runAhbBuyruq = async (buyruqJson) => {
 
 Hisobot buyrug'i: "${b.nom||'Hisobot'}"
 Tashkilot filtri: ${selectedOrgs.length ? selectedOrgs.join(', ') : 'Barcha tashkilotlar'}
-Davr: ${b.davr}
+Muddat oralig'i: ${ahbDateLabel(b.dateFrom || b.muddatFrom || '', b.dateTo || b.muddatTo || '')}
 Holat filtri: ${b.status||'Barchasi'}
 So'ralgan ma'lumotlar: ${b.fields||'Hujjat nomi, raqami, sanasi, tashkilot, holat, muddat, ijrochi, rezolyutsiya va topshiriq'}
 ${b.korstma?'Admin ko\'rsatmasi: '+b.korstma:''}
