@@ -12,6 +12,9 @@ import {
   deleteDoc, query, where, orderBy, serverTimestamp, updateDoc, limit, addDoc,
   onSnapshot, increment, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {
+  getStorage, ref as storageRef, uploadBytes, getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 import { firebaseConfig } from "./firebase/config.js";
 import { IJRO_SEKTORLAR, IJRO_XODIMLAR } from "./data/ijro-default-data.js";
 
@@ -25,6 +28,7 @@ import { IJRO_SEKTORLAR, IJRO_XODIMLAR } from "./data/ijro-default-data.js";
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // Ensure session persists across browser tabs and reloads before any login/register call.
 const authPersistenceReady = setPersistence(auth, browserLocalPersistence).catch((e) => {
@@ -508,8 +512,8 @@ const ROLE_LABELS = {
 
 const ROLE_PERMISSIONS = {
   superadmin: ['*'],
-  admin: ['task.create','task.delete','task.bulkDelete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','user.role','settings.security','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer'],
-  org_admin: ['task.create','task.delete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer'],
+  admin: ['task.create','task.delete','task.bulkDelete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','user.role','settings.security','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer','ai.template'],
+  org_admin: ['task.create','task.delete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer','ai.template'],
   department_head: ['task.create','task.assign','report.submit','report.approve','report.reject','report.export','notification.view','legal.analyze','legal.taskCreate','legal.answer'],
   executor: ['task.create','report.submit','notification.view','legal.analyze','legal.taskCreate','legal.answer'],
   controller: ['report.approve','report.reject','report.export','audit.view','notification.view','legal.analyze','legal.answer'],
@@ -4781,6 +4785,7 @@ window.showPanel = (name) => {
   if (name === 'sektorlar') loadSektorlar();
   if (name === 'aichat') { loadChatList(); }
   if (name === 'providers') { renderProviderStatus(); }
+  if (name === 'template-builder') { loadTemplateBuilderPanel(); }
   if (name === 'superadmin') { loadAdminAnalytics(); }
   if (name === 'muhim') { loadMuhimTopshiriqlar(); }
   if (name === 'tashkilotlar') { loadTashkilotlar(); }
@@ -5568,6 +5573,375 @@ function parseAIJson(text) {
   };
   return Object.values(recovered).some(Boolean) ? recovered : null;
 }
+
+// ===== AI TEMPLATE DOCUMENT BUILDER =====
+let aiTemplatesCache = [];
+let aiKnowledgeCache = [];
+let aiGeneratedDocsCache = [];
+let activeTemplateAiTab = 'templates';
+let lastGeneratedDocument = null;
+
+function aiDocOrgScope() {
+  return currentUserData?.org || currentUser?.uid || 'global';
+}
+
+function aiDocSafeName(name='file') {
+  return String(name || 'file').replace(/[^\w.-]+/g, '_').slice(0, 80);
+}
+
+function aiDocFileKind(file) {
+  const name = file?.name || '';
+  if(/\.docx?$/i.test(name)) return 'word';
+  if(/\.pdf$/i.test(name)) return 'pdf';
+  if(/\.txt$/i.test(name)) return 'text';
+  if(/\.(png|jpe?g|webp)$/i.test(name)) return 'image';
+  return 'file';
+}
+
+async function aiDocExtractText(file) {
+  if(!file) return '';
+  if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 50000);
+  if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return (await readAsText(file)).slice(0, 50000);
+  return '';
+}
+
+async function aiDocUploadFile(file, folder) {
+  const path = `${folder}/${currentUser?.uid || 'anon'}/${Date.now()}_${aiDocSafeName(file.name)}`;
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
+  return { path, url: await getDownloadURL(ref) };
+}
+
+async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
+  const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+  if(geminiKey) {
+    const parts = [{ text: prompt }];
+    if(filePart?.base64) parts.push({ inline_data: { mime_type: filePart.mimeType, data: filePart.base64 } });
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contents: [{ role:'user', parts }],
+        generationConfig: { temperature:0.18, maxOutputTokens: jsonMode ? 5200 : 6500, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
+      })
+    });
+    if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
+    const data = await resp.json();
+    const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+    await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
+    return text;
+  }
+  const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
+  if(openRouterKey) {
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
+      body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.18, max_tokens:5200 })
+    });
+    if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
+    const data = await resp.json();
+    await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
+    return data?.choices?.[0]?.message?.content || '';
+  }
+  throw new Error('AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini yoki OpenRouter kalitini kiriting.');
+}
+
+function localTemplateAnalysis(file, text='') {
+  const lower = normalizeText(`${file?.name || ''} ${text}`);
+  return {
+    header: text.split('\n').slice(0, 5).join('\n').slice(0, 900),
+    footer: text.split('\n').slice(-4).join('\n').slice(0, 700),
+    font: lower.includes('times') ? 'Times New Roman' : 'Times New Roman',
+    layout: 'Rasmiy xat formati: yuqorida rekvizitlar, o rtada mavzu, keyin asosiy matn va imzo bloki.',
+    style_notes: 'Shablondagi header, footer, rekvizit, shrift, rasmiy ohang va joylashuvni saqlashga harakat qiling.'
+  };
+}
+
+async function analyzeTemplateWithAi(file, text, meta) {
+  const prompt = `Sen rasmiy hujjat shablonlarini tahlil qiluvchi yordamchisan. Shablon asosida keyin AI yaratadigan xatlar header, footer, rekvizitlar, shrift, uslub va joylashuvni saqlashi kerak.
+FAQAT JSON qaytar:
+{"header":"","footer":"","font":"","layout":"","style_notes":"","placeholders":[],"recommended_prompt":""}
+
+Shablon nomi: ${meta.name}
+Hujjat turi: ${meta.docType}
+Foydalanuvchi prompti: ${meta.prompt}
+Ajratilgan matn:
+${(text || '').slice(0, 12000)}`;
+  try {
+    const filePart = text ? null : { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' };
+    const parsed = parseAIJson(await callTemplateAi(prompt, filePart, true));
+    return parsed || localTemplateAnalysis(file, text);
+  } catch(e) {
+    console.warn('template analysis fallback:', e.message);
+    return localTemplateAnalysis(file, text);
+  }
+}
+
+window.showTemplateAiTab = function(tab='templates') {
+  activeTemplateAiTab = tab;
+  document.querySelectorAll('.template-ai-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tplTab === tab));
+  document.querySelectorAll('[data-tpl-panel]').forEach(panel => panel.style.display = panel.dataset.tplPanel === tab ? '' : 'none');
+};
+
+window.loadTemplateBuilderPanel = async function() {
+  if(!currentUser) return;
+  window.showTemplateAiTab(activeTemplateAiTab || 'templates');
+  if(!xodimlarCache.length) await loadXodimlar().catch(()=>{});
+  await Promise.all([loadAiTemplates(), loadAiKnowledgeDocs(), loadGeneratedAiDocs()]);
+  renderTemplateSelects();
+};
+
+async function loadAiTemplates() {
+  const snap = await getDocs(query(collection(db,'ai_document_templates'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_document_templates')));
+  aiTemplatesCache = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  renderAiTemplates();
+}
+
+function renderAiTemplates() {
+  const el = document.getElementById('tpl-list');
+  if(!el) return;
+  el.innerHTML = aiTemplatesCache.length ? aiTemplatesCache.map(t => `
+    <div class="template-ai-item">
+      <b>${escH(t.name || 'Shablon')}</b>
+      <span>${escH(t.docType || '')} | ${escH(t.fileName || '')}</span>
+      <p>${escH(t.description || '')}</p>
+      <div class="actions-row" style="margin-top:10px;">
+        <button class="btn btn-sm btn-outline" onclick="downloadUrl('${escH(t.fileUrl || '')}')">Shablonni ochish</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteAiTemplate('${t.id}')">O'chirish</button>
+      </div>
+    </div>`).join('') : '<div class="empty-state"><h3>Shablon yo q</h3><p>Yangi Word yoki PDF shablon yuklang.</p></div>';
+}
+
+window.clearAiTemplateForm = function() {
+  ['tpl-name','tpl-desc','tpl-prompt'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const file = document.getElementById('tpl-file'); if(file) file.value = '';
+};
+
+window.saveAiTemplate = async function() {
+  if(!requirePermission('ai.template', 'Shablon qo shish')) return;
+  const file = document.getElementById('tpl-file')?.files?.[0];
+  const name = document.getElementById('tpl-name')?.value?.trim();
+  const description = document.getElementById('tpl-desc')?.value?.trim() || '';
+  const prompt = document.getElementById('tpl-prompt')?.value?.trim() || '';
+  const docType = document.getElementById('tpl-doc-type')?.value || 'Xizmat xati';
+  if(!name || !file) { showToast('Shablon nomi va fayl majburiy', 'error'); return; }
+  if(!/\.(doc|docx|pdf)$/i.test(file.name)) { showToast('Faqat Word yoki PDF shablon yuklang', 'error'); return; }
+  showToast('Shablon yuklanmoqda va AI tahlil qilmoqda...', 'info');
+  try {
+    const text = await aiDocExtractText(file);
+    const uploaded = await aiDocUploadFile(file, 'ai_templates');
+    const analysis = await analyzeTemplateWithAi(file, text, { name, docType, prompt });
+    await addDoc(collection(db,'ai_document_templates'), {
+      org: aiDocOrgScope(), userId: currentUser.uid, name, description, prompt, docType,
+      fileName:file.name, fileType:file.type || '', fileKind:aiDocFileKind(file), fileUrl:uploaded.url, storagePath:uploaded.path,
+      extractedText:text.slice(0, 18000), analysis, createdAt:serverTimestamp(), createdAtLocal:nowIso()
+    });
+    await writeAudit('ai_template.created', { name, docType, fileName:file.name }).catch(()=>{});
+    clearAiTemplateForm();
+    await loadAiTemplates();
+    renderTemplateSelects();
+    showToast('Shablon saqlandi', 'success');
+  } catch(e) {
+    showToast('Shablon saqlanmadi: ' + e.message, 'error');
+  }
+};
+
+window.deleteAiTemplate = async function(id) {
+  if(!confirm('Shablonni o chirmoqchimisiz?')) return;
+  await deleteDoc(doc(db,'ai_document_templates',id));
+  await loadAiTemplates();
+  renderTemplateSelects();
+};
+
+async function loadAiKnowledgeDocs() {
+  const snap = await getDocs(query(collection(db,'ai_knowledge_documents'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_knowledge_documents')));
+  aiKnowledgeCache = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  renderAiKnowledgeDocs();
+}
+
+function renderAiKnowledgeDocs() {
+  const el = document.getElementById('kb-list');
+  if(!el) return;
+  el.innerHTML = aiKnowledgeCache.length ? aiKnowledgeCache.map(k => `
+    <div class="template-ai-item">
+      <b>${escH(k.title || k.fileName || 'Hujjat')}</b>
+      <span>${escH(k.docType || '')} | ${escH(k.fileName || '')}</span>
+      <p>${escH(k.analysis?.summary || k.summary || 'AI tahlil saqlandi')}</p>
+    </div>`).join('') : '<div class="empty-state"><h3>Hujjatlar yo q</h3><p>Qaror, buyruq yoki boshqa rasmiy hujjat yuklang.</p></div>';
+}
+
+async function analyzeKnowledgeDocument(file, title, docType, text) {
+  const prompt = `Rasmiy hujjatni tahlil qil. Keyinchalik xizmat xati, javob xati, topshiriq matni va rasmiy yozishmalar yaratishda foydalaniladi.
+FAQAT JSON qaytar:
+{"summary":"","keywords":[],"requisites":{"number":"","date":"","issuer":""},"tasks":[],"legal_basis":[],"usable_facts":[]}
+
+Nomi: ${title}
+Turi: ${docType}
+Matn:
+${(text || '').slice(0, 16000)}`;
+  try {
+    const filePart = text ? null : { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' };
+    return parseAIJson(await callTemplateAi(prompt, filePart, true)) || { summary:'AI tahlil matni ajratilmadi', keywords:[], usable_facts:[] };
+  } catch(e) {
+    return { summary:(text || file.name).slice(0, 900), keywords:[], usable_facts:[], error:e.message };
+  }
+}
+
+window.uploadKnowledgeDocument = async function() {
+  if(!requirePermission('ai.template', 'Rasmiy hujjat bazasini to ldirish')) return;
+  const file = document.getElementById('kb-file')?.files?.[0];
+  const title = document.getElementById('kb-title')?.value?.trim() || file?.name || '';
+  const docType = document.getElementById('kb-type')?.value || 'Boshqa rasmiy hujjat';
+  const status = document.getElementById('kb-status');
+  if(!file) { showToast('Hujjat faylini tanlang', 'error'); return; }
+  if(status) { status.className='template-ai-status warn'; status.textContent='Yuklanmoqda va AI tahlil qilmoqda...'; }
+  try {
+    const text = await aiDocExtractText(file);
+    const uploaded = await aiDocUploadFile(file, 'ai_knowledge');
+    const analysis = await analyzeKnowledgeDocument(file, title, docType, text);
+    await addDoc(collection(db,'ai_knowledge_documents'), {
+      org: aiDocOrgScope(), userId:currentUser.uid, title, docType, fileName:file.name, fileType:file.type || '', fileUrl:uploaded.url, storagePath:uploaded.path,
+      extractedText:text.slice(0, 22000), analysis, createdAt:serverTimestamp(), createdAtLocal:nowIso()
+    });
+    await writeAudit('ai_knowledge.created', { title, docType, fileName:file.name }).catch(()=>{});
+    document.getElementById('kb-file').value = '';
+    document.getElementById('kb-title').value = '';
+    await loadAiKnowledgeDocs();
+    if(status) { status.className='template-ai-status ok'; status.textContent='Hujjat AI tomonidan tahlil qilindi va bazaga saqlandi.'; }
+  } catch(e) {
+    if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
+  }
+};
+
+function renderTemplateSelects() {
+  const tplSel = document.getElementById('resp-template');
+  if(tplSel) tplSel.innerHTML = aiTemplatesCache.map(t=>`<option value="${t.id}">${escH(t.name)} - ${escH(t.docType || '')}</option>`).join('');
+  const respDate = document.getElementById('resp-date');
+  if(respDate && !respDate.value) respDate.value = new Date().toISOString().slice(0,10);
+  const resp = document.getElementById('resp-responsible');
+  if(resp) {
+    const users = xodimlarCache.length ? xodimlarCache : [{ id:'', ism:'', familiya:currentUserData?.fullName || currentUser?.email || '' }];
+    resp.innerHTML = users.map(x => {
+      const name = [x.ism, x.familiya].filter(Boolean).join(' ') || x.fullName || x.name || x.email || '';
+      return `<option value="${escH(name)}">${escH(name || 'Mas ul')}</option>`;
+    }).join('');
+  }
+}
+
+function aiKnowledgeContext() {
+  return aiKnowledgeCache.slice(0, 8).map(k => `${k.title || k.fileName}: ${k.analysis?.summary || ''}\nFaktlar: ${(k.analysis?.usable_facts || []).join('; ')}`).join('\n\n').slice(0, 9000);
+}
+
+window.generateResponseDocument = async function() {
+  if(!requirePermission('ai.template', 'AI javob xati yaratish')) return;
+  const tpl = aiTemplatesCache.find(t => t.id === document.getElementById('resp-template')?.value);
+  const file = document.getElementById('resp-file')?.files?.[0];
+  const outNum = document.getElementById('resp-out-num')?.value?.trim();
+  const date = document.getElementById('resp-date')?.value;
+  const responsible = document.getElementById('resp-responsible')?.value || '';
+  const extra = document.getElementById('resp-extra')?.value?.trim() || '';
+  const status = document.getElementById('resp-status');
+  if(!tpl || !file || !outNum || !date) { showToast('Shablon, topshiriq fayli, chiquvchi raqam va sana majburiy', 'error'); return; }
+  if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
+  try {
+    const taskText = await aiDocExtractText(file);
+    const filePart = taskText ? null : { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' };
+    const prompt = `Sen davlat organi uchun rasmiy javob xati yaratasan.
+ENG MUHIM TALAB: javob foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub va joylashuv bo'yicha quyidagi shablon tahliliga qat'iy amal qil.
+
+Shablon nomi: ${tpl.name}
+Hujjat turi: ${tpl.docType}
+Shablon prompti: ${tpl.prompt || ''}
+Shablon tahlili: ${JSON.stringify(tpl.analysis || {})}
+Shablondan ajratilgan matn: ${(tpl.extractedText || '').slice(0, 7000)}
+
+Qo'shimcha rasmiy hujjatlar bazasi:
+${aiKnowledgeContext() || 'Bazaga qo shimcha hujjat yuklanmagan.'}
+
+Chiquvchi raqam: ${outNum}
+Sana: ${date}
+Mas'ul shaxs: ${responsible}
+Qo'shimcha izoh: ${extra}
+
+Yuqori tashkilot topshirig'i matni:
+${(taskText || '').slice(0, 16000)}
+
+FAQAT JSON qaytar:
+{"title":"","recipient":"","out_number":"","date":"","responsible":"","header":"","body":"","footer":"","signature_block":"","style_notes":"","html":""}
+html maydonida inline CSS bilan rasmiy .doc ga mos HTML hujjat ber.`;
+    const parsed = parseAIJson(await callTemplateAi(prompt, filePart, true));
+    if(!parsed) throw new Error('AI javobi JSON formatda kelmadi');
+    const generated = {
+      org: aiDocOrgScope(), userId:currentUser.uid, templateId:tpl.id, templateName:tpl.name,
+      sourceFileName:file.name, outNumber:outNum, date, responsible, content:parsed,
+      createdAt:serverTimestamp(), createdAtLocal:nowIso()
+    };
+    const refDoc = await addDoc(collection(db,'ai_generated_documents'), generated);
+    lastGeneratedDocument = { id:refDoc.id, ...generated };
+    renderGeneratedPreview(lastGeneratedDocument);
+    await loadGeneratedAiDocs();
+    if(status) { status.className='template-ai-status ok'; status.textContent='Javob xati yaratildi va bazaga saqlandi.'; }
+  } catch(e) {
+    if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
+  }
+};
+
+function buildGeneratedDocHtml(g) {
+  const c = g?.content || {};
+  if(c.html) return c.html;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;color:#111;margin:42px 56px;}
+    .hdr,.ftr{white-space:pre-wrap;font-size:12pt;color:#222}.meta{text-align:right;margin:18px 0}.title{text-align:center;font-weight:bold;text-transform:uppercase;margin:22px 0}.body{white-space:pre-wrap}.sig{margin-top:34px;white-space:pre-wrap}
+  </style></head><body>
+    <div class="hdr">${escH(c.header || '')}</div>
+    <div class="meta">Chiquvchi raqam: ${escH(c.out_number || g.outNumber || '')}<br>Sana: ${escH(c.date || g.date || '')}</div>
+    <div>${escH(c.recipient || '')}</div>
+    <div class="title">${escH(c.title || 'Javob xati')}</div>
+    <div class="body">${escH(c.body || '')}</div>
+    <div class="sig">${escH(c.signature_block || g.responsible || '')}</div>
+    <div class="ftr">${escH(c.footer || '')}</div>
+  </body></html>`;
+}
+
+function renderGeneratedPreview(g) {
+  const el = document.getElementById('resp-preview');
+  if(!el) return;
+  el.innerHTML = `<h3>${escH(g.content?.title || 'Javob xati')}</h3>${escH(g.content?.body || '').replace(/\n/g,'<br>')}
+    <div class="actions-row" style="margin-top:16px;"><button class="btn btn-primary" onclick="downloadGeneratedDocument('${g.id}')">Word yuklash</button></div>`;
+}
+
+async function loadGeneratedAiDocs() {
+  const snap = await getDocs(query(collection(db,'ai_generated_documents'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_generated_documents')));
+  aiGeneratedDocsCache = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  renderGeneratedAiDocs();
+}
+
+function renderGeneratedAiDocs() {
+  const el = document.getElementById('gen-list');
+  if(!el) return;
+  el.innerHTML = aiGeneratedDocsCache.length ? aiGeneratedDocsCache.map(g => `
+    <div class="template-ai-item">
+      <b>${escH(g.content?.title || 'Yaratilgan hujjat')}</b>
+      <span>${escH(g.templateName || '')} | ${escH(g.outNumber || '')} | ${escH(g.date || '')}</span>
+      <p>${escH((g.content?.body || '').slice(0, 260))}</p>
+      <div class="actions-row" style="margin-top:10px;"><button class="btn btn-sm btn-primary" onclick="downloadGeneratedDocument('${g.id}')">Word yuklash</button></div>
+    </div>`).join('') : '<div class="empty-state"><h3>Hujjat yaratilmagan</h3><p>Generate tugmasi orqali javob xatini yarating.</p></div>';
+}
+
+window.downloadGeneratedDocument = function(id) {
+  const g = aiGeneratedDocsCache.find(x=>x.id===id) || (lastGeneratedDocument?.id === id ? lastGeneratedDocument : null);
+  if(!g) return;
+  const blob = new Blob([buildGeneratedDocHtml(g)], { type:'application/msword;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Javob_xati_${aiDocSafeName(g.outNumber || g.id)}.doc`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+window.downloadUrl = function(url) {
+  if(url) window.open(url, '_blank', 'noopener');
+};
 
 function normalizeAIResult(result) {
   const today = new Date();

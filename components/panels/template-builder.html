@@ -1,0 +1,84 @@
+<div class="panel" id="panel-template-builder">
+  <div class="page-hdr">
+    <h2>AI shablonlar va hujjat yaratish</h2>
+    <p>Word/PDF shablonlar, rasmiy hujjatlar bazasi va topshiriqlarga avtomatik javob xatlari</p>
+  </div>
+
+  <div class="template-ai-shell">
+    <div class="template-ai-tabs">
+      <button class="template-ai-tab active" data-tpl-tab="templates" onclick="showTemplateAiTab('templates')">Shablon qo'shish</button>
+      <button class="template-ai-tab" data-tpl-tab="knowledge" onclick="showTemplateAiTab('knowledge')">Qo'shimcha ma'lumotlar</button>
+      <button class="template-ai-tab" data-tpl-tab="response" onclick="showTemplateAiTab('response')">Topshiriqlarga javob yaratish</button>
+      <button class="template-ai-tab" data-tpl-tab="generated" onclick="showTemplateAiTab('generated')">Yaratilgan hujjatlar</button>
+    </div>
+
+    <div class="template-ai-grid" data-tpl-panel="templates">
+      <div class="card">
+        <div class="card-title">Yangi shablon</div>
+        <div class="form-grid">
+          <div class="field"><label>Shablon nomi</label><input id="tpl-name" placeholder="Masalan: Javob xati shabloni"></div>
+          <div class="field"><label>Hujjat turi</label><select id="tpl-doc-type"><option>Xizmat xati</option><option>Javob xati</option><option>Topshiriq matni</option><option>Rasmiy yozishma</option><option>Buyruq</option><option>Qaror</option></select></div>
+          <div class="field wide"><label>Tavsifi</label><textarea id="tpl-desc" placeholder="Shablon qachon va qaysi hujjatlar uchun ishlatiladi"></textarea></div>
+          <div class="field wide"><label>AI uchun prompt</label><textarea id="tpl-prompt" placeholder="AI hujjatni qanday ohang, tuzilma va uslubda yozishini belgilang"></textarea></div>
+          <div class="field wide"><label>Word yoki PDF shablon</label><input id="tpl-file" type="file" accept=".doc,.docx,.pdf"></div>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-primary" onclick="saveAiTemplate()">Shablonni saqlash</button>
+          <button class="btn btn-outline" onclick="clearAiTemplateForm()">Tozalash</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Saqlangan shablonlar</div>
+        <div id="tpl-list" class="template-ai-list">Yuklanmoqda...</div>
+      </div>
+    </div>
+
+    <div class="template-ai-grid" data-tpl-panel="knowledge" style="display:none;">
+      <div class="card">
+        <div class="card-title">Rasmiy hujjat yuklash</div>
+        <div class="form-grid">
+          <div class="field"><label>Hujjat nomi</label><input id="kb-title" placeholder="Qaror, buyruq yoki xat nomi"></div>
+          <div class="field"><label>Hujjat turi</label><select id="kb-type"><option>Qaror</option><option>Buyruq</option><option>Farmoyish</option><option>Xizmat xati</option><option>Boshqa rasmiy hujjat</option></select></div>
+          <div class="field wide"><label>Fayl</label><input id="kb-file" type="file" accept=".doc,.docx,.pdf,.txt"></div>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-primary" onclick="uploadKnowledgeDocument()">Yuklash va AI tahlil</button>
+        </div>
+        <div id="kb-status" class="template-ai-status"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">AI tahlil qilingan baza</div>
+        <div id="kb-list" class="template-ai-list">Yuklanmoqda...</div>
+      </div>
+    </div>
+
+    <div class="template-ai-grid" data-tpl-panel="response" style="display:none;">
+      <div class="card">
+        <div class="card-title">Topshiriqqa javob xati</div>
+        <div class="form-grid">
+          <div class="field"><label>Shablon</label><select id="resp-template"></select></div>
+          <div class="field"><label>Chiquvchi raqami</label><input id="resp-out-num" placeholder="01-12/345"></div>
+          <div class="field"><label>Sana</label><input id="resp-date" type="date"></div>
+          <div class="field"><label>Mas'ul shaxs</label><select id="resp-responsible"></select></div>
+          <div class="field wide"><label>Yuqori tashkilotdan kelgan topshiriq hujjati</label><input id="resp-file" type="file" accept=".doc,.docx,.pdf,.txt,.png,.jpg,.jpeg,.webp"></div>
+          <div class="field wide"><label>Qo'shimcha topshiriq yoki izoh</label><textarea id="resp-extra" placeholder="Javob xatida alohida yoritilishi kerak bo'lgan ma'lumotlar"></textarea></div>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-success" onclick="generateResponseDocument()">Generate</button>
+        </div>
+        <div id="resp-status" class="template-ai-status"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Natija</div>
+        <div id="resp-preview" class="template-ai-preview">Shablon va topshiriq hujjatini tanlab Generate tugmasini bosing.</div>
+      </div>
+    </div>
+
+    <div data-tpl-panel="generated" style="display:none;">
+      <div class="card">
+        <div class="card-title">Yaratilgan hujjatlar</div>
+        <div id="gen-list" class="template-ai-list">Yuklanmoqda...</div>
+      </div>
+    </div>
+  </div>
+</div>

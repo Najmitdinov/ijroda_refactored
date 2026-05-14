@@ -82,6 +82,36 @@ service cloud.firestore {
       allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
         in ['admin', 'superadmin'];
     }
+
+    // AI shablonlar va avtomatik hujjat yaratish
+    match /ai_document_templates/{id} {
+      allow read, write: if request.auth != null
+        &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+          in ['org_admin', 'admin', 'superadmin'];
+    }
+    match /ai_knowledge_documents/{id} {
+      allow read, write: if request.auth != null
+        &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+          in ['org_admin', 'admin', 'superadmin'];
+    }
+    match /ai_generated_documents/{id} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}</pre>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Firebase Storage Rules (shablon fayllari uchun)</div>
+          <pre style="background:#0d1a2b;color:#63b3ed;border-radius:10px;padding:16px;font-size:11px;overflow-x:auto;line-height:1.7;font-family:'JetBrains Mono',monospace;">rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /ai_templates/{uid}/{fileName} {
+      allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
+    }
+    match /ai_knowledge/{uid}/{fileName} {
+      allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
+    }
   }
 }</pre>
         </div>
