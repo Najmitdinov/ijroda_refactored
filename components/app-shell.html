@@ -239,7 +239,9 @@
       Ijro Hisobot
     </div>
     <div class="topbar-right">
+        <!-- Disabled: Bildirishnomalar
         <button id="notification-btn" class="notification-btn" onclick="showPanel('notifications');renderNotifications();" title="Bildirishnomalar">🔔<span id="notification-badge" class="notification-badge" style="display:none;">0</span></button>
+        -->
         <select id="language-select" class="language-select" onchange="setLanguage(this.value)" title="Til">
           <option value="uz">O'z</option>
           <option value="ru">Рус</option>
@@ -267,29 +269,54 @@
       <div class="sb-section">
         <div class="sb-title">Asosiy</div>
         <div class="nav-item active" data-panel="dashboard" onclick="showPanel('dashboard')"><span class="nav-icon">⌂</span> Bosh sahifa</div>
+        <div class="nav-item" data-panel="ai-hisobot-admin" onclick="showPanel('ai-hisobot-admin');loadAiHisobotAdmin()"><span class="nav-icon">AI</span> AI buyruqlar</div>
+        <!-- Disabled: Taqvim
         <div class="nav-item" data-panel="calendar" onclick="showPanel('calendar');renderCalendarPanel();"><span class="nav-icon">□</span> Taqvim</div>
+        -->
+        <!-- Disabled: Bildirishnomalar
         <div class="nav-item" data-panel="notifications" onclick="showPanel('notifications');renderNotifications();"><span class="nav-icon">▣</span> Bildirishnomalar <span class="nav-badge" id="badge-notifications" style="background:#ef4444;display:none;">0</span></div>
+        -->
         <div class="nav-item" data-panel="filter" onclick="showPanel('filter')"><span class="nav-icon">⌕</span> Tezkor qidiruv <span class="nav-badge" id="badge-filtered" style="background:#22c55e;">0</span></div>
       </div>
       <div class="sb-section">
         <div class="sb-title">Ijro nazorati</div>
         <div class="nav-item" onclick="showDashboardSlice('incoming','all')"><span class="nav-icon">▥</span> Kiruvchi hujjatlar <span class="nav-badge" id="badge-docs">0</span></div>
+        <!-- Disabled: Chiquvchi hujjatlar
         <div class="nav-item" onclick="showDashboardSlice('outgoing','all')"><span class="nav-icon">▤</span> Chiquvchi hujjatlar</div>
+        -->
+        <!-- Disabled: Ichki hujjatlar
         <div class="nav-item" onclick="showDashboardSlice('internal','all')"><span class="nav-icon">▦</span> Ichki hujjatlar</div>
+        -->
+        <!-- Disabled: Topshiriqlar
         <div class="nav-item" onclick="showDashboardSlice('all','tasks')"><span class="nav-icon">☑</span> Topshiriqlar</div>
+        -->
         <div class="nav-item" data-panel="manual" onclick="showPanel('manual')"><span class="nav-icon">＋</span> Topshiriq yaratish</div>
         <div class="nav-item" onclick="showDashboardSlice('control','all')"><span class="nav-icon">▧</span> Nazorat rejasi</div>
+        <!-- Disabled: Kechikkan topshiriqlar
         <div class="nav-item" onclick="showDashboardSlice('all','overdue')"><span class="nav-icon">!</span> Kechikkan topshiriqlar</div>
+        -->
+        <!-- Disabled: 3 kun qolgani
         <div class="nav-item" onclick="showDashboardSlice('all','due3')"><span class="nav-icon">3</span> 3 kun qolgani</div>
+        -->
+        <!-- Disabled: Qayta nazoratga olinganlar
         <div class="nav-item" onclick="showDashboardSlice('all','returned')"><span class="nav-icon">↺</span> Qayta nazoratga olinganlar</div>
+        -->
       </div>
       <div class="sb-section">
         <div class="sb-title">Hisobotlar</div>
         <div class="nav-item" data-panel="hisobot" onclick="showPanel('hisobot')"><span class="nav-icon">▩</span> Hisobot yuborish</div>
+        <!-- Disabled: Berilgan javoblar
         <div class="nav-item" onclick="showDashboardSlice('all','answered')"><span class="nav-icon">✓</span> Berilgan javoblar</div>
+        -->
+        <!-- Disabled: Qabul qilinmagan hisobotlar
         <div class="nav-item" onclick="showDashboardSlice('all','unaccepted')"><span class="nav-icon">×</span> Qabul qilinmagan hisobotlar</div>
+        -->
+        <!-- Disabled: Tasdiqlangan hisobotlar
         <div class="nav-item" onclick="showDashboardSlice('all','approved')"><span class="nav-icon">●</span> Tasdiqlangan hisobotlar</div>
+        -->
+        <!-- Disabled: Qaytarilgan hisobotlar
         <div class="nav-item" onclick="showDashboardSlice('all','returned')"><span class="nav-icon">↩</span> Qaytarilgan hisobotlar</div>
+        -->
         <div class="nav-item" onclick="exportExcel('all')"><span class="nav-icon">⇩</span> Yakuniy hisobotlar</div>
       </div>
       <div class="sb-section">
@@ -306,8 +333,12 @@
         <div class="nav-item" data-panel="tashkilotlar" onclick="showPanel('tashkilotlar');loadTashkilotlar()"><span class="nav-icon">▨</span> Tashkilotlar <span class="nav-badge" id="badge-tashkilotlar" style="background:#0891b2;">0</span></div>
         <div class="nav-item" data-panel="sektorlar" onclick="showPanel('sektorlar')"><span class="nav-icon">▥</span> Sektorlar / Bo'limlar</div>
         <div class="nav-item" data-panel="xodimlar" onclick="showPanel('xodimlar')"><span class="nav-icon">◉</span> Xodimlar</div>
+        <!-- Disabled: Rahbarlar
         <div class="nav-item" onclick="showDashboardTab('leaders')"><span class="nav-icon">♔</span> Rahbarlar</div>
+        -->
+        <!-- Disabled: Rollar va ruxsatlar
         <div class="nav-item" data-panel="roles" onclick="showPanel('roles');renderRolesPanel();"><span class="nav-icon">⚿</span> Rollar va ruxsatlar</div>
+        -->
       </div>
       <div class="sb-section" id="admin-nav" style="display:none;">
         <div class="sb-title">Admin</div>
@@ -316,7 +347,9 @@
         <div class="nav-item" data-panel="audit" onclick="showPanel('audit');renderAuditPanel();"><span class="nav-icon">≡</span> Audit log</div>
         <div class="nav-item" data-panel="integrations" onclick="showPanel('integrations');renderIntegrationsPanel();"><span class="nav-icon">⌁</span> Integratsiyalar</div>
         <div class="nav-item" data-panel="providers" onclick="showPanel('providers')"><span class="nav-icon">⚙</span> Sozlamalar</div>
+        <!-- Moved to Asosiy: AI buyruqlar
         <div class="nav-item" data-panel="ai-hisobot-admin" onclick="showPanel('ai-hisobot-admin');loadAiHisobotAdmin()"><span class="nav-icon">AI</span> AI buyruqlar</div>
+        -->
         <div class="nav-item" data-panel="saas" onclick="showPanel('saas')"><span class="nav-icon">S</span> SaaS boshqaruv</div>
       </div>
       <div class="sb-section" id="superadmin-nav" style="display:none;">
