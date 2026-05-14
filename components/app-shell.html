@@ -107,7 +107,7 @@
           <input type="email" id="reg-email" placeholder="email@example.com" autocomplete="email">
         </div>
         <div class="auth-field" style="grid-column:1/-1;">
-          <label>🔒 Parol * (kamida 6 ta belgi)</label>
+          <label>🔒 Parol * (10+ belgi, harf/raqam/symbol)</label>
           <input type="password" id="reg-password" placeholder="••••••••" autocomplete="new-password">
         </div>
         <div class="auth-field">
@@ -234,6 +234,7 @@
       Ijro hisoboti
     </div>
     <div class="topbar-right">
+        <button id="notification-btn" class="notification-btn" onclick="showPanel('notifications');renderNotifications();" title="Bildirishnomalar">🔔<span id="notification-badge" class="notification-badge" style="display:none;">0</span></button>
         <button id="theme-toggle-btn" class="theme-toggle" onclick="toggleTheme()" title="Mavzu o'zgartirish">🌙</button>
       <div class="user-info">
         <div class="user-name" id="user-name"></div>
@@ -250,6 +251,10 @@
         <div class="sb-title">Asosiy</div>
         <div class="nav-item active" data-panel="dashboard" onclick="showPanel('dashboard')">
           <span class="nav-icon">🏠</span> Dashboard
+        </div>
+        <div class="nav-item" data-panel="notifications" onclick="showPanel('notifications');renderNotifications();">
+          <span class="nav-icon">🔔</span> Notifications
+          <span class="nav-badge" id="badge-notifications" style="background:#dc2626;display:none;">0</span>
         </div>
       </div>
       <div class="sb-section">
@@ -362,7 +367,8 @@
     <div class="main">
 
       <!-- DASHBOARD -->
-      <div data-panel-include="./components/panels/dashboard.html"></div><!-- UPLOAD -->
+      <div data-panel-include="./components/panels/dashboard.html"></div><!-- NOTIFICATIONS -->
+      <div data-panel-include="./components/panels/notifications.html"></div><!-- UPLOAD -->
       <div data-panel-include="./components/panels/upload.html"></div><!-- MAPPING -->
       <div data-panel-include="./components/panels/mapping.html"></div><!-- MANUAL -->
       <div data-panel-include="./components/panels/manual.html"></div><!-- ===== AI CHAT PANEL - PREMIUM ===== -->

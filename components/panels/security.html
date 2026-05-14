@@ -7,7 +7,7 @@
         <!-- Action bar -->
         <div class="actions-row" style="margin-bottom:18px;">
           <button class="btn btn-primary" onclick="loadSecurityPanel()">🔄 Yangilash</button>
-          <button class="btn btn-outline" onclick="Security.forceLogoutSession(currentUser?.uid, 'all').catch(()=&gt;{});showToast('Barcha sessionlar o\'chirildi','info');">🔴 Barcha sessiyalarni tugatish</button>
+          <button class="btn btn-outline" onclick="Security.forceLogoutSession(currentUser?.uid, 'all').then(loadSecurityPanel).catch(()=&gt;{});">🔴 Barcha sessiyalarni tugatish</button>
         </div>
 
         <!-- Stats strip -->
@@ -18,9 +18,14 @@
           <div class="stat-box red"><div class="sv" id="sec-stat-suspicious">—</div><div class="sl">Shubhali loginlar</div></div>
         </div>
 
+        <div style="background:#fee2e2;border:1.5px solid #ef4444;border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:12px;color:#7f1d1d;">
+          <b>Professional xavfsizlik eslatmasi</b><br>
+          GitHub Pages static frontend. Shuning uchun rate limit, device tracking va session monitor foydalanuvchiga qulaylik beradi, lekin yakuniy himoya Firestore/Supabase RLS, backend validation, App Check, token revoke va server-side audit bilan majburiy mustahkamlanishi kerak.
+        </div>
+
         <!-- Firestore Rules reminder -->
         <div style="background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px;padding:14px 18px;margin-bottom:18px;font-size:12px;">
-          <b>⚠️ Firestore Security Rules — majburiy!</b><br>
+          <b>⚠️ Firestore Security Rules / RLS — majburiy!</b><br>
           <code style="background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:11px;display:block;margin-top:8px;line-height:2;">
             match /security/{uid}/{document=**} {<br>
               allow read, write: if request.auth.uid == uid;<br>
@@ -39,5 +44,3 @@
           </div>
         </div>
       </div>
-
-    

@@ -341,7 +341,15 @@ const Security = {
 
   async forceLogoutSession(uid, sessionId) {
     try {
+      if (sessionId === 'all') {
+        const sessions = await this.getActiveSessions(uid);
+        await Promise.all(sessions.map(s => updateDoc(doc(db, 'security', uid, 'sessions', s.id), { forceLogout: true, active: false })));
+        await writeAudit('security.force_logout_all', { count: sessions.length }).catch(()=>{});
+        showToast('Barcha faol sessionlar o\u02BCchirildi', 'success');
+        return;
+      }
       await updateDoc(doc(db, 'security', uid, 'sessions', sessionId), { forceLogout: true, active: false });
+      await writeAudit('security.force_logout_session', { sessionId }).catch(()=>{});
       showToast('\u2705 Session o\u02BCchirildi', 'success');
     } catch(e) { showToast('Xatolik: ' + e.message, 'error'); }
   },
@@ -376,13 +384,34 @@ async function loadSecurityPanel() {
   const [sessions, devices, history] = await Promise.all([
     Security.getActiveSessions(uid), Security.getKnownDevices(uid), Security.getLoginHistory(uid, 15)
   ]);
+  const todayKey = new Date().toDateString();
+  const todayLogins = history.filter(h => {
+    const d = h.ts?.toDate ? h.ts.toDate() : (h.ts ? new Date(h.ts) : null);
+    return d && d.toDateString() === todayKey;
+  }).length;
+  const suspiciousCount = history.filter(h => h.suspicious).length;
+  const setSec = (id, value) => { const node = document.getElementById(id); if(node) node.textContent = value; };
+  setSec('sec-stat-sessions', sessions.length);
+  setSec('sec-stat-devices', devices.length);
+  setSec('sec-stat-logins', todayLogins);
+  setSec('sec-stat-suspicious', suspiciousCount);
   const currentSid = Security._sessionId || localStorage.getItem(Security.SESSION_ID_KEY);
+  const permissions = getRolePermissions();
   const fmtTime = (ts) => {
     if (!ts) return '\u2014';
     const d = ts.toDate ? ts.toDate() : new Date(ts);
     return d.toLocaleString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   };
   container.innerHTML = `
+    <div class="card">
+      <div class="card-title">RBAC / Permissions</div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px;">
+        <div class="stat-box blue"><div class="sv" style="font-size:20px;">${escH(roleLabel())}</div><div class="sl">Joriy rol</div></div>
+        <div class="stat-box green"><div class="sv">${permissions.length}</div><div class="sl">Ruxsatlar</div></div>
+        <div class="stat-box navy"><div class="sv" style="font-size:20px;">${canReadOrganizationScope() ? 'ORG' : (isAdmin() ? 'ALL' : 'OWN')}</div><div class="sl">Ma'lumot scope</div></div>
+      </div>
+      <div class="security-matrix">${permissions.map(p => `<span class="permission-chip">${escH(p)}</span>`).join('')}</div>
+    </div>
     <div class="card">
       <div class="card-title">\uD83D\uDCE1 Faol sessionlar (${sessions.length})</div>
       ${sessions.length===0?'<p style="color:var(--muted);font-size:13px;">Faol session topilmadi.</p>':sessions.map(s=>`
@@ -463,6 +492,77 @@ let pendingAuthMethod = ''; // 'google' | 'phone'
 let docsLoadedOnce = false;
 let authStateResolved = false;
 let lastActivatedUid = '';
+let notificationCache = [];
+
+const ROLE_LABELS = {
+  superadmin: 'Superadmin',
+  admin: 'Admin',
+  org_admin: 'Tashkilot admini',
+  department_head: "Bo'lim boshlig'i",
+  executor: "Mas'ul ijrochi",
+  controller: 'Nazoratchi',
+  viewer: 'Kuzatuvchi',
+  auditor: 'Auditor',
+  user: 'Foydalanuvchi'
+};
+
+const ROLE_PERMISSIONS = {
+  superadmin: ['*'],
+  admin: ['task.create','task.delete','task.bulkDelete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','user.role','settings.security','audit.view','notification.view'],
+  org_admin: ['task.create','task.delete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','audit.view','notification.view'],
+  department_head: ['task.create','task.assign','report.submit','report.approve','report.reject','report.export','notification.view'],
+  executor: ['task.create','report.submit','notification.view'],
+  controller: ['report.approve','report.reject','report.export','audit.view','notification.view'],
+  viewer: ['notification.view'],
+  auditor: ['audit.view','report.export','notification.view'],
+  user: ['task.create','report.submit','notification.view']
+};
+
+function userRole() {
+  return currentUserData?.role || 'user';
+}
+
+function roleLabel(role = userRole()) {
+  return ROLE_LABELS[role] || ROLE_LABELS.user;
+}
+
+function roleOptionsHtml(selected = '') {
+  return Object.entries(ROLE_LABELS)
+    .map(([value, label]) => `<option value="${value}" ${selected===value?'selected':''}>${escH(label)}</option>`)
+    .join('');
+}
+
+function getRolePermissions(role = userRole()) {
+  const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.user;
+  return permissions.includes('*') ? ['Barcha ruxsatlar'] : permissions;
+}
+
+function hasPermission(permission) {
+  const permissions = ROLE_PERMISSIONS[userRole()] || ROLE_PERMISSIONS.user;
+  return permissions.includes('*') || permissions.includes(permission);
+}
+
+function requirePermission(permission, label = 'Bu amal') {
+  if (hasPermission(permission)) return true;
+  showToast(`${label} uchun ruxsat yo'q`, 'error');
+  writeAudit('access.denied', { permission, label }).catch(console.warn);
+  return false;
+}
+
+function passwordPolicyMessage(password = '') {
+  if(password.length < 10) return 'Parol kamida 10 ta belgi bo\'lishi kerak';
+  if(!/[A-Z]/.test(password)) return 'Parolda kamida bitta katta harf bo\'lsin';
+  if(!/[a-z]/.test(password)) return 'Parolda kamida bitta kichik harf bo\'lsin';
+  if(!/[0-9]/.test(password)) return 'Parolda kamida bitta raqam bo\'lsin';
+  if(!/[^A-Za-z0-9]/.test(password)) return 'Parolda kamida bitta symbol bo\'lsin';
+  return '';
+}
+
+function canReadOrganizationScope() {
+  return ['org_admin','department_head','controller','viewer','auditor'].includes(userRole()) && !!currentUserData?.org;
+}
+
+window.hasPermission = hasPermission;
 
 async function activateAuthenticatedUser(user, userData = null) {
   currentUser = user;
@@ -717,7 +817,8 @@ window.doEmailRegister = async () => {
   if (!lastName)        { err.textContent = '⚠️ Familiya kiritilmagan'; return; }
   if (!email)           { err.textContent = '⚠️ Email kiritilmagan'; return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = '⚠️ Email manzil noto\'g\'ri'; return; }
-  if (!password || password.length < 6) { err.textContent = '⚠️ Parol kamida 6 ta belgi bo\'lishi kerak'; return; }
+  const passwordProblem = passwordPolicyMessage(password);
+  if (passwordProblem) { err.textContent = '⚠️ ' + passwordProblem; return; }
   if (!dob)             { err.textContent = '⚠️ Tug\'ilgan sana kiritilmagan'; return; }
   if (!gender)          { err.textContent = '⚠️ Jinsni tanlang'; return; }
 
@@ -768,7 +869,7 @@ window.doEmailRegister = async () => {
     const msgs = {
       'auth/email-already-in-use':    '⚠️ Bu email allaqachon ro\'yxatdan o\'tgan. Kirish tabiga o\'ting.',
       'auth/invalid-email':           '⚠️ Email manzil noto\'g\'ri formatda',
-      'auth/weak-password':           '⚠️ Parol juda oddiy. Kamida 6 ta belgi kiriting.',
+      'auth/weak-password':           '⚠️ Parol juda oddiy. Kamida 10 ta belgi, katta/kichik harf, raqam va symbol kiriting.',
       'auth/network-request-failed':  '⚠️ Internet ulanishi xatoligi',
       'auth/too-many-requests':       '⚠️ Ko\'p urinish. Biroz kuting.',
     };
@@ -1038,6 +1139,7 @@ window.verifyOTP = async () => {
 
 window.doLogout = async () => {
   try {
+    await writeAudit('auth.logout', { sessionId: Security._sessionId || '' }).catch(()=>{});
     clearSession();
     // Security: session yopish
     if (currentUser?.uid) await Security.endSession(currentUser.uid).catch(()=>{});
@@ -1059,7 +1161,8 @@ window.doLogout = async () => {
 
 // ===== SUPER ADMIN: create user (old method kept for admin panel) =====
 window.createUser = async () => {
-  if (currentUserData?.role !== 'admin' && currentUserData?.role !== 'superadmin') {
+  if (!requirePermission('user.block', 'Foydalanuvchi yaratish') && currentUserData?.role !== 'admin') return;
+  if (currentUserData?.role !== 'admin' && currentUserData?.role !== 'superadmin' && currentUserData?.role !== 'org_admin') {
     alert('Ruxsat yo\'q'); return;
   }
   const email = document.getElementById('new-email').value.trim();
@@ -1068,6 +1171,8 @@ window.createUser = async () => {
   const role  = document.getElementById('new-role').value;
   const org   = document.getElementById('new-org').value.trim();
   if (!email || !pass || !name) { alert('Barcha maydonlarni to\'ldiring'); return; }
+  const passwordProblem = passwordPolicyMessage(pass);
+  if (passwordProblem) { alert(passwordProblem); return; }
   try {
     showLoading('Foydalanuvchi yaratilmoqda...');
     const secondApp = initializeApp(firebaseConfig, 'secondary_' + Date.now());
@@ -1131,9 +1236,11 @@ async function fetchAvailableDocs() {
   const role = currentUserData?.role;
   const q = (role === 'admin' || role === 'superadmin')
     ? query(collection(db,'documents'), orderBy('createdAt','desc'))
-    : query(collection(db,'documents'), where('userId','==', currentUser.uid), orderBy('createdAt','desc'));
+    : canReadOrganizationScope()
+      ? query(collection(db,'documents'), where('userOrg','==', currentUserData.org))
+      : query(collection(db,'documents'), where('userId','==', currentUser.uid), orderBy('createdAt','desc'));
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+  return snap.docs.map(d => ({ _id: d.id, ...d.data() })).sort((a,b) => docCreatedMs(b) - docCreatedMs(a));
 }
 
 async function loadUserDocs() {
@@ -1149,6 +1256,7 @@ async function loadUserDocs() {
     renderTable();
     buildStats();
     renderDashboard();
+    updateNotificationBadge();
     hideLoading();
   } catch(e) {
     hideLoading();
@@ -1431,16 +1539,21 @@ async function persistTashkilotStatsFromDocs(rows=allDocs, silent=true) {
 }
 
 window.saveDocs = async (rows) => {
+  if(!requirePermission('task.create', 'Topshiriq yaratish')) return false;
   showLoading(`${rows.length} ta hujjat saqlanmoqda...`);
   try {
     const batch = [];
     for(const row of rows) {
       const id = `${currentUser.uid}_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+      const orgName = normalizeOrgName(getOrgText(row) || currentUserData?.org || '');
       const data = {
         userId: currentUser.uid,
         userEmail: currentUser.email,
         userName: currentUserData?.fullName || currentUserData?.name || currentUser.email,
-        userOrg: currentUserData?.org || '',
+        userOrg: currentUserData?.org || orgName,
+        organizationId: orgKey(orgName),
+        workflowStatus: normalizeWorkflowStatus(row),
+        riskLevel: taskRiskLevel(row),
         createdAt: serverTimestamp(),
         ...row
       };
@@ -1448,22 +1561,29 @@ window.saveDocs = async (rows) => {
     }
     await Promise.all(batch);
     await syncTashkilotlarFromDocs(rows);
+    await writeAudit('task.bulk_create', { count: rows.length, source: rows[0]?.source || 'manual' });
     await loadUserDocs();
     showToast(`✅ ${rows.length} ta hujjat saqlandi!`, 'success');
+    return true;
   } catch(e) {
     hideLoading();
     showToast('Saqlashda xatolik: '+e.message, 'error');
+    return false;
   }
 };
 
 window.deleteDoc2 = async (id) => {
+  if(!requirePermission('task.delete', "Hujjatni o'chirish")) return;
   if(!confirm('Bu hujjatni o\'chirmoqchimisiz?')) return;
   try {
+    const target = allDocs.find(d=>d._id===id) || {};
     await deleteDoc(doc(db,'documents',id));
     allDocs = allDocs.filter(d=>d._id!==id);
     filteredDocs = filteredDocs.filter(d=>d._id!==id);
     renderTable();
     buildStats();
+    updateNotificationBadge();
+    await writeAudit('task.delete', { id, docName: target.docName || '', docNum: target.docNum || '' });
     showToast('Hujjat o\'chirildi','success');
   } catch(e) {
     showToast('Xatolik: '+e.message,'error');
@@ -1471,14 +1591,18 @@ window.deleteDoc2 = async (id) => {
 };
 
 window.clearAllDocs = async () => {
+  if(!requirePermission('task.bulkDelete', "Barcha hujjatlarni o'chirish")) return;
   if(!confirm(`Barcha ${allDocs.length} ta hujjatni o'chirmoqchimisiz? Bu amalni qaytarib bo'lmaydi!`)) return;
   showLoading('O\'chirilmoqda...');
   try {
+    const deletedCount = allDocs.length;
     await Promise.all(allDocs.map(d => deleteDoc(doc(db,'documents',d._id))));
     allDocs = [];
     filteredDocs = [];
     renderTable();
     buildStats();
+    updateNotificationBadge();
+    await writeAudit('task.bulk_delete', { count: deletedCount });
     hideLoading();
     showToast('Barcha hujjatlar o\'chirildi','success');
   } catch(e) {
@@ -1489,10 +1613,11 @@ window.clearAllDocs = async () => {
 
 async function loadAllUsers() {
   const role = currentUserData?.role;
-  if(role !== 'admin' && role !== 'superadmin') return;
+  if(role !== 'admin' && role !== 'superadmin' && role !== 'org_admin') return;
   try {
     const snap = await getDocs(collection(db,'users'));
-    adminUsersCache = snap.docs.map(d=>({id:d.id,...d.data()}));
+    adminUsersCache = snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(u => role !== 'org_admin' || !currentUserData?.org || (u.org || '') === currentUserData.org);
     renderAdminUsers();
   } catch(e) {
     showToast('Foydalanuvchilar yuklanmadi: '+e.message,'error');
@@ -1522,7 +1647,7 @@ function renderAdminUsers() {
         </td>
         <td style="font-size:11px;">${escH(u.email||u.phone||'—')}</td>
         <td style="font-size:11px;">${escH(u.org||'—')}</td>
-        <td><span class="badge ${u.role==='superadmin'?'badge-fail':u.role==='admin'?'badge-proc':(u.plan||u.subscription)==='premium'?'badge-done':'badge-wait'}">${escH(u.role||'user')}</span><div style="font-size:10px;color:var(--muted);">${escH(u.plan||u.subscription||'free')}</div></td>
+        <td><span class="badge ${u.role==='superadmin'?'badge-fail':u.role==='admin'||u.role==='org_admin'?'badge-proc':(u.plan||u.subscription)==='premium'?'badge-done':'badge-wait'}">${escH(roleLabel(u.role||'user'))}</span><div style="font-size:10px;color:var(--muted);">${escH(u.plan||u.subscription||'free')}</div></td>
         <td style="font-size:11px;color:var(--muted);">${escH(u.authMethod||'—')}</td>
         <td style="font-size:10px;color:var(--muted);">${u.lastLogin?.toDate ? u.lastLogin.toDate().toLocaleString('uz-UZ') : (u.lastSeenLocal||'—')}</td>
         <td><span class="badge ${u.blocked?'badge-fail':'badge-done'}">${u.blocked?'Bloklangan':'Faol'}</span></td>
@@ -1530,7 +1655,7 @@ function renderAdminUsers() {
           ${role==='superadmin' ? `
             <button class="btn btn-sm ${u.blocked?'btn-success':'btn-danger'}" onclick="toggleBlock('${u.id}',${!!u.blocked})">${u.blocked?'✅ Ochish':'🚫 Bloklash'}</button>
             <select class="btn btn-sm btn-outline" onchange="changeRole('${u.id}',this.value)" style="padding:4px 6px;font-size:11px;">
-              <option value="">Rol...</option><option value="user" ${u.role==='user'?'selected':''}>user</option><option value="admin" ${u.role==='admin'?'selected':''}>admin</option><option value="superadmin" ${u.role==='superadmin'?'selected':''}>superadmin</option>
+              <option value="">Rol...</option>${roleOptionsHtml(u.role || 'user')}
             </select>
             <select class="btn btn-sm btn-outline" onchange="changePlan('${u.id}',this.value)" style="padding:4px 6px;font-size:11px;">
               <option value="free" ${(u.plan||u.subscription||'free')==='free'?'selected':''}>free</option><option value="premium" ${(u.plan||u.subscription)==='premium'?'selected':''}>premium</option><option value="admin" ${(u.plan||u.subscription)==='admin'?'selected':''}>admin</option>
@@ -1543,6 +1668,7 @@ function renderAdminUsers() {
 }
 window.renderAdminUsers = renderAdminUsers;
 window.toggleBlock = async (uid, isBlocked) => {
+  if(!requirePermission('user.block', 'Foydalanuvchini bloklash')) return;
   if(!confirm(isBlocked ? 'Blokdan chiqarilsinmi?' : 'Bu foydalanuvchini bloklash?')) return;
   try {
     await updateDoc(doc(db,'users',uid), { blocked: !isBlocked, updatedAt: serverTimestamp() });
@@ -1554,6 +1680,7 @@ window.toggleBlock = async (uid, isBlocked) => {
 
 window.changeRole = async (uid, newRole) => {
   if(!newRole) return;
+  if(!requirePermission('user.role', "Rol o'zgartirish")) return;
   const role = currentUserData?.role;
   if(role !== 'superadmin') { showToast('❌ Faqat Super Admin rol o\'zgartira oladi', 'error'); return; }
   if(uid === currentUser?.uid) { showToast('❌ O\'zingizning rolingizni o\'zgartira olmaysiz', 'error'); return; }
@@ -1577,6 +1704,7 @@ window.changePlan = async (uid, plan) => {
     loadAllUsers(); renderSaasConsole();
   } catch(e) { showToast('Tarif xatoligi: '+e.message,'error'); }
 };window.deleteUser = async (uid, email) => {
+  if(!requirePermission('user.block', "Foydalanuvchini o'chirish")) return;
   if(!confirm(`${email} foydalanuvchisini o'chirmoqchimisiz?\n\n⚠️ Eslatma: Bu faqat Firestore profilini o'chiradi. Firebase Auth akkauntini o'chirish uchun Firebase Console > Authentication bo'limiga o'ting.`)) return;
   await writeAudit('user.delete_profile', { uid, email });
   await deleteDoc(doc(db,'users',uid));
@@ -2063,7 +2191,8 @@ window.saveManualDoc = async () => {
     source: ''
   };
   row.source = detectSrc(row);
-  await window.saveDocs([row]);
+  const ok = await window.saveDocs([row]);
+  if(!ok) return;
   // clear form
   Object.keys(row).forEach(k=>{
     const el=document.getElementById('m-'+k);
@@ -2387,11 +2516,76 @@ function renderDashboard() {
   `;
 }
 
+function buildSystemNotifications(rows = allDocs) {
+  const notices = [];
+  rows.forEach((row, index) => {
+    const title = row.docName || row.taskText || `Topshiriq #${index + 1}`;
+    const org = getOrgText(row) || row.executor || 'Noma\'lum';
+    const deadline = parseDate(row.deadline);
+    const days = daysUntil(deadline);
+    const status = normalizeWorkflowStatus(row);
+    const statusKey = normalizeDocStatus(row).key;
+    if(statusKey !== 'done' && days !== null && days < 0) {
+      notices.push({
+        level:'danger',
+        icon:'!',
+        title:'Muddati o\'tgan topshiriq',
+        body:`${title} - ${Math.abs(days)} kun kechikkan. Mas'ul: ${org}`,
+        meta: row.deadline || ''
+      });
+    } else if(statusKey !== 'done' && days === 0) {
+      notices.push({ level:'warning', icon:'0', title:'Bugun tugaydi', body:`${title} bugun yakunlanishi kerak. Mas'ul: ${org}`, meta: row.deadline || '' });
+    } else if(statusKey !== 'done' && days !== null && days <= 3) {
+      notices.push({ level:'warning', icon:String(days), title:'Yaqin deadline', body:`${title} uchun ${days} kun qoldi. Mas'ul: ${org}`, meta: row.deadline || '' });
+    }
+    if(status === 'returned') {
+      notices.push({ level:'danger', icon:'R', title:'Hisobot qaytarilgan', body:`${title} qayta ishlashga qaytarilgan. Sabab va fayllarni tekshiring.`, meta: org });
+    }
+    if(taskRiskLevel(row) === 'critical') {
+      notices.push({ level:'danger', icon:'AI', title:'AI risk: kritik', body:`${title} kechikish xavfi yuqori. Nazoratga oling.`, meta: org });
+    }
+  });
+  notificationCache = notices.slice(0, 60);
+  return notificationCache;
+}
+
+function updateNotificationBadge() {
+  const count = buildSystemNotifications(allDocs).length;
+  ['notification-badge','badge-notifications'].forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.textContent = count;
+    el.style.display = count ? '' : 'none';
+  });
+  const list = document.getElementById('notifications-list');
+  if(list) renderNotifications();
+}
+
+window.renderNotifications = (filter = 'all') => {
+  const el = document.getElementById('notifications-list');
+  if(!el) return;
+  const notices = notificationCache.length ? notificationCache : buildSystemNotifications(allDocs);
+  const visible = filter === 'all' ? notices : notices.filter(n => n.level === filter);
+  if(!visible.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔔</div><h3>Bildirishnoma yo'q</h3><p>Tanlangan filter bo'yicha ogohlantirish topilmadi</p></div>`;
+    return;
+  }
+  el.innerHTML = visible.map(n => `
+    <div class="notification-item ${escH(n.level)}">
+      <div class="notification-ico">${escH(n.icon)}</div>
+      <div class="notification-body"><b>${escH(n.title)}</b><span>${escH(n.body)}</span></div>
+      <div class="notification-meta">${escH(n.meta || '')}</div>
+    </div>
+  `).join('');
+};
+
 // ===== EXCEL EXPORT =====
 window.exportExcel = (mode='filtered') => {
+  if(!requirePermission('report.export', 'Excel eksport')) return;
   const data = mode==='all' ? allDocs : filteredDocs;
   if(!data.length){ showToast("Ma'lumot yo'q!",'error'); return; }
   showLoading('Excel tayyorlanmoqda...');
+  writeAudit('report.export_excel', { mode, count: data.length }).catch(console.warn);
 
   const rows=[['#','Manba','Hujjat nomi','Hujjat raqami','Hujjat sanasi',
     'Tashk. chiqish raqami','Kimdan keldi','Rezalyutsiya','Topshiriq',
@@ -2491,6 +2685,13 @@ function normalizeDocStatus(rowOrStatus) {
   const text = normalizeText(getStatusText(rowOrStatus));
   if(!text) return { key:'unknown', label:'Noma\'lum', text:'' };
 
+  if(/(draft|qoralama|черновик)/i.test(text)) return { key:'new', label:'Draft', text };
+  if(/(submitted|yuborildi|topshirildi|отправлен|направлен)/i.test(text)) return { key:'proc', label:'Submitted', text };
+  if(/(in review|review|tekshiruv|ko'rib chiq|korib chiq|на провер|рассмотр)/i.test(text)) return { key:'proc', label:'In Review', text };
+  if(/(returned|qaytarildi|qaytgan|rejected|отклон|возврат|вернул)/i.test(text)) return { key:'fail', label:'Returned', text };
+  if(/(approved|tasdiqlandi|одобрен|утвержден)/i.test(text)) return { key:'done', label:'Approved', text };
+  if(/(closed|yopildi|закрыт)/i.test(text)) return { key:'done', label:'Closed', text };
+
   const isFail =
     /(bajarilmadi|bajarilmagan|bajarilmasdan|ijro etilmadi|rad etildi|bekor qilindi|бажарилмади|бажарилмаган|ижро этилмади|невыполн|не выполн|не исполн|отклон|просроч|muddati o't|muddati ot|kechik|kechiktiril|муддати ўт|кечик)/i.test(text);
   if(isFail) return { key:'fail', label:'Bajarilmadi', text };
@@ -2507,6 +2708,35 @@ function normalizeDocStatus(rowOrStatus) {
   if(isNew) return { key:'new', label:'Yangi', text };
 
   return { key:'unknown', label:getStatusText(rowOrStatus), text };
+}
+
+function normalizeWorkflowStatus(rowOrStatus) {
+  const raw = getStatusText(rowOrStatus);
+  const text = normalizeText(raw);
+  if(!text) return 'draft';
+  if(/(draft|qoralama|черновик)/i.test(text)) return 'draft';
+  if(/(yangi|new|нов)/i.test(text)) return 'new';
+  if(/(submitted|yuborildi|topshirildi|отправлен|направлен)/i.test(text)) return 'submitted';
+  if(/(in review|review|tekshiruv|ko'rib chiq|korib chiq|на провер|рассмотр)/i.test(text)) return 'in_review';
+  if(/(returned|qaytarildi|qaytgan|rejected|отклон|возврат|вернул)/i.test(text)) return 'returned';
+  if(/(approved|tasdiqlandi|одобрен|утвержден)/i.test(text)) return 'approved';
+  if(/(closed|yopildi|yakunlandi|закрыт)/i.test(text)) return 'closed';
+  const normalized = normalizeDocStatus(rowOrStatus).key;
+  if(normalized === 'done') return 'approved';
+  if(normalized === 'fail') return 'returned';
+  if(normalized === 'proc') return 'in_review';
+  return 'new';
+}
+
+function taskRiskLevel(row={}) {
+  const status = normalizeDocStatus(row).key;
+  if(status === 'done') return 'low';
+  const days = daysUntil(parseDate(row.deadline));
+  if(days === null) return 'medium';
+  if(days < 0) return 'critical';
+  if(days <= 1) return 'high';
+  if(days <= 3) return 'medium';
+  return 'low';
 }
 
 function statusMatches(rowOrStatus, filter) {
@@ -2531,6 +2761,13 @@ function parseDate(s){
   const m=String(s).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if(m) return new Date(m[3],m[2]-1,m[1]);
   const d=new Date(s); return isNaN(d)?null:d;
+}
+
+function docCreatedMs(row={}) {
+  const ts = row.createdAt || row.updatedAt || row.docDate || row.deadline || 0;
+  if(ts?.toDate) return ts.toDate().getTime();
+  const d = parseDate(ts);
+  return d ? d.getTime() : 0;
 }
 
 function detectSrc(row){
@@ -2581,7 +2818,23 @@ function nowIso(){ return new Date().toISOString(); }
 
 async function writeAudit(action, meta={}) {
   try {
-    await addDoc(collection(db,'logs'), { type:'audit', action, meta, uid: currentUser?.uid || '', userName: currentUserData?.fullName || currentUser?.email || '', role: currentUserData?.role || 'anon', createdAt: serverTimestamp(), createdAtLocal: nowIso() });
+    await addDoc(collection(db,'logs'), {
+      type:'audit',
+      action,
+      meta,
+      uid: currentUser?.uid || '',
+      userName: currentUserData?.fullName || currentUser?.email || '',
+      role: currentUserData?.role || 'anon',
+      roleLabel: roleLabel(currentUserData?.role || 'user'),
+      org: currentUserData?.org || '',
+      deviceId: Security?._deviceId || localStorage.getItem(Security?.DEVICE_ID_KEY || '') || '',
+      sessionId: Security?._sessionId || localStorage.getItem(Security?.SESSION_ID_KEY || '') || '',
+      userAgent: navigator.userAgent.slice(0,180),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+      path: location.pathname + location.hash,
+      createdAt: serverTimestamp(),
+      createdAtLocal: nowIso()
+    });
   } catch(e) { console.warn('audit skipped', e.message); }
 }
 
@@ -2669,12 +2922,19 @@ function showApp(){
   document.getElementById('user-name').textContent = name;
   const role = currentUserData?.role;
   document.getElementById('user-role').textContent =
-    role==='superadmin' ? '🔴 Super Admin' : role==='admin' ? '🟠 Admin' : '🟢 Foydalanuvchi';
+    role==='superadmin' ? '🔴 Super Admin' : role==='admin' ? '🟠 Admin' : `🟢 ${roleLabel(role)}`;
   const adminNav = document.getElementById('admin-nav');
   const superNav = document.getElementById('superadmin-nav');
-  if(adminNav) adminNav.style.display = (role==='admin'||role==='superadmin') ? 'block' : 'none';
+  if(adminNav) adminNav.style.display = (role==='admin'||role==='superadmin'||role==='org_admin') ? 'block' : 'none';
   if(superNav) superNav.style.display = (role==='superadmin') ? 'block' : 'none';
-  if(role==='admin'||role==='superadmin') loadAllUsers();
+  const setNavVisible = (panel, visible) => {
+    const item = document.querySelector(`.nav-item[data-panel="${panel}"]`);
+    if(item) item.style.display = visible ? 'flex' : 'none';
+  };
+  setNavVisible('saas', role === 'superadmin');
+  setNavVisible('ai-hisobot-admin', role === 'admin' || role === 'superadmin');
+  setNavVisible('security', hasPermission('settings.security') || hasPermission('audit.view'));
+  if(role==='admin'||role==='superadmin'||role==='org_admin') loadAllUsers();
   // Load chat list in background
   setTimeout(() => loadChatList(), 500);
 }
@@ -2702,6 +2962,7 @@ window.showPanel = (name) => {
     if (n.dataset.panel === name) n.classList.add('active');
   });
   if (name === 'dashboard') renderDashboard();
+  if (name === 'notifications') renderNotifications();
   if (name === 'docs') renderTable();
   if (name === 'stats') buildStats();
   if (name === 'admin' || name === 'superadmin') { loadAllUsers(); loadSuperAdminStats(); }

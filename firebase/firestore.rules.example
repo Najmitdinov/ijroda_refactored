@@ -1,0 +1,81 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return signedIn() ? userDoc().role : 'anon';
+    }
+
+    function isSuperadmin() {
+      return role() == 'superadmin';
+    }
+
+    function isAdmin() {
+      return role() in ['superadmin', 'admin'];
+    }
+
+    function sameOrg(org) {
+      return signedIn() && org != null && userDoc().org == org;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin() || sameOrg(resource.data.org));
+      allow create: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow update: if signedIn() && (
+        request.auth.uid == uid ||
+        isAdmin() ||
+        (role() == 'org_admin' && sameOrg(resource.data.org))
+      );
+      allow delete: if isSuperadmin();
+    }
+
+    match /documents/{docId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        sameOrg(resource.data.userOrg)
+      );
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        sameOrg(resource.data.userOrg)
+      );
+      allow delete: if signedIn() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid
+      );
+    }
+
+    match /logs/{logId} {
+      allow create: if signedIn();
+      allow read: if role() in ['superadmin', 'admin', 'auditor', 'controller'];
+      allow update, delete: if false;
+    }
+
+    match /security/{uid}/{document=**} {
+      allow read, write: if signedIn() && (request.auth.uid == uid || isAdmin());
+    }
+
+    match /reports/{reportId} {
+      allow read: if signedIn() && (isAdmin() || sameOrg(resource.data.userOrg) || resource.data.submittedBy == request.auth.uid);
+      allow create: if signedIn();
+      allow update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin', 'department_head', 'controller'];
+      allow delete: if isAdmin();
+    }
+
+    match /tashkilotlar/{orgId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin'];
+      allow delete: if isAdmin();
+    }
+  }
+}

@@ -5,11 +5,17 @@
           <div class="form-grid three">
             <div class="field"><label>To'liq ism *</label><input id="new-name" placeholder="F.I.O."></div>
             <div class="field"><label>Email *</label><input type="email" id="new-email" placeholder="email@example.com"></div>
-            <div class="field"><label>Parol *</label><input type="password" id="new-pass" placeholder="Kamida 6 ta belgi"></div>
+            <div class="field"><label>Parol *</label><input type="password" id="new-pass" placeholder="10+ belgi, Aa1!"></div>
             <div class="field"><label>Tashkilot</label><input id="new-org" placeholder="Tashkilot nomi"></div>
             <div class="field"><label>Rol</label>
               <select id="new-role">
                 <option value="user">Foydalanuvchi</option>
+                <option value="executor">Mas'ul ijrochi</option>
+                <option value="department_head">Bo'lim boshlig'i</option>
+                <option value="controller">Nazoratchi</option>
+                <option value="viewer">Kuzatuvchi</option>
+                <option value="auditor">Auditor</option>
+                <option value="org_admin">Tashkilot admini</option>
                 <option value="admin">Admin</option>
                 <option value="superadmin">Super Admin</option>
               </select>
@@ -22,7 +28,7 @@
             <div class="card-title" style="margin-bottom:0;">👥 Barcha foydalanuvchilar <span id="admin-users-count" class="nav-badge">0</span></div>
             <div class="admin-filters">
               <input id="admin-user-search" placeholder="Search..." oninput="renderAdminUsers()">
-              <select id="admin-role-filter" onchange="renderAdminUsers()"><option value="">Barcha rollar</option><option value="user">user</option><option value="admin">admin</option><option value="superadmin">superadmin</option></select>
+              <select id="admin-role-filter" onchange="renderAdminUsers()"><option value="">Barcha rollar</option><option value="user">user</option><option value="executor">executor</option><option value="department_head">department_head</option><option value="controller">controller</option><option value="viewer">viewer</option><option value="auditor">auditor</option><option value="org_admin">org_admin</option><option value="admin">admin</option><option value="superadmin">superadmin</option></select>
               <select id="admin-status-filter" onchange="renderAdminUsers()"><option value="">Barcha holatlar</option><option value="active">Faol</option><option value="blocked">Bloklangan</option><option value="online">Online</option></select>
             </div>
           </div>
@@ -34,5 +40,3 @@
           </div>
         </div>
       </div>
-
-      

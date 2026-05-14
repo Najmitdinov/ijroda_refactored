@@ -1,0 +1,24 @@
+<div class="panel" id="panel-notifications">
+  <div class="page-hdr">
+    <h2>🔔 Notifications</h2>
+    <p>Deadline, qaytarilgan hisobotlar, xavfli topshiriqlar va tizim ogohlantirishlari</p>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="card-title" style="margin-bottom:0;">Bildirishnomalar markazi</div>
+      <div class="actions-row" style="margin:0;">
+        <button class="btn btn-outline btn-sm" onclick="renderNotifications('all')">Hammasi</button>
+        <button class="btn btn-outline btn-sm" onclick="renderNotifications('danger')">Xavfli</button>
+        <button class="btn btn-outline btn-sm" onclick="renderNotifications('warning')">Yaqin muddat</button>
+      </div>
+    </div>
+    <div id="notifications-list" class="notification-list">
+      <div class="empty-state">
+        <div class="empty-icon">🔔</div>
+        <h3>Hali bildirishnoma yo'q</h3>
+        <p>Hujjatlar yuklangandan keyin deadline va workflow signallari shu yerda ko'rinadi</p>
+      </div>
+    </div>
+  </div>
+</div>
