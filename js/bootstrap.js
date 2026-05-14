@@ -1,4 +1,4 @@
-const APP_BUILD = '20260514-response-number2';
+const APP_BUILD = '20260514-template-fallback3';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

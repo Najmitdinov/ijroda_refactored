@@ -3683,11 +3683,11 @@ function buildLegalAiShell() {
             </div>
             <div class="legal-ai-mini-upload" onclick="document.getElementById('legal-ai-template-file').click()">
               <b>Shablon fayli</b>
-              <span id="legal-ai-template-name">${legalAiState.templateFileName ? escH(legalAiState.templateFileName) : 'Word yoki PDF shablon tanlang'}</span>
+              <span id="legal-ai-template-name">${escH(legalAiState.templateFileName || DEFAULT_RESPONSE_TEMPLATE.fileName + ' (standart)')}</span>
             </div>
             <input id="legal-ai-template-file" type="file" accept=".doc,.docx,.pdf" style="display:none" onchange="handleLegalTemplateFile(this.files && this.files[0])">
             <div class="legal-ai-grid compact">
-              <label class="wide">Chiquvchi raqami<input id="legal-ai-out-number" placeholder="Masalan: 01-12/345"></label>
+              <label class="wide">Chiquvchi raqami<input id="legal-ai-out-number" value="01-22/" placeholder="01-22/156"></label>
               <label class="wide">Topshiriq xati
                 <div class="legal-ai-mini-upload" onclick="document.getElementById('legal-ai-task-letter-file').click()">
                   <b>Topshiriq hujjati</b>
@@ -3719,6 +3719,8 @@ window.initLegalAiPanel = function(force=false) {
     root.innerHTML = buildLegalAiShell();
     root.dataset.ready = '1';
   }
+  setupOfficialNumberInput('legal-ai-out-number');
+  getDefaultResponseTemplateFile().catch(e => console.warn('default legal template:', e.message));
   renderLegalAiTabs();
   renderLegalAiResult();
 };
@@ -3891,12 +3893,13 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
 
 window.generateLegalTemplateAnswer = async function() {
   if(!requirePermission('legal.answer', 'Shablon asosida javob yaratish')) return;
-  const templateFile = legalAiState.templateFile;
+  const templateFile = legalAiState.templateFile || await getDefaultResponseTemplateFile().catch(() => null);
   const taskFile = legalAiState.taskLetterFile;
-  const outNumber = document.getElementById('legal-ai-out-number')?.value?.trim();
+  const outNumber = normalizeOfficialOutNumber(document.getElementById('legal-ai-out-number')?.value?.trim() || '');
+  const userNumber = outNumber.replace('01-22/', '');
   const status = document.getElementById('legal-ai-template-status');
-  if(!templateFile || !taskFile || !outNumber) {
-    showToast('Shablon, chiquvchi raqami va topshiriq xatini kiriting', 'error');
+  if(!templateFile || !taskFile || !userNumber) {
+    showToast('Chiquvchi raqam va topshiriq xatini kiriting', 'error');
     return;
   }
   if(status) {
@@ -3920,7 +3923,7 @@ window.generateLegalTemplateAnswer = async function() {
     legalAiState.generatedAnswer = {
       ...answer,
       outNumber,
-      templateFileName: templateFile.name,
+      templateFileName: legalAiState.templateFileName || DEFAULT_RESPONSE_TEMPLATE.fileName,
       taskLetterFileName: taskFile.name,
       createdAt: nowIso()
     };
@@ -5805,6 +5808,30 @@ let aiKnowledgeCache = [];
 let aiGeneratedDocsCache = [];
 let activeTemplateAiTab = 'templates';
 let lastGeneratedDocument = null;
+let defaultResponseTemplateFile = null;
+let defaultResponseTemplateText = '';
+
+const DEFAULT_RESPONSE_TEMPLATE = {
+  id: '__default_response_template__',
+  org: 'default',
+  userId: 'system',
+  name: 'Standart javob xati shabloni',
+  description: 'Tizimga biriktirilgan rasmiy javob xati shabloni.',
+  prompt: 'Ushbu shablon rekvizitlari va rasmiy xat uslubiga qat’iy amal qilinsin.',
+  docType: 'Javob xati',
+  fileName: 'default-response-template.docx',
+  fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  fileKind: 'word',
+  fileUrl: './assets/default-response-template.docx',
+  storagePath: '',
+  extractedText: '',
+  isDefault: true,
+  analysis: {
+    font: 'Times New Roman',
+    layout: 'Rasmiy javob xati: tashkilot rekvizitlari, sana, chiquvchi raqam, adresat, asosiy matn va imzo bloki.',
+    style_notes: 'Standart rasmiy davlat idorasi javob xati uslubi saqlansin.'
+  }
+};
 
 function aiDocOrgScope() {
   return currentUserData?.org || currentUser?.uid || 'global';
@@ -5830,11 +5857,57 @@ async function aiDocExtractText(file) {
   return '';
 }
 
+function withTimeout(promise, ms, message='Amal bajarish vaqti tugadi') {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    })
+  ]);
+}
+
+async function readFileAsDataUrl(file) {
+  const base64 = await readFileAsBase64(file);
+  return `data:${file.type || 'application/octet-stream'};base64,${base64}`;
+}
+
 async function aiDocUploadFile(file, folder) {
   const path = `${folder}/${currentUser?.uid || 'anon'}/${Date.now()}_${aiDocSafeName(file.name)}`;
   const ref = storageRef(storage, path);
-  await uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' });
-  return { path, url: await getDownloadURL(ref) };
+  await withTimeout(uploadBytes(ref, file, { contentType: file.type || 'application/octet-stream' }), 25000, 'Faylni Storage ga yuklash vaqti tugadi');
+  return { path, url: await withTimeout(getDownloadURL(ref), 10000, 'Fayl havolasini olish vaqti tugadi') };
+}
+
+async function aiDocUploadFileSafe(file, folder) {
+  try {
+    return await aiDocUploadFile(file, folder);
+  } catch(e) {
+    console.warn('storage upload fallback:', e.message);
+    return {
+      path: '',
+      url: file.size <= 700000 ? await readFileAsDataUrl(file).catch(() => '') : '',
+      uploadError: e.message
+    };
+  }
+}
+
+async function getDefaultResponseTemplateFile() {
+  if(defaultResponseTemplateFile) return defaultResponseTemplateFile;
+  const response = await withTimeout(fetch('./assets/default-response-template.docx', { cache:'no-store' }), 12000, 'Standart shablonni yuklash vaqti tugadi');
+  if(!response.ok) throw new Error('Standart shablon topilmadi');
+  const blob = await response.blob();
+  defaultResponseTemplateFile = new File([blob], DEFAULT_RESPONSE_TEMPLATE.fileName, { type: DEFAULT_RESPONSE_TEMPLATE.fileType });
+  return defaultResponseTemplateFile;
+}
+
+async function getDefaultResponseTemplateText() {
+  if(defaultResponseTemplateText) return defaultResponseTemplateText;
+  const file = await getDefaultResponseTemplateFile();
+  defaultResponseTemplateText = await aiDocExtractText(file).catch(() => '');
+  DEFAULT_RESPONSE_TEMPLATE.extractedText = defaultResponseTemplateText.slice(0, 18000);
+  DEFAULT_RESPONSE_TEMPLATE.analysis = localTemplateAnalysis(file, defaultResponseTemplateText);
+  return defaultResponseTemplateText;
 }
 
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
@@ -5912,13 +5985,23 @@ window.loadTemplateBuilderPanel = async function() {
   if(!currentUser) return;
   window.showTemplateAiTab(activeTemplateAiTab || 'templates');
   if(!xodimlarCache.length) await loadXodimlar().catch(()=>{});
-  await Promise.all([loadAiTemplates(), loadAiKnowledgeDocs(), loadGeneratedAiDocs()]);
+  await Promise.all([
+    loadAiTemplates().catch(e => { console.warn('templates load:', e.message); aiTemplatesCache = [{ ...DEFAULT_RESPONSE_TEMPLATE }]; renderAiTemplates(); }),
+    loadAiKnowledgeDocs().catch(e => { console.warn('knowledge load:', e.message); aiKnowledgeCache = []; renderAiKnowledgeDocs(); }),
+    loadGeneratedAiDocs().catch(e => { console.warn('generated load:', e.message); aiGeneratedDocsCache = []; renderGeneratedAiDocs(); })
+  ]);
   renderTemplateSelects();
 };
 
 async function loadAiTemplates() {
-  const snap = await getDocs(query(collection(db,'ai_document_templates'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_document_templates')));
-  aiTemplatesCache = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  await getDefaultResponseTemplateText().catch(()=>{});
+  const snap = await withTimeout(
+    getDocs(query(collection(db,'ai_document_templates'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_document_templates'))),
+    18000,
+    'Shablonlar bazasidan javob kelmadi'
+  );
+  const saved = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  aiTemplatesCache = [{ ...DEFAULT_RESPONSE_TEMPLATE }, ...saved];
   renderAiTemplates();
 }
 
@@ -5932,7 +6015,7 @@ function renderAiTemplates() {
       <p>${escH(t.description || '')}</p>
       <div class="actions-row" style="margin-top:10px;">
         <button class="btn btn-sm btn-outline" onclick="downloadUrl('${escH(t.fileUrl || '')}')">Shablonni ochish</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteAiTemplate('${t.id}')">O'chirish</button>
+        ${t.isDefault ? '' : `<button class="btn btn-sm btn-danger" onclick="deleteAiTemplate('${t.id}')">O'chirish</button>`}
       </div>
     </div>`).join('') : '<div class="empty-state"><h3>Shablon yo q</h3><p>Yangi Word yoki PDF shablon yuklang.</p></div>';
 }
@@ -5949,24 +6032,29 @@ window.saveAiTemplate = async function() {
   const description = document.getElementById('tpl-desc')?.value?.trim() || '';
   const prompt = document.getElementById('tpl-prompt')?.value?.trim() || '';
   const docType = document.getElementById('tpl-doc-type')?.value || 'Xizmat xati';
+  const status = document.getElementById('tpl-status');
   if(!name || !file) { showToast('Shablon nomi va fayl majburiy', 'error'); return; }
   if(!/\.(doc|docx|pdf)$/i.test(file.name)) { showToast('Faqat Word yoki PDF shablon yuklang', 'error'); return; }
+  if(status) { status.className='template-ai-status warn'; status.textContent='Shablon o‘qilmoqda va AI tahlil qilinmoqda...'; }
   showToast('Shablon yuklanmoqda va AI tahlil qilmoqda...', 'info');
   try {
     const text = await aiDocExtractText(file);
-    const uploaded = await aiDocUploadFile(file, 'ai_templates');
+    if(status) status.textContent = 'Shablon saqlanmoqda...';
+    const uploaded = await aiDocUploadFileSafe(file, 'ai_templates');
     const analysis = await analyzeTemplateWithAi(file, text, { name, docType, prompt });
     await addDoc(collection(db,'ai_document_templates'), {
       org: aiDocOrgScope(), userId: currentUser.uid, name, description, prompt, docType,
-      fileName:file.name, fileType:file.type || '', fileKind:aiDocFileKind(file), fileUrl:uploaded.url, storagePath:uploaded.path,
+      fileName:file.name, fileType:file.type || '', fileKind:aiDocFileKind(file), fileUrl:uploaded.url, storagePath:uploaded.path, uploadError:uploaded.uploadError || '',
       extractedText:text.slice(0, 18000), analysis, createdAt:serverTimestamp(), createdAtLocal:nowIso()
     });
     await writeAudit('ai_template.created', { name, docType, fileName:file.name }).catch(()=>{});
     clearAiTemplateForm();
     await loadAiTemplates();
     renderTemplateSelects();
+    if(status) { status.className='template-ai-status ok'; status.textContent= uploaded.uploadError ? 'Shablon matni bazaga saqlandi. Fayl Storage ga yuklanmadi, lekin shablon ishlaydi.' : 'Shablon saqlandi.'; }
     showToast('Shablon saqlandi', 'success');
   } catch(e) {
+    if(status) { status.className='template-ai-status err'; status.textContent='Shablon saqlanmadi: ' + e.message; }
     showToast('Shablon saqlanmadi: ' + e.message, 'error');
   }
 };
@@ -5979,7 +6067,11 @@ window.deleteAiTemplate = async function(id) {
 };
 
 async function loadAiKnowledgeDocs() {
-  const snap = await getDocs(query(collection(db,'ai_knowledge_documents'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_knowledge_documents')));
+  const snap = await withTimeout(
+    getDocs(query(collection(db,'ai_knowledge_documents'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_knowledge_documents'))),
+    18000,
+    'AI tahlil bazasidan javob kelmadi'
+  );
   aiKnowledgeCache = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
   renderAiKnowledgeDocs();
 }
@@ -6022,17 +6114,17 @@ window.uploadKnowledgeDocument = async function() {
   if(status) { status.className='template-ai-status warn'; status.textContent='Yuklanmoqda va AI tahlil qilmoqda...'; }
   try {
     const text = await aiDocExtractText(file);
-    const uploaded = await aiDocUploadFile(file, 'ai_knowledge');
+    const uploaded = await aiDocUploadFileSafe(file, 'ai_knowledge');
     const analysis = await analyzeKnowledgeDocument(file, title, docType, text);
     await addDoc(collection(db,'ai_knowledge_documents'), {
-      org: aiDocOrgScope(), userId:currentUser.uid, title, docType, fileName:file.name, fileType:file.type || '', fileUrl:uploaded.url, storagePath:uploaded.path,
+      org: aiDocOrgScope(), userId:currentUser.uid, title, docType, fileName:file.name, fileType:file.type || '', fileUrl:uploaded.url, storagePath:uploaded.path, uploadError:uploaded.uploadError || '',
       extractedText:text.slice(0, 22000), analysis, createdAt:serverTimestamp(), createdAtLocal:nowIso()
     });
     await writeAudit('ai_knowledge.created', { title, docType, fileName:file.name }).catch(()=>{});
     document.getElementById('kb-file').value = '';
     document.getElementById('kb-title').value = '';
     await loadAiKnowledgeDocs();
-    if(status) { status.className='template-ai-status ok'; status.textContent='Hujjat AI tomonidan tahlil qilindi va bazaga saqlandi.'; }
+    if(status) { status.className='template-ai-status ok'; status.textContent= uploaded.uploadError ? 'Hujjat matni AI tomonidan tahlil qilindi va bazaga saqlandi. Fayl Storage ga yuklanmadi.' : 'Hujjat AI tomonidan tahlil qilindi va bazaga saqlandi.'; }
   } catch(e) {
     if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
   }
@@ -6066,15 +6158,19 @@ function normalizeOfficialOutNumber(value = '') {
 }
 
 function setupResponseNumberInput() {
-  const input = document.getElementById('resp-user-number');
-  if(!input || input.dataset.officialNumberReady) return;
-  input.dataset.officialNumberReady = '1';
-  input.value = normalizeOfficialOutNumber(input.value);
-  input.addEventListener('input', () => {
-    input.value = normalizeOfficialOutNumber(input.value);
+  setupOfficialNumberInput('resp-user-number');
+}
+
+function setupOfficialNumberInput(id) {
+  const target = document.getElementById(id);
+  if(!target || target.dataset.officialNumberReady) return;
+  target.dataset.officialNumberReady = '1';
+  target.value = normalizeOfficialOutNumber(target.value);
+  target.addEventListener('input', () => {
+    target.value = normalizeOfficialOutNumber(target.value);
   });
-  input.addEventListener('blur', () => {
-    input.value = normalizeOfficialOutNumber(input.value);
+  target.addEventListener('blur', () => {
+    target.value = normalizeOfficialOutNumber(target.value);
   });
 }
 
@@ -6137,6 +6233,10 @@ window.generateResponseDocument = async function() {
   try {
     const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
+    if(tpl.isDefault && !tpl.extractedText) {
+      tpl.extractedText = await getDefaultResponseTemplateText().catch(() => '');
+      tpl.analysis = DEFAULT_RESPONSE_TEMPLATE.analysis;
+    }
     const header = officialResponseHeader(officialDate, outNum);
     const prompt = `Siz professional davlat tashkiloti yuristi, qurilish sohasi eksperti va rasmiy hujjatlar bilan ishlovchi sun'iy intellektsiz.
 
@@ -6235,7 +6335,11 @@ function renderGeneratedPreview(g) {
 }
 
 async function loadGeneratedAiDocs() {
-  const snap = await getDocs(query(collection(db,'ai_generated_documents'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_generated_documents')));
+  const snap = await withTimeout(
+    getDocs(query(collection(db,'ai_generated_documents'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'ai_generated_documents'))),
+    18000,
+    'Yaratilgan hujjatlar bazasidan javob kelmadi'
+  );
   aiGeneratedDocsCache = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
   renderGeneratedAiDocs();
 }
