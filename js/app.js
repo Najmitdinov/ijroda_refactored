@@ -5878,7 +5878,7 @@ const DEFAULT_RESPONSE_TEMPLATE = {
   userId: 'system',
   name: 'Standart javob xati shabloni',
   description: 'Tizimga biriktirilgan rasmiy javob xati shabloni.',
-  prompt: 'Ushbu shablon rekvizitlari va rasmiy xat uslubiga qat’iy amal qilinsin: header/gerb/rekvizit yozuvlari o‘zgartirilmasin, sana va № avtomatik qo‘yilsin, qabul qiluvchi tashkilot o‘ng tomonda, javob matni 14 pt Times New Roman rasmiy uslubda, imzo esa bitta qatorda shakllantirilsin.',
+  prompt: 'Ushbu shablon rekvizitlari va rasmiy xat uslubiga qat’iy amal qilinsin: qizil header qismi doimiy saqlansin, sana va № avtomatik qo‘yilsin, qabul qiluvchi tashkilot o‘ng tomonda, javob matni 14 pt Times New Roman rasmiy uslubda, imzo esa bitta qatorda shakllantirilsin.',
   docType: 'Javob xati',
   fileName: 'default-response-template.docx',
   fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -5890,7 +5890,7 @@ const DEFAULT_RESPONSE_TEMPLATE = {
   analysis: {
     font: 'Times New Roman',
     layout: 'Rasmiy javob xati: tashkilot rekvizitlari, sana, chiquvchi raqam, adresat, asosiy matn va imzo bloki.',
-    style_notes: 'Header qismi shablondagidek saqlanadi. Sana va chiquvchi raqam avtomatik joylanadi. Qabul qiluvchi tashkilot o‘ng tomonda, asosiy javob matni alohida obzaslarda, imzo qatori va ijrochi ma’lumoti rasmiy xat skeletiga muvofiq chiqariladi.'
+    style_notes: 'Qizil header qismi shablondagidek saqlanadi. Sana va chiquvchi raqam chap tomonda avtomatik joylanadi. Qabul qiluvchi tashkilot shu qatorda o‘ng tomonda, asosiy javob matni ko‘k qismda, imzo qatori va ijrochi ma’lumoti rasmiy xat skeletiga muvofiq chiqariladi.'
   }
 };
 
@@ -6623,8 +6623,18 @@ function formatDateInput(date = new Date()) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
+const UZ_OFFICIAL_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+
 function formatOfficialDate(date = new Date()) {
-  return `${pad2(date.getDate())}.${pad2(date.getMonth() + 1)}.${date.getFullYear()}`;
+  return `${date.getFullYear()}-y. «${pad2(date.getDate())}» ${UZ_OFFICIAL_MONTHS[date.getMonth()]}`;
+}
+
+function normalizeOfficialDateText(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if(!match) return text;
+  const monthIdx = Math.max(0, Math.min(11, Number(match[2]) - 1));
+  return `${match[3]}-y. «${match[1]}» ${UZ_OFFICIAL_MONTHS[monthIdx]}`;
 }
 
 function officialResponseHeader(dateText, outNumber) {
@@ -6873,10 +6883,11 @@ function buildGeneratedDocHtml(g) {
   const c = g?.content || {};
   const recipient = c.recipient || g.requisites?.recipientOrg || '';
   const outNumber = c.out_number || g.outNumber || '';
-  const docDate = c.date || g.officialDate || g.date || '';
+  const docDate = normalizeOfficialDateText(c.date || g.officialDate || g.date || '');
   const executorName = c.executor_name || g.requisites?.executorName || '';
   const executorPhone = c.executor_phone || g.requisites?.executorPhone || '';
   const signature = c.signature_block || g.responsible || 'O.Shodiyev';
+  const docCode = g.documentCode || g.id || '';
   const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
   const bodyText = savedBody.length >= 40 ? savedBody : buildLocalResponseDocument({
     outNum: outNumber,
@@ -6891,31 +6902,33 @@ function buildGeneratedDocHtml(g) {
     executorPhone
   }).body;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    @page{size:A4;margin:14mm 18mm 16mm 18mm}
+    @page{size:A4;margin:10mm 16mm 14mm 16mm}
     body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.18;color:#000;background:#fff;margin:0;}
-    .hdr{text-align:center;font-weight:bold;line-height:1.08;margin:0 0 10px;}
-    .hdr img{width:76px;height:auto;display:block;margin:0 auto 7px;}
+    .ijro-line{font-size:12pt;color:#d60000;text-align:center;margin:0 0 12px;}
+    .hdr{text-align:center;font-weight:bold;line-height:1.08;margin:0 0 8px;}
+    .hdr img{width:76px;height:auto;display:block;margin:0 auto 6px;}
     .hdr-main{font-size:13pt;text-transform:uppercase;}
-    .hdr-rule{border-top:2px solid #000;margin:7px 0 4px;}
+    .hdr-rule{border-top:2px solid #000;margin:7px 0 3px;}
     .hdr-address{font-size:8pt;font-style:italic;font-weight:bold;line-height:1.12;}
-    .meta{font-size:14pt;font-weight:bold;line-height:1.45;margin:10px 0 22px;}
-    .recipient-table{width:100%;border-collapse:collapse;margin:0 0 22px;}
-    .recipient-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;line-height:1.15;vertical-align:top;}
-    .recipient-cell{width:42%;text-align:center;white-space:pre-wrap;}
-    .body{font-size:14pt;line-height:1.18;text-align:justify;text-indent:35px;white-space:pre-wrap;margin-top:0;}
-    .sig-table{width:100%;border-collapse:collapse;margin-top:44px;}
+    .top-table{width:100%;border-collapse:collapse;margin:8px 0 8px;}
+    .top-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;vertical-align:top;}
+    .meta-cell{width:40%;line-height:1.9;}
+    .recipient-spacer{width:26%;}
+    .recipient-cell{width:34%;text-align:center;line-height:1.15;white-space:pre-wrap;padding-top:15px;}
+    .body{font-size:14pt;line-height:1.18;text-align:justify;text-indent:35px;white-space:pre-wrap;margin-top:8px;min-height:92mm;}
+    .sig-table{width:100%;border-collapse:collapse;margin-top:4px;}
     .sig-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;vertical-align:top;}
     .sig-name{text-align:right;}
-    .executor{position:fixed;left:18mm;bottom:17mm;font-size:8pt;font-style:italic;line-height:1.18;}
+    .executor{position:fixed;left:16mm;bottom:18mm;font-size:10pt;font-style:italic;line-height:1.18;}
   </style></head><body>
+    <div class="ijro-line">IJRO.GOV.UZ tizimi orqali ERI bilan tasdiqlangan, Hujjat kodi: ${escH(docCode)}</div>
     <div class="hdr">
       <img src="https://najmitdinov.github.io/ijroda_refactored/assets/template-gerb.png" alt="">
       <div class="hdr-main">O‘ZBEKISTON RESPUBLIKASI<br>QURILISH VA UY-JOY KOMMUNAL XO‘JALIGI VAZIRLIGI<br>NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL<br>XO‘JALIGI BOSH BOSHQARMASI</div>
       <div class="hdr-rule"></div>
       <div class="hdr-address">210100, Navoiy shahri, Zarapetyan ko‘chasi, 10-uy, Tel: (79)220-50-08, Faks: (79)220-50-08, E-mail: navqurilish@nv.uz, Sayt: navqurilish.uz</div>
     </div>
-    <div class="meta">${escH(docDate)}<br>№ ${escH(outNumber)}</div>
-    <table class="recipient-table"><tr><td></td><td class="recipient-cell">${escH(recipient)}</td></tr></table>
+    <table class="top-table"><tr><td class="meta-cell">${escH(docDate)}<br>№ ${escH(outNumber)}</td><td class="recipient-spacer"></td><td class="recipient-cell">${escH(recipient)}</td></tr></table>
     <div class="body">${escH(bodyText)}</div>
     <table class="sig-table"><tr><td>Boshqarma boshlig‘i v.v.b</td><td class="sig-name">${escH(signature)}</td></tr></table>
     ${executorName || executorPhone ? `<div class="executor">Ijrochi: ${escH(executorName)}<br>Tel: ${escH(executorPhone)}</div>` : ''}

@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-official-template9';
+const APP_BUILD = '20260515-official-template10';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
