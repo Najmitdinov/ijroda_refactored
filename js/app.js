@@ -6040,9 +6040,11 @@ window.uploadKnowledgeDocument = async function() {
 
 function renderTemplateSelects() {
   const tplSel = document.getElementById('resp-template');
-  if(tplSel) tplSel.innerHTML = aiTemplatesCache.map(t=>`<option value="${t.id}">${escH(t.name)} - ${escH(t.docType || '')}</option>`).join('');
+  if(tplSel) tplSel.innerHTML = aiTemplatesCache.length
+    ? aiTemplatesCache.map(t=>`<option value="${t.id}">${escH(t.name)} - ${escH(t.docType || '')}</option>`).join('')
+    : '<option value="">Standart rasmiy javob xati</option>';
   const respDate = document.getElementById('resp-date');
-  if(respDate && !respDate.value) respDate.value = new Date().toISOString().slice(0,10);
+  if(respDate) respDate.value = formatDateInput(new Date());
   const resp = document.getElementById('resp-responsible');
   if(resp) {
     const users = xodimlarCache.length ? xodimlarCache : [{ id:'', ism:'', familiya:currentUserData?.fullName || currentUser?.email || '' }];
@@ -6057,22 +6059,71 @@ function aiKnowledgeContext() {
   return aiKnowledgeCache.slice(0, 8).map(k => `${k.title || k.fileName}: ${k.analysis?.summary || ''}\nFaktlar: ${(k.analysis?.usable_facts || []).join('; ')}`).join('\n\n').slice(0, 9000);
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function formatDateInput(date = new Date()) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function formatOfficialDate(date = new Date()) {
+  return `${pad2(date.getDate())}.${pad2(date.getMonth() + 1)}.${date.getFullYear()} yil`;
+}
+
+function officialResponseHeader(dateText, outNumber) {
+  return `O‘ZBEKISTON RESPUBLIKASI
+QURILISH VA UY-JOY KOMMUNAL XO‘JALIGI VAZIRLIGI
+
+NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL
+XO‘JALIGI BOSH BOSHQARMASI
+
+210100 Navoiy shahri, Zarapetyan ko‘chasi, 10-uy
+Tel: (79)220-50-08
+E-mail: navqurilish@nv.uz
+Sayt: navqurilish.uz
+
+${dateText}
+
+№ ${outNumber}`;
+}
+
 window.generateResponseDocument = async function() {
   if(!requirePermission('ai.template', 'AI javob xati yaratish')) return;
-  const tpl = aiTemplatesCache.find(t => t.id === document.getElementById('resp-template')?.value);
+  const tpl = aiTemplatesCache.find(t => t.id === document.getElementById('resp-template')?.value) || {
+    id: '',
+    name: 'Standart rasmiy javob xati',
+    docType: 'Javob xati',
+    prompt: 'Davlat tashkiloti uslubida, rasmiy-yuridik va qurilish sohasi terminologiyasi asosida javob xati yozilsin.',
+    analysis: { layout:'Rasmiy xat formati: header, rekvizitlar, adresat, asosiy matn va imzo bloki.' },
+    extractedText: ''
+  };
   const file = document.getElementById('resp-file')?.files?.[0];
-  const outNum = document.getElementById('resp-out-num')?.value?.trim();
-  const date = document.getElementById('resp-date')?.value;
+  const userNumber = document.getElementById('resp-user-number')?.value?.trim();
+  const now = new Date();
+  const date = formatDateInput(now);
+  const officialDate = formatOfficialDate(now);
+  const outNum = userNumber ? `01-22/${userNumber}` : '';
   const responsible = document.getElementById('resp-responsible')?.value || '';
+  const recipientOrg = document.getElementById('resp-org-name')?.value?.trim() || '';
+  const objectName = document.getElementById('resp-object-name')?.value?.trim() || '';
+  const region = document.getElementById('resp-region')?.value?.trim() || '';
+  const manualTaskText = document.getElementById('resp-task-text')?.value?.trim() || '';
   const extra = document.getElementById('resp-extra')?.value?.trim() || '';
   const status = document.getElementById('resp-status');
-  if(!tpl || !file || !outNum || !date) { showToast('Shablon, topshiriq fayli, chiquvchi raqam va sana majburiy', 'error'); return; }
+  if(!userNumber) { showToast('Xat raqamini kiriting. Raqam kiritilmasa hujjat yaratilmaydi.', 'error'); return; }
+  if(!/^\d+$/.test(userNumber)) { showToast('Xat raqami faqat raqamlardan iborat bo‘lishi kerak', 'error'); return; }
+  if(!file && !manualTaskText) { showToast('Topshiriq matni yoki topshiriq fayli majburiy', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
-    const taskText = await aiDocExtractText(file);
-    const filePart = taskText ? null : { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' };
-    const prompt = `Sen davlat organi uchun rasmiy javob xati yaratasan.
-ENG MUHIM TALAB: javob foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub va joylashuv bo'yicha quyidagi shablon tahliliga qat'iy amal qil.
+    const taskText = file ? await aiDocExtractText(file) : '';
+    const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
+    const header = officialResponseHeader(officialDate, outNum);
+    const prompt = `Siz professional davlat tashkiloti yuristi, qurilish sohasi eksperti va rasmiy hujjatlar bilan ishlovchi sun'iy intellektsiz.
+
+Vazifa: yuqori turuvchi tashkilotdan kelgan topshiriq, ko'rsatma, farmoyish, qaror yoki so'rovga professional rasmiy javob xati tayyorlang.
+
+ENG MUHIM TALAB: javob foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub va joylashuv bo'yicha quyidagi shablon tahliliga qat'iy amal qil, biroq quyidagi tashkilot rekvizitlari, sana va xat raqamini o'zgartirma.
 
 Shablon nomi: ${tpl.name}
 Hujjat turi: ${tpl.docType}
@@ -6080,25 +6131,47 @@ Shablon prompti: ${tpl.prompt || ''}
 Shablon tahlili: ${JSON.stringify(tpl.analysis || {})}
 Shablondan ajratilgan matn: ${(tpl.extractedText || '').slice(0, 7000)}
 
+Majburiy header va rekvizitlar:
+${header}
+
 Qo'shimcha rasmiy hujjatlar bazasi:
 ${aiKnowledgeContext() || 'Bazaga qo shimcha hujjat yuklanmagan.'}
 
-Chiquvchi raqam: ${outNum}
-Sana: ${date}
+Chiquvchi xat raqami: ${outNum}
+Sana: ${officialDate}
 Mas'ul shaxs: ${responsible}
-Qo'shimcha izoh: ${extra}
+Tashkilot nomi: ${recipientOrg}
+Obyekt nomi: ${objectName}
+Hudud: ${region}
+Foydalanuvchi kiritgan topshiriq matni: ${manualTaskText || 'Kiritilmagan'}
+Qo'shimcha ma'lumot: ${extra}
 
 Yuqori tashkilot topshirig'i matni:
 ${(taskText || '').slice(0, 16000)}
 
+Asosiy talablar:
+- Javob faqat rasmiy yuridik tilda yozilsin.
+- Grammatik va imloviy xatolar bo'lmasin.
+- Davlat tashkiloti uslubida yozilsin.
+- Qurilish sohasi terminlari professional ishlatilsin.
+- O'zbekiston Respublikasining amaldagi qonunlari, Prezident farmonlari, Vazirlar Mahkamasi qarorlari, SHNQ, KMK va boshqa normativ-huquqiy hujjatlariga tayangan holda javob shakllantirilsin.
+- Zarur hollarda modda, band va hujjat raqamlari keltirilsin.
+- Javob mazmunan asoslangan, aniq va idoraviy yozishma standartlariga mos bo'lsin.
+
 FAQAT JSON qaytar:
 {"title":"","recipient":"","out_number":"","date":"","responsible":"","header":"","body":"","footer":"","signature_block":"","style_notes":"","html":""}
-html maydonida inline CSS bilan rasmiy .doc ga mos HTML hujjat ber.`;
-    const parsed = parseAIJson(await callTemplateAi(prompt, filePart, true));
+header maydonida aynan majburiy header matnini qaytar. body maydonida asosiy javob xati matnini ber. html maydoni ixtiyoriy.`;
+    const parsed = parseAIJson(await callTemplateAi(prompt, file ? filePart : null, true));
     if(!parsed) throw new Error('AI javobi JSON formatda kelmadi');
+    parsed.header = header;
+    parsed.out_number = outNum;
+    parsed.date = officialDate;
+    parsed.recipient = parsed.recipient || recipientOrg;
     const generated = {
       org: aiDocOrgScope(), userId:currentUser.uid, templateId:tpl.id, templateName:tpl.name,
-      sourceFileName:file.name, outNumber:outNum, date, responsible, content:parsed,
+      sourceFileName:file?.name || '', outNumber:outNum, date, officialDate, responsible,
+      requisites:{ userNumber, recipientOrg, objectName, region, header },
+      content:parsed,
       createdAt:serverTimestamp(), createdAtLocal:nowIso()
     };
     const refDoc = await addDoc(collection(db,'ai_generated_documents'), generated);
@@ -6113,14 +6186,20 @@ html maydonida inline CSS bilan rasmiy .doc ga mos HTML hujjat ber.`;
 
 function buildGeneratedDocHtml(g) {
   const c = g?.content || {};
-  if(c.html) return c.html;
+  const header = c.header || g.requisites?.header || officialResponseHeader(g.officialDate || c.date || g.date || formatOfficialDate(new Date()), c.out_number || g.outNumber || '');
+  const recipient = c.recipient || g.requisites?.recipientOrg || '';
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;color:#111;margin:42px 56px;}
-    .hdr,.ftr{white-space:pre-wrap;font-size:12pt;color:#222}.meta{text-align:right;margin:18px 0}.title{text-align:center;font-weight:bold;text-transform:uppercase;margin:22px 0}.body{white-space:pre-wrap}.sig{margin-top:34px;white-space:pre-wrap}
+    @page{size:A4;margin:20mm 18mm 18mm 22mm}
+    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;color:#111;margin:0;}
+    .hdr{white-space:pre-wrap;text-align:center;font-size:12pt;font-weight:bold;line-height:1.28;margin-bottom:24px}
+    .recipient{text-align:right;white-space:pre-wrap;margin:12px 0 24px 42%;font-weight:bold}
+    .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:18px 0}
+    .body{white-space:pre-wrap;text-align:justify}
+    .sig{margin-top:34px;white-space:pre-wrap;font-weight:bold}
+    .ftr{white-space:pre-wrap;font-size:11pt;color:#222;margin-top:24px}
   </style></head><body>
-    <div class="hdr">${escH(c.header || '')}</div>
-    <div class="meta">Chiquvchi raqam: ${escH(c.out_number || g.outNumber || '')}<br>Sana: ${escH(c.date || g.date || '')}</div>
-    <div>${escH(c.recipient || '')}</div>
+    <div class="hdr">${escH(header)}</div>
+    <div class="recipient">${escH(recipient)}</div>
     <div class="title">${escH(c.title || 'Javob xati')}</div>
     <div class="body">${escH(c.body || '')}</div>
     <div class="sig">${escH(c.signature_block || g.responsible || '')}</div>
@@ -6131,7 +6210,8 @@ function buildGeneratedDocHtml(g) {
 function renderGeneratedPreview(g) {
   const el = document.getElementById('resp-preview');
   if(!el) return;
-  el.innerHTML = `<h3>${escH(g.content?.title || 'Javob xati')}</h3>${escH(g.content?.body || '').replace(/\n/g,'<br>')}
+  const c = g.content || {};
+  el.innerHTML = `<h3>${escH(c.title || 'Javob xati')}</h3><div style="font-weight:700;color:var(--text);margin-bottom:10px;">${escH(g.outNumber || c.out_number || '')} | ${escH(g.officialDate || c.date || g.date || '')}</div><div>${escH(c.header || g.requisites?.header || '').replace(/\n/g,'<br>')}</div><hr style="border:0;border-top:1px solid var(--border);margin:14px 0;"><div>${escH(c.body || '').replace(/\n/g,'<br>')}</div>
     <div class="actions-row" style="margin-top:16px;"><button class="btn btn-primary" onclick="downloadGeneratedDocument('${g.id}')">Word yuklash</button></div>`;
 }
 
@@ -6147,7 +6227,7 @@ function renderGeneratedAiDocs() {
   el.innerHTML = aiGeneratedDocsCache.length ? aiGeneratedDocsCache.map(g => `
     <div class="template-ai-item">
       <b>${escH(g.content?.title || 'Yaratilgan hujjat')}</b>
-      <span>${escH(g.templateName || '')} | ${escH(g.outNumber || '')} | ${escH(g.date || '')}</span>
+      <span>${escH(g.templateName || '')} | ${escH(g.outNumber || '')} | ${escH(g.officialDate || g.content?.date || g.date || '')}</span>
       <p>${escH((g.content?.body || '').slice(0, 260))}</p>
       <div class="actions-row" style="margin-top:10px;"><button class="btn btn-sm btn-primary" onclick="downloadGeneratedDocument('${g.id}')">Word yuklash</button></div>
     </div>`).join('') : '<div class="empty-state"><h3>Hujjat yaratilmagan</h3><p>Generate tugmasi orqali javob xatini yarating.</p></div>';

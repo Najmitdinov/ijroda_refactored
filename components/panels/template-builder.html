@@ -55,16 +55,29 @@
     <div class="template-ai-grid" data-tpl-panel="response" style="display:none;">
       <div class="card">
         <div class="card-title">Topshiriqqa javob xati</div>
+        <div class="template-ai-number-box">
+          <div>
+            <b>Xat raqamini kiriting</b>
+            <span>Asosiy tashkilot kodi avtomatik qo'shiladi: 01-22/</span>
+          </div>
+          <div class="template-ai-number-input">
+            <span>01-22/</span>
+            <input id="resp-user-number" inputmode="numeric" pattern="[0-9]*" placeholder="156">
+          </div>
+        </div>
         <div class="form-grid">
           <div class="field"><label>Shablon</label><select id="resp-template"></select></div>
-          <div class="field"><label>Chiquvchi raqami</label><input id="resp-out-num" placeholder="01-12/345"></div>
-          <div class="field"><label>Sana</label><input id="resp-date" type="date"></div>
+          <div class="field"><label>Sana</label><input id="resp-date" type="date" readonly></div>
           <div class="field"><label>Mas'ul shaxs</label><select id="resp-responsible"></select></div>
+          <div class="field"><label>Tashkilot nomi</label><input id="resp-org-name" placeholder="Yuqori turuvchi tashkilot nomi"></div>
+          <div class="field"><label>Obyekt nomi</label><input id="resp-object-name" placeholder="Qurilish obyekti nomi"></div>
+          <div class="field"><label>Hudud</label><input id="resp-region" placeholder="Tuman, shahar yoki viloyat"></div>
+          <div class="field wide"><label>Topshiriq matni</label><textarea id="resp-task-text" placeholder="Topshiriq, ko'rsatma, farmoyish, qaror yoki so'rov mazmunini kiriting"></textarea></div>
           <div class="field wide"><label>Yuqori tashkilotdan kelgan topshiriq hujjati</label><input id="resp-file" type="file" accept=".doc,.docx,.pdf,.txt,.png,.jpg,.jpeg,.webp"></div>
-          <div class="field wide"><label>Qo'shimcha topshiriq yoki izoh</label><textarea id="resp-extra" placeholder="Javob xatida alohida yoritilishi kerak bo'lgan ma'lumotlar"></textarea></div>
+          <div class="field wide"><label>Qo'shimcha ma'lumot</label><textarea id="resp-extra" placeholder="Javob xatida alohida yoritilishi kerak bo'lgan dalillar, ijro holati, huquqiy asoslar yoki izohlar"></textarea></div>
         </div>
         <div class="actions-row">
-          <button class="btn btn-success" onclick="generateResponseDocument()">Generate</button>
+          <button class="btn btn-success" onclick="generateResponseDocument()">Rasmiy javob xatini yaratish</button>
         </div>
         <div id="resp-status" class="template-ai-status"></div>
       </div>
