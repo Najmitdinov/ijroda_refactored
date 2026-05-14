@@ -1,0 +1,41 @@
+<div class="panel" id="panel-legal-base">
+  <div class="page-hdr">
+    <h2>Huquqiy baza</h2>
+    <p>Normativ-huquqiy hujjatlar, qurilish normativlari va namunaviy xatlar bazasi</p>
+  </div>
+
+  <div class="template-ai-grid">
+    <div class="card">
+      <div class="card-title">Hujjat yuklash</div>
+      <div class="form-grid">
+        <div class="field wide"><label>Hujjat nomi</label><input id="lb-title" placeholder="Masalan: SHNQ, qaror yoki buyruq nomi"></div>
+        <div class="field"><label>Kategoriya</label><select id="lb-category">
+          <option>Qonun</option><option>Prezident farmoni</option><option>Prezident qarori</option><option>Vazirlar Mahkamasi qarori</option>
+          <option>Farmoyish</option><option>Buyruq</option><option>Qurilish normativi</option><option>SHNQ</option><option>KMK</option>
+          <option>Texnik reglament</option><option>Ichki xizmat hujjati</option><option>Namunaviy xat</option><option>Arxiv hujjati</option>
+        </select></div>
+        <div class="field"><label>Hujjat raqami</label><input id="lb-number" placeholder="PQ-123, VMQ-45, SHNQ..."></div>
+        <div class="field"><label>Hujjat sanasi</label><input id="lb-date" type="date"></div>
+        <div class="field"><label>Amal qilish holati</label><select id="lb-status"><option>Amalda</option><option>O‘zgartirilgan</option><option>Bekor qilingan</option><option>Arxiv</option></select></div>
+        <div class="field"><label>Versiya</label><input id="lb-version" placeholder="1.0 yoki 2026-yil tahriri"></div>
+        <div class="field wide"><label>Kalit so‘zlar (tags)</label><input id="lb-tags" placeholder="qurilish, loyiha, SHNQ, ekspertiza"></div>
+        <div class="field wide"><label>Izoh</label><textarea id="lb-note" placeholder="Qo‘llanish sohasi, muhim bandlar yoki cheklovlar"></textarea></div>
+        <div class="field wide"><label>Fayl</label><input id="lb-file" type="file" accept=".pdf,.doc,.docx,.xlsx,.xls,.txt,.rtf"></div>
+      </div>
+      <div class="actions-row">
+        <button class="btn btn-primary" onclick="uploadLegalBaseDocument()">Yuklash va indekslash</button>
+        <button class="btn btn-outline" onclick="clearLegalBaseForm()">Tozalash</button>
+      </div>
+      <div id="lb-status-msg" class="template-ai-status"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Normativ-huquqiy hujjatlar</div>
+      <div class="form-grid" style="margin-bottom:12px;">
+        <div class="field"><label>Qidiruv</label><input id="lb-search" placeholder="Mazmun, raqam yoki tag" oninput="renderLegalBaseDocs()"></div>
+        <div class="field"><label>Kategoriya</label><select id="lb-filter-category" onchange="renderLegalBaseDocs()"><option value="">Barchasi</option></select></div>
+      </div>
+      <div id="lb-list" class="template-ai-list">Yuklanmoqda...</div>
+    </div>
+  </div>
+</div>

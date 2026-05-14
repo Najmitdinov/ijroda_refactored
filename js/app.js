@@ -512,8 +512,8 @@ const ROLE_LABELS = {
 
 const ROLE_PERMISSIONS = {
   superadmin: ['*'],
-  admin: ['task.create','task.delete','task.bulkDelete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','user.role','settings.security','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer','ai.template'],
-  org_admin: ['task.create','task.delete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer','ai.template'],
+  admin: ['task.create','task.delete','task.bulkDelete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','user.role','settings.security','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer','ai.template','legal.base'],
+  org_admin: ['task.create','task.delete','task.assign','report.submit','report.approve','report.reject','report.export','user.block','audit.view','notification.view','legal.analyze','legal.taskCreate','legal.answer','ai.template','legal.base'],
   department_head: ['task.create','task.assign','report.submit','report.approve','report.reject','report.export','notification.view','legal.analyze','legal.taskCreate','legal.answer'],
   executor: ['task.create','report.submit','notification.view','legal.analyze','legal.taskCreate','legal.answer'],
   controller: ['report.approve','report.reject','report.export','audit.view','notification.view','legal.analyze','legal.answer'],
@@ -3856,39 +3856,67 @@ FAQAT JSON qaytar:
 
 html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
 
+  let lastError = '';
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
-    const parts = [{ text: prompt }];
-    if(templatePart?.base64) parts.push({ inline_data: { mime_type: templatePart.mimeType, data: templatePart.base64 } });
-    if(taskPart?.base64) parts.push({ inline_data: { mime_type: taskPart.mimeType, data: taskPart.base64 } });
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        contents: [{ role:'user', parts }],
-        generationConfig: { temperature:0.14, maxOutputTokens:6500, responseMimeType:'application/json' }
-      })
-    });
-    if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
-    const data = await resp.json();
-    const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
-    await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
-    return parseAIJson(text);
+    try {
+      const parts = [{ text: prompt }];
+      if(templatePart?.base64) parts.push({ inline_data: { mime_type: templatePart.mimeType, data: templatePart.base64 } });
+      if(taskPart?.base64) parts.push({ inline_data: { mime_type: taskPart.mimeType, data: taskPart.base64 } });
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          contents: [{ role:'user', parts }],
+          generationConfig: { temperature:0.14, maxOutputTokens:6500, responseMimeType:'application/json' }
+        })
+      });
+      if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
+      const data = await resp.json();
+      const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+      await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
+      return parseAIJson(text);
+    } catch(e) {
+      lastError = e.message;
+      await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model:'gemini-2.5-flash', error:e.message }).catch(()=>{});
+      console.warn('Gemini legal template fallback:', e.message);
+    }
   }
 
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
-    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method:'POST',
-      headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-      body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
-    });
-    if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
-    const data = await resp.json();
-    await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
-    return parseAIJson(data?.choices?.[0]?.message?.content || '');
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
+        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
+      });
+      if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
+      const data = await resp.json();
+      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
+      return parseAIJson(data?.choices?.[0]?.message?.content || '');
+    } catch(e) {
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'OpenRouter', ok:false, chars:prompt.length, model:'openrouter', error:e.message }).catch(()=>{});
+      console.warn('OpenRouter legal template fallback:', e.message);
+    }
   }
-  throw new Error('AI API kalit topilmadi. AI Sozlamalar bo limidan kalit kiriting.');
+  return buildLocalLegalTemplateAnswer({ taskText, outNumber, question, providerError:lastError });
+}
+
+function buildLocalLegalTemplateAnswer({ taskText='', outNumber='', question='', providerError='' } = {}) {
+  const cleanTask = String(taskText || question || '').replace(/\s+/g, ' ').trim();
+  const basis = 'O‘zbekiston Respublikasining shaharsozlik faoliyati, loyiha-smeta hujjatlari, qurilish-montaj ishlari, texnik nazorat va obyektlarni foydalanishga qabul qilishga oid amaldagi normativ-huquqiy hujjatlari, shu jumladan SHNQ va KMK talablari doirasida';
+  const answerText = `${basis} ko‘rib chiqildi.\n\n${cleanTask ? `Kelgan topshiriqda bayon etilgan masala yuzasidan ${cleanTask.slice(0, 450)} mazmunidagi holatlar tahlil qilindi.` : 'Kelgan topshiriqda bayon etilgan masala belgilangan tartibda tahlil qilindi.'} Bosh boshqarma vakolati doirasida qurilish sohasi bo‘yicha loyiha yechimlari, shaharsozlik hujjatlari, muhandislik infratuzilmasi, texnik shartlar hamda normativ talablar ijrosi yuzasidan tegishli o‘rganish ishlari amalga oshiriladi.\n\nTopshiriq ijrosi bo‘yicha mas’ul tarkibiy bo‘linmalarga tegishli ko‘rsatmalar berilib, aniqlangan ma’lumotlar asosida belgilangan muddatlarda asoslantirilgan axborot taqdim etilishi ta’minlanadi. Qo‘shimcha hujjatlar yoki aniqlashtiruvchi ma’lumotlar kelib tushgan taqdirda, masala amaldagi qonunchilik talablari asosida qo‘shimcha ravishda ko‘rib chiqiladi.`;
+  return {
+    title: 'Javob xati',
+    summary: providerError ? `AI provayder vaqtincha javob bermadi (${providerError}). Lokal rasmiy javob shakllantirildi.` : 'Lokal rasmiy javob shakllantirildi.',
+    answer_text: answerText,
+    html: '',
+    style_notes: 'Lokal zaxira javob. AI provayder ishlaganda individual huquqiy asoslar yanada batafsil shakllantiriladi.',
+    confidence_score: providerError ? 55 : 65,
+    out_number: outNumber
+  };
 }
 
 window.generateLegalTemplateAnswer = async function() {
@@ -3911,9 +3939,11 @@ window.generateLegalTemplateAnswer = async function() {
       readLegalAiFileSmart(templateFile),
       readLegalAiFileSmart(taskFile)
     ]);
+    if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
+    const rag = legalBaseContext(`${taskData.text || taskFile.name} ${document.getElementById('legal-ai-question')?.value?.trim() || ''}`);
     const answer = await callLegalTemplateAnswerProvider({
       templateText: templateData.text,
-      taskText: taskData.text,
+      taskText: `${taskData.text}\n\nHuquqiy baza konteksti:\n${rag}\n\nQat'iy cheklov: bazada mavjud bo‘lmagan normativ hujjat, modda yoki band raqamini uydirma.`,
       templatePart: templateData.filePart,
       taskPart: taskData.filePart,
       outNumber,
@@ -4991,6 +5021,7 @@ window.showPanel = (name) => {
   if (name === 'aichat') { loadChatList(); }
   if (name === 'providers') { renderProviderStatus(); }
   if (name === 'template-builder') { loadTemplateBuilderPanel(); }
+  if (name === 'legal-base') { loadLegalBasePanel(); }
   if (name === 'superadmin') { loadAdminAnalytics(); }
   if (name === 'muhim') { loadMuhimTopshiriqlar(); }
   if (name === 'tashkilotlar') { loadTashkilotlar(); }
@@ -5911,37 +5942,50 @@ async function getDefaultResponseTemplateText() {
 }
 
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
+  let lastError = '';
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
-    const parts = [{ text: prompt }];
-    if(filePart?.base64) parts.push({ inline_data: { mime_type: filePart.mimeType, data: filePart.base64 } });
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        contents: [{ role:'user', parts }],
-        generationConfig: { temperature:0.18, maxOutputTokens: jsonMode ? 5200 : 6500, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
-      })
-    });
-    if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
-    const data = await resp.json();
-    const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
-    await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
-    return text;
+    try {
+      const parts = [{ text: prompt }];
+      if(filePart?.base64) parts.push({ inline_data: { mime_type: filePart.mimeType, data:filePart.base64 } });
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          contents: [{ role:'user', parts }],
+          generationConfig: { temperature:0.18, maxOutputTokens: jsonMode ? 5200 : 6500, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
+        })
+      });
+      if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
+      const data = await resp.json();
+      const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+      await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
+      return text;
+    } catch(e) {
+      lastError = e.message;
+      await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model:'gemini-2.5-flash', error:e.message }).catch(()=>{});
+      console.warn('Gemini template fallback:', e.message);
+    }
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
-    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method:'POST',
-      headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-      body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.18, max_tokens:5200 })
-    });
-    if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
-    const data = await resp.json();
-    await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
-    return data?.choices?.[0]?.message?.content || '';
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
+        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.18, max_tokens:5200 })
+      });
+      if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
+      const data = await resp.json();
+      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
+      return data?.choices?.[0]?.message?.content || '';
+    } catch(e) {
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'OpenRouter', ok:false, chars:prompt.length, model:'openrouter', error:e.message }).catch(()=>{});
+      console.warn('OpenRouter template fallback:', e.message);
+    }
   }
-  throw new Error('AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini yoki OpenRouter kalitini kiriting.');
+  throw new Error(lastError || 'AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini yoki OpenRouter kalitini kiriting.');
 }
 
 function localTemplateAnalysis(file, text='') {
@@ -6152,6 +6196,188 @@ function aiKnowledgeContext() {
   return aiKnowledgeCache.slice(0, 8).map(k => `${k.title || k.fileName}: ${k.analysis?.summary || ''}\nFaktlar: ${(k.analysis?.usable_facts || []).join('; ')}`).join('\n\n').slice(0, 9000);
 }
 
+// ===== LEGAL KNOWLEDGE BASE / LIGHT RAG =====
+let legalBaseDocsCache = [];
+
+function legalBaseCategories() {
+  return ['Qonun','Prezident farmoni','Prezident qarori','Vazirlar Mahkamasi qarori','Farmoyish','Buyruq','Qurilish normativi','SHNQ','KMK','Texnik reglament','Ichki xizmat hujjati','Namunaviy xat','Arxiv hujjati'];
+}
+
+async function legalBaseExtractText(file) {
+  if(!file) return '';
+  if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 70000);
+  if(/\.(xls|xlsx)$/i.test(file.name)) return (await readExcelAsText(file)).slice(0, 70000);
+  if(/^text\//.test(file.type) || /\.(txt|rtf)$/i.test(file.name)) return (await readAsText(file)).slice(0, 70000);
+  return '';
+}
+
+function legalBaseTokens(text='') {
+  return normalizeText(text)
+    .split(/[^a-zа-яё0-9]+/i)
+    .filter(w => w.length > 2)
+    .slice(0, 1200);
+}
+
+function legalBaseIndexText(meta, extractedText='') {
+  return [
+    meta.title, meta.category, meta.number, meta.date, meta.status, meta.version,
+    meta.tags, meta.note, extractedText
+  ].filter(Boolean).join(' ');
+}
+
+function scoreLegalBaseDoc(doc, queryText='') {
+  const queryTokens = [...new Set(legalBaseTokens(queryText))];
+  if(!queryTokens.length) return 0;
+  const hay = normalizeText(`${doc.title || ''} ${doc.category || ''} ${doc.number || ''} ${(doc.tags || []).join(' ')} ${doc.note || ''} ${doc.extractedText || ''}`);
+  let score = 0;
+  queryTokens.forEach(t => {
+    if(hay.includes(t)) score += 1;
+    if(normalizeText((doc.tags || []).join(' ')).includes(t)) score += 2;
+    if(normalizeText(`${doc.title || ''} ${doc.number || ''}`).includes(t)) score += 3;
+  });
+  if(normalizeText(doc.status || '').includes('amalda')) score += 4;
+  if(normalizeText(doc.status || '').includes('bekor')) score -= 12;
+  if(normalizeText(doc.status || '').includes('arxiv')) score -= 5;
+  return score;
+}
+
+function relevantLegalBaseDocs(queryText='', limit=6) {
+  return legalBaseDocsCache
+    .map(doc => ({ ...doc, _score: scoreLegalBaseDoc(doc, queryText) }))
+    .filter(doc => doc._score > 0 && !normalizeText(doc.status || '').includes('bekor'))
+    .sort((a,b) => b._score - a._score)
+    .slice(0, limit);
+}
+
+function legalBaseContext(queryText='') {
+  const docs = relevantLegalBaseDocs(queryText, 6);
+  if(!docs.length) return 'Huquqiy bazadan topshiriqqa bevosita mos amaldagi hujjat topilmadi. Uydirma normativ keltirilmasin.';
+  return docs.map((d, i) => `${i+1}. ${d.category || 'Hujjat'}: ${d.title || d.fileName || ''}
+Raqami: ${d.number || 'ko‘rsatilmagan'} | Sana: ${d.date || 'ko‘rsatilmagan'} | Holati: ${d.status || 'ko‘rsatilmagan'} | Versiya: ${d.version || ''}
+Tags: ${(d.tags || []).join(', ')}
+Izoh: ${d.note || ''}
+Relevant parcha: ${(d.extractedText || '').slice(0, 1400)}`).join('\n\n').slice(0, 10000);
+}
+
+window.loadLegalBasePanel = async function() {
+  if(!requirePermission('legal.base', 'Huquqiy bazani ko‘rish')) return;
+  const cat = document.getElementById('lb-filter-category');
+  if(cat && !cat.dataset.ready) {
+    cat.innerHTML = '<option value="">Barchasi</option>' + legalBaseCategories().map(x => `<option>${escH(x)}</option>`).join('');
+    cat.dataset.ready = '1';
+  }
+  try {
+    const snap = await withTimeout(
+      getDocs(query(collection(db,'legal_knowledge_base'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'legal_knowledge_base'))),
+      18000,
+      'Huquqiy baza yuklanmadi'
+    );
+    legalBaseDocsCache = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  } catch(e) {
+    console.warn('legal base load:', e.message);
+    legalBaseDocsCache = [];
+  }
+  renderLegalBaseDocs();
+};
+
+async function loadLegalBaseForAi() {
+  if(legalBaseDocsCache.length) return;
+  try {
+    const snap = await withTimeout(
+      getDocs(query(collection(db,'legal_knowledge_base'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'legal_knowledge_base'))),
+      12000,
+      'Huquqiy baza AI uchun yuklanmadi'
+    );
+    legalBaseDocsCache = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+  } catch(e) {
+    console.warn('legal base AI load:', e.message);
+  }
+}
+
+window.renderLegalBaseDocs = function() {
+  const el = document.getElementById('lb-list');
+  if(!el) return;
+  const q = normalizeText(document.getElementById('lb-search')?.value || '');
+  const c = document.getElementById('lb-filter-category')?.value || '';
+  const rows = legalBaseDocsCache.filter(d => {
+    const hay = normalizeText(`${d.title || ''} ${d.number || ''} ${(d.tags || []).join(' ')} ${d.note || ''}`);
+    return (!q || hay.includes(q)) && (!c || d.category === c);
+  });
+  el.innerHTML = rows.length ? rows.map(d => `
+    <div class="template-ai-item">
+      <b>${escH(d.title || d.fileName || 'Hujjat')}</b>
+      <span>${escH(d.category || '')} | ${escH(d.number || '')} | ${escH(d.date || '')} | ${escH(d.status || '')}</span>
+      <p>${escH((d.tags || []).join(', '))}</p>
+      <p>${escH(d.note || (d.extractedText || '').slice(0, 220))}</p>
+      <div class="actions-row" style="margin-top:10px;">
+        <button class="btn btn-sm btn-outline" onclick="downloadUrl('${escH(d.fileUrl || '')}')">Ochish</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteLegalBaseDocument('${d.id}')">O‘chirish</button>
+      </div>
+    </div>`).join('') : '<div class="empty-state"><h3>Huquqiy hujjat yo‘q</h3><p>Qonun, qaror, SHNQ, KMK yoki boshqa normativ hujjat yuklang.</p></div>';
+};
+
+window.clearLegalBaseForm = function() {
+  ['lb-title','lb-number','lb-date','lb-version','lb-tags','lb-note'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const file = document.getElementById('lb-file'); if(file) file.value = '';
+};
+
+window.uploadLegalBaseDocument = async function() {
+  if(!requirePermission('legal.base', 'Huquqiy hujjat qo‘shish')) return;
+  const file = document.getElementById('lb-file')?.files?.[0];
+  const statusEl = document.getElementById('lb-status-msg');
+  const meta = {
+    title: document.getElementById('lb-title')?.value?.trim() || file?.name || '',
+    category: document.getElementById('lb-category')?.value || 'Qonun',
+    number: document.getElementById('lb-number')?.value?.trim() || '',
+    date: document.getElementById('lb-date')?.value || '',
+    status: document.getElementById('lb-status')?.value || 'Amalda',
+    version: document.getElementById('lb-version')?.value?.trim() || '',
+    tags: document.getElementById('lb-tags')?.value?.split(',').map(x=>x.trim()).filter(Boolean) || [],
+    note: document.getElementById('lb-note')?.value?.trim() || ''
+  };
+  if(!file) { showToast('Huquqiy hujjat faylini tanlang', 'error'); return; }
+  if(!/\.(pdf|doc|docx|xls|xlsx|txt|rtf)$/i.test(file.name)) { showToast('PDF, DOCX, XLSX, TXT yoki RTF fayl yuklang', 'error'); return; }
+  if(statusEl) { statusEl.className='template-ai-status warn'; statusEl.textContent='Hujjat yuklanmoqda, matn ajratilmoqda va indekslanmoqda...'; }
+  try {
+    const extractedText = await legalBaseExtractText(file);
+    const uploaded = await aiDocUploadFileSafe(file, 'legal_base');
+    const indexText = legalBaseIndexText(meta, extractedText);
+    await addDoc(collection(db,'legal_knowledge_base'), {
+      org: aiDocOrgScope(),
+      userId: currentUser.uid,
+      ...meta,
+      fileName:file.name,
+      fileType:file.type || '',
+      fileKind:aiDocFileKind(file),
+      fileUrl:uploaded.url,
+      storagePath:uploaded.path,
+      uploadError:uploaded.uploadError || '',
+      extractedText:extractedText.slice(0, 45000),
+      indexText:indexText.slice(0, 50000),
+      indexTokens: [...new Set(legalBaseTokens(indexText))].slice(0, 400),
+      indexedAt: nowIso(),
+      ocrStatus: extractedText ? 'text_extracted' : 'file_saved_needs_ocr',
+      vectorStatus: 'semantic_keyword_index',
+      createdAt: serverTimestamp(),
+      createdAtLocal: nowIso()
+    });
+    await writeAudit('legal_base.created', { title:meta.title, category:meta.category, number:meta.number, fileName:file.name }).catch(()=>{});
+    clearLegalBaseForm();
+    await loadLegalBasePanel();
+    if(statusEl) { statusEl.className='template-ai-status ok'; statusEl.textContent='Hujjat huquqiy bazaga saqlandi va AI qidiruvi uchun indekslandi.'; }
+    showToast('Huquqiy hujjat saqlandi', 'success');
+  } catch(e) {
+    if(statusEl) { statusEl.className='template-ai-status err'; statusEl.textContent=e.message; }
+    showToast('Huquqiy hujjat saqlanmadi: ' + e.message, 'error');
+  }
+};
+
+window.deleteLegalBaseDocument = async function(id) {
+  if(!confirm('Huquqiy hujjatni o‘chirmoqchimisiz?')) return;
+  await deleteDoc(doc(db,'legal_knowledge_base',id));
+  await loadLegalBasePanel();
+};
+
 function normalizeOfficialOutNumber(value = '') {
   const suffix = extractUserNumber(value);
   return suffix ? `01-22/${suffix}` : '01-22/';
@@ -6282,6 +6508,9 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
   try {
     const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
+    if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
+    const ragQuery = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
+    const legalRagContext = legalBaseContext(ragQuery);
     if(tpl.isDefault && !tpl.extractedText) {
       tpl.extractedText = await getDefaultResponseTemplateText().catch(() => '');
       tpl.analysis = DEFAULT_RESPONSE_TEMPLATE.analysis;
@@ -6352,6 +6581,11 @@ ${header}
 Qo'shimcha rasmiy hujjatlar bazasi:
 ${aiKnowledgeContext() || 'Bazaga qo shimcha hujjat yuklanmagan.'}
 
+NORMATIV-HUQUQIY HUJJATLAR BAZASIDAN TOPILGAN RELEVANT KONTEKST:
+${legalRagContext}
+
+QAT'IY CHEKLOV: Huquqiy asos sifatida faqat yuqoridagi huquqiy baza kontekstida mavjud yoki foydalanuvchi topshirig'ida aniq ko'rsatilgan hujjatlarni keltir. Bazada yo'q hujjat, modda yoki band raqamini uydirma. Bekor qilingan yoki arxiv holatidagi hujjatdan asos sifatida foydalanma.
+
 Chiquvchi xat raqami: ${outNum}
 Sana: ${officialDate}
 Mas'ul shaxs: ${responsible}
@@ -6377,7 +6611,19 @@ ${(taskText || '').slice(0, 16000)}
 FAQAT JSON qaytar:
 {"title":"","recipient":"","out_number":"","date":"","responsible":"","header":"","body":"","footer":"","signature_block":"","style_notes":"","html":""}
 header maydonida aynan majburiy header matnini qaytar. body maydonida individual, topshiriqqa mos, asoslangan rasmiy javob xati matnini ber. html maydoni ixtiyoriy.`;
-    const parsed = parseAIJson(await callTemplateAi(prompt, file ? filePart : null, true));
+    let parsed = null;
+    try {
+      parsed = parseAIJson(await callTemplateAi(prompt, file ? filePart : null, true));
+    } catch(e) {
+      console.warn('response AI fallback:', e.message);
+      parsed = buildLocalResponseDocument({
+        header, outNum, officialDate, recipientOrg, responsible,
+        taskText: manualTaskText || taskText,
+        objectName, region, extra,
+        legalContext: legalRagContext,
+        providerError:e.message
+      });
+    }
     if(!parsed) throw new Error('AI javobi JSON formatda kelmadi');
     parsed.header = header;
     parsed.out_number = outNum;
@@ -6399,6 +6645,25 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
     if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
   }
 };
+
+function buildLocalResponseDocument({ header='', outNum='', officialDate='', recipientOrg='', responsible='', taskText='', objectName='', region='', extra='', legalContext='', providerError='' } = {}) {
+  const task = String(taskText || '').replace(/\s+/g, ' ').trim();
+  const context = String(legalContext || '').split('\n').filter(Boolean).slice(0, 8).join(' ');
+  const body = `Sizning ${task ? `topshiriqda bayon etilgan ${task.slice(0, 420)} masalasi` : 'yuborgan topshirig‘ingiz'} yuzasidan Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi tomonidan vakolat doirasida ko‘rib chiqildi.\n\n${objectName || region ? `Ko‘rib chiqish davomida ${objectName ? `"${objectName}" obyekti` : 'tegishli obyekt'}${region ? `, ${region} hududi` : ''} bo‘yicha shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari, texnik nazorat va normativ talablarga rioya etilishi masalalari tahlil qilindi.` : 'Ko‘rib chiqish davomida shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari, texnik nazorat va normativ talablarga rioya etilishi masalalari tahlil qilindi.'}\n\n${context && !context.includes('topilmadi') ? `Huquqiy baza ma’lumotlariga ko‘ra, masala quyidagi normativ kontekst doirasida baholandi: ${context.slice(0, 900)}.` : 'Huquqiy bazada topshiriq mazmuniga bevosita mos amaldagi normativ hujjat aniqlanmaganligi sababli uydirma modda yoki bandlar keltirilmaydi.'}\n\n${extra ? `Qo‘shimcha ma’lumot sifatida ${extra} inobatga olindi.` : ''} Topshiriq ijrosi bo‘yicha mas’ul bo‘linmalarga belgilangan tartibda ko‘rsatmalar berilib, zarur hujjatlar va asoslantirilgan ma’lumotlar tayyorlanishi ta’minlanadi.\n\n${providerError ? `Eslatma: AI provayder vaqtincha javob bermaganligi sababli zaxira rasmiy javob shakllantirildi (${providerError}).` : ''}`;
+  return {
+    title: 'Javob xati',
+    recipient: recipientOrg,
+    out_number: outNum,
+    date: officialDate,
+    responsible,
+    header,
+    body,
+    footer: '',
+    signature_block: responsible || 'Rahbar',
+    style_notes: 'Lokal RAG fallback: huquqiy bazadagi mavjud kontekst asosida, uydirma normativlarsiz shakllantirildi.',
+    html: ''
+  };
+}
 
 function buildGeneratedDocHtml(g) {
   const c = g?.content || {};

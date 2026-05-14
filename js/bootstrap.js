@@ -1,4 +1,4 @@
-const APP_BUILD = '20260514-letter-modal4';
+const APP_BUILD = '20260514-legal-base5';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

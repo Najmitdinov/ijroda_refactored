@@ -94,6 +94,12 @@ service cloud.firestore {
         &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
           in ['org_admin', 'admin', 'superadmin'];
     }
+    match /legal_knowledge_base/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        &amp;&amp; get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+          in ['org_admin', 'admin', 'superadmin'];
+    }
     match /ai_generated_documents/{id} {
       allow read, write: if request.auth != null;
     }
@@ -110,6 +116,9 @@ service firebase.storage {
       allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
     }
     match /ai_knowledge/{uid}/{fileName} {
+      allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
+    }
+    match /legal_base/{uid}/{fileName} {
       allow read, write: if request.auth != null &amp;&amp; request.auth.uid == uid;
     }
   }

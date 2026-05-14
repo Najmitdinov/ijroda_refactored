@@ -84,6 +84,12 @@ service cloud.firestore {
       allow delete: if isSuperadmin();
     }
 
+    match /legal_knowledge_base/{docId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin'];
+      allow delete: if isAdmin();
+    }
+
     match /legal_document_chunks/{chunkId} {
       allow read: if signedIn();
       allow create, update: if signedIn() && role() in ['superadmin', 'admin'];
