@@ -3620,28 +3620,36 @@ function buildLegalAiShell() {
   const docOptions = LEGAL_AI_DOC_TYPES.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
   const sectorOptions = LEGAL_AI_SECTORS.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
   const providerReady = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
+  const providerClass = providerReady ? 'ready' : 'local';
   return `
     <div class="legal-ai-shell">
       <div class="legal-ai-hero">
-        <div>
+        <div class="legal-ai-hero-copy">
+          <span class="legal-ai-eyebrow">Legal Intelligence</span>
           <h2>${escH(legalT('moduleTitle'))}</h2>
           <p>${escH(legalT('moduleSub'))}</p>
+          <div class="legal-ai-hero-tags">
+            <span>Parser</span>
+            <span>Risk score</span>
+            <span>Audit log</span>
+          </div>
         </div>
         <div class="legal-ai-hero-stats">
           <div><b>${legalAiState.audit.length}</b><span>Audit</span></div>
           <div><b>${legalAiState.result?.tasks?.length || 0}</b><span>Topshiriq</span></div>
+          <div><b>${Number(legalAiState.result?.confidence_score || 0)}%</b><span>${escH(legalT('confidence'))}</span></div>
           <div class="legal-ai-badge">${escH(legalT('strictMode'))}</div>
         </div>
       </div>
       <div class="legal-ai-layout">
         <div class="legal-ai-control">
           <div class="legal-ai-control-head">
-            <b>Hujjat tahlili</b>
-            <span>${providerReady ? escH(legalT('providerReady')) : escH(legalT('providerMissing'))}</span>
+            <div><b>Hujjat tahlili</b><span>${escH(legalT('uploadSmall'))}</span></div>
+            <span class="legal-ai-provider-pill ${providerClass}">${providerReady ? escH(legalT('providerReady')) : 'Lokal rejim'}</span>
           </div>
           <div class="legal-ai-section-title">${escH(legalT('upload'))}</div>
           <div class="legal-ai-drop" onclick="document.getElementById('legal-ai-file').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleLegalAiDrop(event)">
-            <div class="legal-ai-drop-icon">AI</div>
+            <div class="legal-ai-drop-icon">PDF</div>
             <div><b>${escH(legalT('uploadHint'))}</b><span>${escH(legalT('uploadSmall'))}</span></div>
           </div>
           <input id="legal-ai-file" type="file" accept=".pdf,.doc,.docx,.txt,.text,.png,.jpg,.jpeg,.webp" style="display:none" onchange="handleLegalAiFile(this.files && this.files[0])">
@@ -3650,13 +3658,13 @@ function buildLegalAiShell() {
             <label>${escH(legalT('docType'))}<select id="legal-ai-doc-type">${docOptions}</select></label>
             <label>${escH(legalT('sector'))}<select id="legal-ai-sector">${sectorOptions}</select></label>
             <label class="wide">${escH(legalT('confidentiality'))}<select id="legal-ai-confidential"><option value="no">${escH(legalT('confidentialNo'))}</option><option value="yes">${escH(legalT('confidentialYes'))}</option></select></label>
-            <label class="wide">${escH(legalT('pasteText'))}<textarea id="legal-ai-text" placeholder="${escH(legalT('pasteText'))}">${escH(legalAiState.rawText || '')}</textarea></label>
-            <label class="wide">${escH(legalT('question'))}<textarea id="legal-ai-question" placeholder="Masalan: Ushbu qarordan nechta topshiriq ajratish mumkin?"></textarea></label>
+            <label class="wide">${escH(legalT('pasteText'))}<textarea id="legal-ai-text" rows="5" placeholder="${escH(legalT('pasteText'))}">${escH(legalAiState.rawText || '')}</textarea></label>
+            <label class="wide">${escH(legalT('question'))}<textarea id="legal-ai-question" rows="3" placeholder="Masalan: Ushbu qarordan nechta topshiriq ajratish mumkin?"></textarea></label>
           </div>
           <div class="legal-ai-actions">
             <button class="btn btn-primary" onclick="analyzeLegalAi()">${escH(legalT('analyze'))}</button>
             <button class="btn btn-success" onclick="writeLegalReport()">${escH(legalT('report'))}</button>
-            <button class="btn btn-outline" onclick="legalAiReset()">${escH(legalT('reset'))}</button>
+            <button class="btn btn-outline legal-ai-action-wide" onclick="legalAiReset()">${escH(legalT('reset'))}</button>
           </div>
           <div class="legal-ai-note">${escH(legalT('securityNote'))}</div>
           <div id="legal-ai-provider" class="legal-ai-provider">${escH(legalT('provider'))}: ${providerReady ? escH(legalT('providerReady')) : escH(legalT('providerMissing'))}</div>
@@ -4421,7 +4429,16 @@ function renderLegalAiResult() {
   if(!result) {
     el.innerHTML = `
       <div class="legal-ai-empty">
-        <div><b>${escH(legalT('emptyTitle'))}</b><span>${escH(legalT('emptySub'))}</span></div>
+        <div class="legal-ai-empty-inner">
+          <div class="legal-ai-empty-mark">AI</div>
+          <b>${escH(legalT('emptyTitle'))}</b>
+          <span>${escH(legalT('emptySub'))}</span>
+          <div class="legal-ai-empty-steps">
+            <span>1. Hujjat</span>
+            <span>2. Savol</span>
+            <span>3. Tahlil</span>
+          </div>
+        </div>
       </div>`;
     return;
   }
