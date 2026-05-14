@@ -6949,7 +6949,8 @@ window.exportTashkilotlarExcel = () => {
 // ╚══════════════════════════════════════════════════════════════════╝
 let ahbCache = [];
 let ahbLastReport = null;
-const DEFAULT_OUR_ORG_NAME = "Navoiy viloyati Qurilish va uy-joy kommunal xo'jaligi bosh boshqarmasi";
+const DEFAULT_OUR_ORG_NAME = "Navoiy viloyati Qurilish va uy-joy kommunal xo'jaligi bosh boshqarnasi";
+const AHB_SUMMARY_TITLE = `${DEFAULT_OUR_ORG_NAME} tomonidan O'zbekiston Respublikasi Qonunlari, Prezident farmonlari, qarorlari, farmoyishlari va Vazirlar Mahkamasi qarorlari va farmoyishlarining ijrosi haqida`;
 
 const AHB_EXPORT_COLS = [
   { key:'docName', label:'Hujjat nomi', aliases:['hujjat','nomi','hujjat nomi'] },
@@ -6992,7 +6993,7 @@ function getAhbDocValue(doc, key) {
 
 function canonicalOrgName(name) {
   return normalizeText(name)
-    .replace(/\b(mchj|ooo|llc|dukk|duk|uk|xtb|xalq ta'limi|bo'limi|boshqarmasi)\b/g, '')
+    .replace(/\b(mchj|ooo|llc|dukk|duk|uk|xtb|xalq ta'limi|bo'limi|boshqarmasi|boshqarnasi)\b/g, '')
     .replace(/[.,()"'`]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -7013,7 +7014,10 @@ function ahbOrgMatches(doc, selected=[]) {
   if(!selected.length) return true;
   const docOrg = canonicalOrgName(getOrgText(doc));
   if(!docOrg) return false;
-  return selected.some(org => canonicalOrgName(org) === docOrg);
+  return selected.some(org => {
+    const selectedOrg = canonicalOrgName(org);
+    return selectedOrg === docOrg || docOrg.includes(selectedOrg) || selectedOrg.includes(docOrg);
+  });
 }
 
 function ahbDateInRange(doc={}, fromValue='', toValue='') {
@@ -7136,14 +7140,14 @@ function ahbOfficialStyles() {
   return `
     <style>
       @page { size: landscape; margin: 0.7cm; }
-      .official-report{background:#1f1f1f;color:#fff;border-collapse:collapse;width:100%;font-family:"Times New Roman",serif;font-size:9px;table-layout:fixed;}
-      .official-report th,.official-report td{border:1px solid #e5e7eb;padding:5px 4px;vertical-align:middle;text-align:center;white-space:pre-line;line-height:1.25;word-break:break-word;}
-      .official-report th{font-weight:700;background:#242424;color:#fff;}
-      .official-report .red{color:#ff4b4b;font-weight:700;}
-      .official-report .group-row td{background:#2b2b2b;color:#fff;font-weight:700;text-align:center;font-size:11px;}
+      .official-report{background:#fff;color:#111827;border-collapse:collapse;width:100%;font-family:"Times New Roman",serif;font-size:9px;table-layout:fixed;}
+      .official-report th,.official-report td{border:1px solid #6b7280;padding:5px 4px;vertical-align:middle;text-align:center;white-space:pre-line;line-height:1.25;word-break:break-word;}
+      .official-report th{font-weight:700;background:#f3f4f6;color:#111827;}
+      .official-report .red{color:#111827;font-weight:700;}
+      .official-report .group-row td{background:#f9fafb;color:#111827;font-weight:700;text-align:center;font-size:11px;}
       .official-report .num{width:28px;}
       .official-report .doc-name{width:160px;}
-      .official-report-wrap{overflow:auto;border:1px solid var(--border2);border-radius:8px;background:#1f1f1f;max-height:520px;}
+      .official-report-wrap{overflow:auto;border:1px solid var(--border2);border-radius:8px;background:#fff;max-height:520px;}
       .official-note{font-size:12px;color:var(--muted);margin:8px 0 12px;}
     </style>`;
 }
@@ -7178,22 +7182,22 @@ function buildAhbOfficialTableHtml(docs=[], options={}) {
 }
 
 function classifyAhbSummaryType(doc={}) {
-  const txt = normalizeText(`${doc.source||''} ${doc.docType||''} ${doc.docName||''} ${doc.docNum||''} ${getRawField(doc, ['hujjat turi','tur','type','hujjat raqami','raqam','qaror','farmon','farmoyish','qonun'])}`);
-  if(txt.includes('qonun') || txt.includes('қонун')) return 'law';
-  if(txt.includes('vazirlar') || txt.includes('vm') || txt.includes('hukumat') || txt.includes('кабинет')) return 'vm';
-  if(txt.includes('farmoyish')) return 'presidentOrder';
-  if(txt.includes('farmon') || txt.includes('pf-') || txt.includes('пф-')) return 'presidentDecree';
-  if(txt.includes('qaror') || txt.includes('pq-') || txt.includes('пқ-') || txt.includes('пк-')) return 'presidentDecision';
-  if(doc.source === 'PF') return 'presidentDecree';
-  if(doc.source === 'VM') return 'vm';
+  const txt = normalizeText(`${doc.source||''} ${doc.docType||''} ${doc.docName||''} ${doc.docNum||''} ${doc.resolution||''} ${getRawField(doc, ['hujjat turi','tur','type','hujjat raqami','raqam','qaror','farmon','farmoyish','qonun','organ'])}`);
+  if(/qonun|қонун|закон/i.test(txt)) return 'law';
+  if(/vazirlar|mahkama|vm\b|hukumat|кабинет|правитель/i.test(txt) || doc.source === 'VM') return 'vm';
+  if(/farmoyish|фармойиш|распоряж/i.test(txt)) return 'presidentOrder';
+  if(/farmon|pf[-\s]?\d|пф[-\s]?\d|фармон|указ/i.test(txt)) return 'presidentDecree';
+  if(/qaror|pq[-\s]?\d|пқ[-\s]?\d|пк[-\s]?\d|қарор|постанов/i.test(txt)) return 'presidentDecision';
+  if(doc.source === 'PF') return 'presidentDecision';
   return 'other';
 }
 
 function countAhbSummary(docs=[]) {
-  const counts = { total: docs.length, law:0, presidentDecree:0, presidentDecision:0, presidentOrder:0, vm:0 };
+  const counts = { total: docs.length, law:0, presidentDecree:0, presidentDecision:0, presidentOrder:0, vm:0, other:0 };
   docs.forEach(doc => {
     const key = classifyAhbSummaryType(doc);
     if(counts[key] !== undefined) counts[key] += 1;
+    else counts.other += 1;
   });
   return counts;
 }
@@ -7227,43 +7231,52 @@ function ahbSummaryRow(label, docs=[], roman='', options={}) {
 }
 
 function buildAhbSummaryRows(docs=[], options={}) {
-  const ourOrg = options.ourOrg || getOurOrgName();
+  const ourOrg = DEFAULT_OUR_ORG_NAME;
+  const rowDocs = {
+    total: docs,
+    developed: docs.filter(d => normalizeText(`${d.acceptedDecision||''} ${d.ownDecision||''} ${d.resolution||''} ${d.taskText||''} ${getRawField(d, ['qabul qilingan qaror','buyruq','farmoyish','tadbir','ijro yuzasidan'])}`).trim()),
+    meeting: filterDocsByKeywords(docs, ["umumiy yig", "yig'ilish", "yigilish", "yig'ilish qarori"]),
+    orders: filterDocsByKeywords(docs, ['buyruq', 'приказ']),
+    instructions: filterDocsByKeywords(docs, ['farmoyish', 'распоряж']),
+    events: filterDocsByKeywords(docs, ['tadbir', 'chora', 'мероприят', 'чора']),
+    study: filterDocsByKeywords(docs, ["o'rganish", "organish", 'monitoring', 'kompleks', 'maqsadli'])
+  };
   return [
-    ahbSummaryRow(`${ourOrg}da kirim qilingan hujjatlar`, docs, 'I'),
-    ahbSummaryRow("Kirim qilingan hujjatlar bo'yicha ishlab chiqilgan", docs, 'II', { isSub:true }),
-    ahbSummaryRow("Umumiy yig'ilish qarori", filterDocsByKeywords(docs, ["umumiy yig", "yig'ilish", "yig‘ilish"]), '', { isSub:true }),
-    ahbSummaryRow("Rahbarning buyruqlari", filterDocsByKeywords(docs, ['buyruq', 'буйруқ', 'приказ']), '', { isSub:true }),
-    ahbSummaryRow("Farmoyishlar", filterDocsByKeywords(docs, ['farmoyish', 'фармойиш', 'распоряж']), '', { isSub:true }),
-    ahbSummaryRow("Tadbirlar", filterDocsByKeywords(docs, ['tadbir', 'чора-тадбир', 'мероприят']), '', { isSub:true }),
-    ahbSummaryRow("Tegishli hujjatlar ijrosi bo'yicha maqsadli va kompleks o'rganishlar", filterDocsByKeywords(docs, ["o'rganish", "o‘rganish", 'monitoring', 'kompleks', 'maqsadli']), 'III'),
+    ahbSummaryRow(`${ourOrg} tomonidan kirim qilingan hujjatlar`, rowDocs.total, 'I'),
+    ahbSummaryRow("Kirim qilingan hujjatlar bo'yicha ishlab chiqilgan", rowDocs.developed, 'II', { isSub:true }),
+    ahbSummaryRow("Umumiy yig'ilish qarori", rowDocs.meeting, '', { isSub:true }),
+    ahbSummaryRow("Rahbarning buyruqlari", rowDocs.orders, '', { isSub:true }),
+    ahbSummaryRow("Farmoyishlar", rowDocs.instructions, '', { isSub:true }),
+    ahbSummaryRow("Tadbirlar", rowDocs.events, '', { isSub:true }),
+    ahbSummaryRow("Tegishli hujjatlar ijrosi bo'yicha maqsadli va kompleks o'rganishlar", rowDocs.study, 'III'),
     { roman:'', label:'Shu jumladan:', counts:{total:'',law:'',presidentDecree:'',presidentDecision:'',presidentOrder:'',vm:''}, isSub:true },
     { roman:'IV', label:"Topshiriq ijrosi holati qachon, qayerda muhokama etildi, kimga nisbatan qanday intizomiy choralar ko'rildi.", discussion: ahbSummaryDiscussionText(docs), counts:null }
   ];
 }
 
 function buildAhbSummaryTableHtml(docs=[], options={}) {
-  const ourOrg = options.ourOrg || getOurOrgName();
+  const ourOrg = DEFAULT_OUR_ORG_NAME;
   const rows = buildAhbSummaryRows(docs, { ourOrg });
-  const title = options.title || `${ourOrg}ga O'zbekiston Respublikasi Qonunlari, Prezident farmonlari, qarorlari, farmoyishlari va Vazirlar Mahkamasi qarorlari va farmoyishlarining ijrosi haqida`;
+  const title = options.title || AHB_SUMMARY_TITLE;
   const includeStyles = options.includeStyles !== false;
   return `
     ${includeStyles ? ahbOfficialStyles() : ''}
     <style>
-      .summary-report-title{font-family:"Times New Roman",serif;text-align:center;color:#00a9ff;font-weight:700;font-size:20px;line-height:1.18;margin:6px 0 12px;}
-      .summary-report-title span{display:block;letter-spacing:6px;}
-      .summary-table{background:#242424;color:#fff;border-collapse:collapse;width:100%;font-family:"Times New Roman",serif;font-size:12px;table-layout:fixed;}
-      .summary-table th,.summary-table td{border:1px solid #e5e7eb;padding:4px 6px;vertical-align:middle;white-space:pre-line;line-height:1.25;}
-      .summary-table th{text-align:center;font-weight:700;}
+      .summary-report-title{font-family:"Times New Roman",serif;text-align:center;color:#111827;font-weight:700;font-size:18px;line-height:1.22;margin:6px 0 12px;}
+      .summary-report-title span{display:block;letter-spacing:6px;color:#111827;margin-top:4px;}
+      .summary-table{background:#fff;color:#111827;border-collapse:collapse;width:100%;font-family:"Times New Roman",serif;font-size:12px;table-layout:fixed;}
+      .summary-table th,.summary-table td{border:1px solid #6b7280;padding:4px 6px;vertical-align:middle;white-space:pre-line;line-height:1.25;}
+      .summary-table th{text-align:center;font-weight:700;background:#f3f4f6;}
       .summary-table .num{width:38px;text-align:center;font-weight:700;}
       .summary-table .label{text-align:left;font-weight:600;}
       .summary-table .count{text-align:center;font-weight:700;}
-      .summary-table .red{color:#ff4b4b;}
+      .summary-table .red{color:#111827;}
       .summary-table .vertical{writing-mode:vertical-rl;transform:rotate(180deg);height:130px;white-space:normal;text-align:center;margin:auto;}
       .summary-table .section{font-size:16px;text-align:center;font-weight:700;}
       .summary-table .discussion{text-align:left;font-size:11px;}
     </style>
     <div class="summary-report-title">${escH(title)}<span>HISOBOT</span></div>
-    <div style="text-align:right;color:#00a9ff;font-family:'Times New Roman',serif;margin:0 30px 14px 0;">2-jadval</div>
+    <div style="text-align:right;color:#111827;font-family:'Times New Roman',serif;margin:0 30px 14px 0;">2-jadval</div>
     <table class="summary-table">
       <thead>
         <tr>
@@ -7444,7 +7457,7 @@ window.runAhbBuyruq = async (buyruqJson) => {
     const total = docs.length;
     const statusCounts = getStatusCounts(docs);
     const done = statusCounts.done;
-    const proc = statusCounts.proc;
+    const proc = statusCounts.proc + statusCounts.new + statusCounts.unknown;
     const fail = statusCounts.fail;
     const selectedOrgTitle = getAhbSelectedOrgTitle(selectedOrgs, docs);
     const ourOrgName = getOurOrgName();
