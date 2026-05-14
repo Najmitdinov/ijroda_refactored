@@ -564,6 +564,124 @@ function canReadOrganizationScope() {
 
 window.hasPermission = hasPermission;
 
+const LANG_KEY = 'ijroda_lang';
+let currentLang = localStorage.getItem(LANG_KEY) || 'uz';
+const I18N = {
+  uz: {
+    appName:'Ijro Hisobot', loginTitle:'Ijro hisoboti', authSub:'Professional ijro monitoring dashboard',
+    signIn:'🔑 Kirish', signUp:"✍️ Ro'yxatdan o'tish", emailAddress:'📧 Email manzil', password:'🔒 Parol',
+    resetPassword:'Parolni tiklash', phoneLogin:'📱 Telefon raqam bilan kirish', googleLogin:'Gmail bilan kirish',
+    secureFooter:"Xavfsiz kirish · Firebase Auth · Ma'lumotlar shifrlangan",
+    interagency:'Idoralararo hujjat nazorati', home:'Bosh sahifa', calendar:'Taqvim',
+    notifications:'Bildirishnomalar', quickSearch:'Tezkor qidiruv', main:'Asosiy', executionControl:'Ijro nazorati',
+    incomingDocs:'Kiruvchi hujjatlar', outgoingDocs:'Chiquvchi hujjatlar', internalDocs:'Ichki hujjatlar',
+    tasks:'Topshiriqlar', createTask:'Topshiriq yaratish', controlPlan:'Nazorat rejasi', overdueTasks:'Kechikkan topshiriqlar',
+    due3:'3 kun qolgani', reControl:'Qayta nazoratga olinganlar', reports:'Hisobotlar', submitReport:'Hisobot yuborish',
+    answers:'Berilgan javoblar', unacceptedReports:'Qabul qilinmagan hisobotlar', approvedReports:'Tasdiqlangan hisobotlar',
+    returnedReports:'Qaytarilgan hisobotlar', finalReports:'Yakuniy hisobotlar', organization:'Tashkilot',
+    organizations:'Tashkilotlar', departments:"Bo'limlar", employees:'Xodimlar', leaders:'Rahbarlar',
+    roles:'Rollar va ruxsatlar', users:'Foydalanuvchilar', security:'Xavfsizlik', auditLog:'Audit log',
+    integrations:'Integratsiyalar', settings:'Sozlamalar', logout:'Chiqish', refresh:'Yangilash', upload:'Fayl yuklash',
+    dashboardTitle:'Topshiriqlar ijro holati', dashboardSub:'Ichki hujjatlarning ijro holati', forExecution:'Ijro uchun',
+    all:'Hammasi', info:'Ma’lumot', documents:'Hujjatlar', documentType:'Hujjat turi', docsCount:'Hujjatlar soni',
+    tasksCount:'Topshiriqlar soni', inProgress:'Bajarilmoqda', failed:'Bajarilmagan', completed:'Bajarilgan',
+    lateDone:'Muddatidan kech bajarilgan', returnedControl:'Qayta nazoratga olingan', total:'Jami',
+    byDocuments:'Hujjatlar kesimida', signers:'Imzolovchilar ro‘yxati', byLeaders:'Rahbarlar',
+    byExecutors:"Mas'ul xodimlar kesimida", byOrganizations:'Tizim tashkilotlari kesimida',
+    severelyOverdue:"Bajarish muddati qo'pol buzilgan topshiriqlar", dueLess3:'Ijro muddati 3 kundan kam qolgan topshiriqlar',
+    todayDue:'Bugun tugaydigan topshiriqlar', noData:"Ma'lumot yo'q", open:'Ochish', rating:'Reyting',
+    riskTasks:'Xavfli topshiriqlar', approving:'Tasdiqlashda', late:'Kech bajarilgan', overdue:'Muddati o‘tgan',
+    accepted:'Qabul qilingan', rejected:'Qaytarilgan'
+  },
+  ru: {
+    appName:'Исполнение отчётов', loginTitle:'Исполнение отчётов', authSub:'Профессиональная платформа контроля исполнения',
+    signIn:'🔑 Вход', signUp:'✍️ Регистрация', emailAddress:'📧 Email адрес', password:'🔒 Пароль',
+    resetPassword:'Восстановить пароль', phoneLogin:'📱 Вход по номеру телефона', googleLogin:'Войти через Gmail',
+    secureFooter:'Безопасный вход · Firebase Auth · Данные защищены',
+    interagency:'Межведомственный контроль документов', home:'Главная', calendar:'Календарь',
+    notifications:'Уведомления', quickSearch:'Быстрый поиск', main:'Основное', executionControl:'Контроль исполнения',
+    incomingDocs:'Входящие документы', outgoingDocs:'Исходящие документы', internalDocs:'Внутренние документы',
+    tasks:'Поручения', createTask:'Создать поручение', controlPlan:'План контроля', overdueTasks:'Просроченные поручения',
+    due3:'Осталось 3 дня', reControl:'Повторный контроль', reports:'Отчёты', submitReport:'Отправить отчёт',
+    answers:'Данные ответы', unacceptedReports:'Непринятые отчёты', approvedReports:'Утверждённые отчёты',
+    returnedReports:'Возвращённые отчёты', finalReports:'Итоговые отчёты', organization:'Организация',
+    organizations:'Организации', departments:'Отделы', employees:'Сотрудники', leaders:'Руководители',
+    roles:'Роли и права', users:'Пользователи', security:'Безопасность', auditLog:'Журнал аудита',
+    integrations:'Интеграции', settings:'Настройки', logout:'Выйти', refresh:'Обновить', upload:'Загрузить файл',
+    dashboardTitle:'Состояние исполнения поручений', dashboardSub:'Состояние исполнения внутренних документов', forExecution:'Для исполнения',
+    all:'Все', info:'Информация', documents:'Документы', documentType:'Тип документа', docsCount:'Документов',
+    tasksCount:'Поручений', inProgress:'В работе', failed:'Не выполнено', completed:'Выполнено',
+    lateDone:'Выполнено с опозданием', returnedControl:'Повторный контроль', total:'Итого',
+    byDocuments:'В разрезе документов', signers:'Список подписантов', byLeaders:'Руководители',
+    byExecutors:'В разрезе ответственных', byOrganizations:'В разрезе организаций',
+    severelyOverdue:'Грубо нарушенные сроки исполнения', dueLess3:'Поручения со сроком менее 3 дней',
+    todayDue:'Истекают сегодня', noData:'Нет данных', open:'Открыть', rating:'Рейтинг',
+    riskTasks:'Рискованные поручения', approving:'На утверждении', late:'Поздно выполнено', overdue:'Просрочено',
+    accepted:'Принято', rejected:'Возвращено'
+  },
+  uzc: {
+    appName:'Ижро Ҳисобот', loginTitle:'Ижро ҳисоботи', authSub:'Профессионал ижро мониторинг платформаси',
+    signIn:'🔑 Кириш', signUp:'✍️ Рўйхатдан ўтиш', emailAddress:'📧 Email манзил', password:'🔒 Парол',
+    resetPassword:'Паролни тиклаш', phoneLogin:'📱 Телефон рақам билан кириш', googleLogin:'Gmail билан кириш',
+    secureFooter:'Хавфсиз кириш · Firebase Auth · Маълумотлар ҳимояланган',
+    interagency:'Идоралараро ҳужжат назорати', home:'Бош саҳифа', calendar:'Тақвим',
+    notifications:'Билдиришномалар', quickSearch:'Тезкор қидирув', main:'Асосий', executionControl:'Ижро назорати',
+    incomingDocs:'Кирувчи ҳужжатлар', outgoingDocs:'Чиқувчи ҳужжатлар', internalDocs:'Ички ҳужжатлар',
+    tasks:'Топшириқлар', createTask:'Топшириқ яратиш', controlPlan:'Назорат режаси', overdueTasks:'Кечиккан топшириқлар',
+    due3:'3 кун қолгани', reControl:'Қайта назоратга олинганлар', reports:'Ҳисоботлар', submitReport:'Ҳисобот юбориш',
+    answers:'Берилган жавоблар', unacceptedReports:'Қабул қилинмаган ҳисоботлар', approvedReports:'Тасдиқланган ҳисоботлар',
+    returnedReports:'Қайтарилган ҳисоботлар', finalReports:'Якуний ҳисоботлар', organization:'Ташкилот',
+    organizations:'Ташкилотлар', departments:'Бўлимлар', employees:'Ходимлар', leaders:'Раҳбарлар',
+    roles:'Роллар ва рухсатлар', users:'Фойдаланувчилар', security:'Хавфсизлик', auditLog:'Аудит лог',
+    integrations:'Интеграциялар', settings:'Созламалар', logout:'Чиқиш', refresh:'Янгилаш', upload:'Файл юклаш',
+    dashboardTitle:'Топшириқлар ижро ҳолати', dashboardSub:'Ички ҳужжатларнинг ижро ҳолати', forExecution:'Ижро учун',
+    all:'Ҳаммаси', info:'Маълумот', documents:'Ҳужжатлар', documentType:'Ҳужжат тури', docsCount:'Ҳужжатлар сони',
+    tasksCount:'Топшириқлар сони', inProgress:'Бажарилмоқда', failed:'Бажарилмаган', completed:'Бажарилган',
+    lateDone:'Муддатидан кеч бажарилган', returnedControl:'Қайта назоратга олинган', total:'Жами',
+    byDocuments:'Ҳужжатлар кесимида', signers:'Имзоловчилар рўйхати', byLeaders:'Раҳбарлар',
+    byExecutors:'Масъул ходимлар кесимида', byOrganizations:'Тизим ташкилотлари кесимида',
+    severelyOverdue:'Бажариш муддати қўпол бузилган топшириқлар', dueLess3:'Ижро муддати 3 кундан кам қолган топшириқлар',
+    todayDue:'Бугун тугайдиган топшириқлар', noData:'Маълумот йўқ', open:'Очиш', rating:'Рейтинг',
+    riskTasks:'Хавфли топшириқлар', approving:'Тасдиқлашда', late:'Кеч бажарилган', overdue:'Муддати ўтган',
+    accepted:'Қабул қилинган', rejected:'Қайтарилган'
+  }
+};
+const TRANSLATE_INDEX = {};
+Object.keys(I18N).forEach(lang => Object.entries(I18N[lang]).forEach(([key, value]) => { TRANSLATE_INDEX[value] = key; }));
+function t(key) { return I18N[currentLang]?.[key] || I18N.uz[key] || key; }
+function applyLanguage(root = document.body) {
+  document.documentElement.lang = currentLang === 'uzc' ? 'uz-Cyrl' : currentLang;
+  ['language-select','auth-language-select'].forEach(id => {
+    const select = document.getElementById(id);
+    if(select && select.value !== currentLang) select.value = currentLang;
+  });
+  if(!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if(!parent || ['SCRIPT','STYLE','TEXTAREA','INPUT','OPTION'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const nodes = [];
+  while(walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const raw = node.nodeValue;
+    const trimmed = raw.trim();
+    const key = TRANSLATE_INDEX[trimmed];
+    if(!key) return;
+    node.nodeValue = raw.replace(trimmed, t(key));
+  });
+}
+window.setLanguage = (lang) => {
+  currentLang = I18N[lang] ? lang : 'uz';
+  localStorage.setItem(LANG_KEY, currentLang);
+  renderDashboard();
+  buildStats();
+  updateNotificationBadge();
+  applyLanguage();
+};
+
 async function activateAuthenticatedUser(user, userData = null) {
   currentUser = user;
   let data = userData;
@@ -1231,16 +1349,54 @@ const COL_KEYWORDS = {
 };
 
 // ===== FIRESTORE DOCS =====
+function docsFromSnap(snap) {
+  return snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+}
+
+function uniqueDocs(list=[]) {
+  const map = new Map();
+  list.forEach(row => {
+    const key = row._id || `${row.userId || ''}_${row.docNum || ''}_${row.docName || ''}_${row.deadline || ''}`;
+    if(key) map.set(key, { ...(map.get(key) || {}), ...row });
+  });
+  return [...map.values()].sort((a,b) => docCreatedMs(b) - docCreatedMs(a));
+}
+
+async function safeGetDocs(label, qRef) {
+  try {
+    return docsFromSnap(await getDocs(qRef));
+  } catch(e) {
+    console.warn(`documents query failed (${label}):`, e.message);
+    return [];
+  }
+}
+
 async function fetchAvailableDocs() {
   if(!currentUser) return [];
-  const role = currentUserData?.role;
-  const q = (role === 'admin' || role === 'superadmin')
-    ? query(collection(db,'documents'), orderBy('createdAt','desc'))
-    : canReadOrganizationScope()
-      ? query(collection(db,'documents'), where('userOrg','==', currentUserData.org))
-      : query(collection(db,'documents'), where('userId','==', currentUser.uid), orderBy('createdAt','desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ _id: d.id, ...d.data() })).sort((a,b) => docCreatedMs(b) - docCreatedMs(a));
+  const docsRef = collection(db,'documents');
+  const role = userRole();
+  const org = normalizeOrgName(currentUserData?.org || '');
+  if(role === 'admin' || role === 'superadmin') {
+    const ordered = await safeGetDocs('admin ordered', query(docsRef, orderBy('createdAt','desc')));
+    if(ordered.length) return uniqueDocs(ordered);
+    return uniqueDocs(await safeGetDocs('admin all', docsRef));
+  }
+  const owned = [
+    ...await safeGetDocs('owned ordered', query(docsRef, where('userId','==', currentUser.uid), orderBy('createdAt','desc'))),
+    ...await safeGetDocs('owned plain', query(docsRef, where('userId','==', currentUser.uid)))
+  ];
+  let scoped = [...owned];
+  if(canReadOrganizationScope() && org) {
+    const orgId = orgKey(org);
+    scoped.push(...await safeGetDocs('org userOrg', query(docsRef, where('userOrg','==', org))));
+    scoped.push(...await safeGetDocs('org organizationId', query(docsRef, where('organizationId','==', orgId))));
+    scoped.push(...(await safeGetDocs('org fallback all', docsRef))
+      .filter(row => orgKey(row.userOrg || getOrgText(row)) === orgId));
+  }
+  const merged = uniqueDocs(scoped);
+  if(merged.length) return merged;
+  const fallback = await safeGetDocs('client fallback all', docsRef);
+  return uniqueDocs(fallback.filter(row => row.userId === currentUser.uid || (org && normalizeOrgName(row.userOrg || getOrgText(row)) === org)));
 }
 
 async function loadUserDocs() {
@@ -2321,6 +2477,122 @@ function renderTable() {
 window.changePg = (p) => { currentPage=p; renderTable(); window.scrollTo({top:300,behavior:'smooth'}); };
 
 // ===== STATS =====
+const DASHBOARD_DOC_TYPES = [
+  { key:'incoming', labelKey:'incomingDocs' },
+  { key:'citizen', label:'Fuqarolar murojaati', ru:'Обращения граждан', uzc:'Фуқаролар мурожаати' },
+  { key:'president', label:"Prezident topshirig'i nazorat rejasi", ru:'Поручение Президента / план контроля', uzc:'Президент топшириғи назорат режаси' },
+  { key:'internal', label:'Ichki buyruq', ru:'Внутренний приказ', uzc:'Ички буйруқ' },
+  { key:'outgoing', label:'Chiquvchi xat', ru:'Исходящее письмо', uzc:'Чиқувчи хат' }
+];
+let dashboardActiveTab = 'leaders';
+let dashboardFilterState = { type:'all', org:'', dept:'', from:'', to:'' };
+
+function docTypeLabel(item) {
+  if(item.labelKey) return t(item.labelKey);
+  if(currentLang === 'ru') return item.ru || item.label;
+  if(currentLang === 'uzc') return item.uzc || item.label;
+  return item.label;
+}
+
+function dashboardDocTypeKey(row={}) {
+  const txt = normalizeText(`${row.docType||''} ${row.source||''} ${row.docName||''} ${row.taskText||''} ${getRawField(row, ['hujjat turi','tur','type','murojaat','fuqaro','prezident','ichki','chiquvchi','kiruvchi'])}`);
+  if(/(fuqaro|murojaat|обращ|граждан|фуқаро|мурожаат)/i.test(txt)) return 'citizen';
+  if(/(prezident|pf|pq|фармон|қарор|президент|president)/i.test(txt) || row.source === 'PF') return 'president';
+  if(/(chiquvchi|chiqish|outgoing|исход|чиқувчи|чиқиш)/i.test(txt)) return 'outgoing';
+  if(/(ichki|buyruq|internal|внутрен|ички|буйруқ)/i.test(txt)) return 'internal';
+  return 'incoming';
+}
+
+function matchesDashboardType(row, typeKey='all') {
+  if(!typeKey || typeKey === 'all') return true;
+  if(typeKey === 'control') return /nazorat|контрол|назорат/i.test(normalizeText(`${row.docType||''} ${row.docName||''} ${row.taskText||''}`));
+  return dashboardDocTypeKey(row) === typeKey;
+}
+
+function isTaskRow(row={}) {
+  if(row.isTask === true) return true;
+  if(row.taskId || row.deadline || row.executor || row.resolution || getStatusText(row)) return true;
+  return !['outgoing','internal'].includes(dashboardDocTypeKey(row));
+}
+
+function isReturnedRow(row={}) {
+  const text = normalizeText(`${getStatusText(row)} ${row.workflowStatus||''} ${row.returnReason||''}`);
+  return /(returned|qaytar|rejected|rad et|возврат|вернул|отклон|қайтар|қайт)/i.test(text);
+}
+
+function isApprovedRow(row={}) {
+  const text = normalizeText(`${getStatusText(row)} ${row.workflowStatus||''}`);
+  return normalizeDocStatus(row).key === 'done' || /(approved|tasdiq|closed|утверж|одобрен|тасдиқ)/i.test(text);
+}
+
+function isLateCompletedRow(row={}) {
+  const statusText = normalizeText(getStatusText(row));
+  if(/(kech|late|муддати|просроч|кеч)/i.test(statusText) && normalizeDocStatus(row).key === 'done') return true;
+  const doneDate = parseDate(row.completedAt || row.closedAt || row.reportDate || row.answerDate || row.ourOutDate);
+  const deadline = parseDate(row.deadline);
+  return !!(doneDate && deadline && doneDate > deadline);
+}
+
+function isUnacceptedRow(row={}) {
+  const text = normalizeText(`${getStatusText(row)} ${row.workflowStatus||''} ${row.accepted||''}`);
+  return isReturnedRow(row) || /(qabul qilinm|not accepted|не принят|қабул қилинм)/i.test(text);
+}
+
+function dashboardStats(rows=[]) {
+  const stats = { docs: rows.length, tasks:0, proc:0, fail:0, done:0, late:0, returned:0, overdue:0, due3:0, today:0, unaccepted:0, approved:0 };
+  rows.forEach(row => {
+    if(!isTaskRow(row)) return;
+    stats.tasks++;
+    const normalized = normalizeDocStatus(row).key;
+    const days = daysUntil(parseDate(row.deadline));
+    if(normalized === 'done') stats.done++;
+    else if(normalized === 'fail') stats.fail++;
+    else stats.proc++;
+    if(normalized !== 'done' && days !== null && days < 0) stats.overdue++;
+    if(normalized !== 'done' && days !== null && days >= 0 && days <= 3) stats.due3++;
+    if(normalized !== 'done' && days === 0) stats.today++;
+    if(isLateCompletedRow(row)) stats.late++;
+    if(isReturnedRow(row)) stats.returned++;
+    if(isUnacceptedRow(row)) stats.unaccepted++;
+    if(isApprovedRow(row)) stats.approved++;
+  });
+  return stats;
+}
+
+function metricMatches(row, metric='all') {
+  const normalized = normalizeDocStatus(row).key;
+  const days = daysUntil(parseDate(row.deadline));
+  if(metric === 'all') return true;
+  if(metric === 'tasks') return isTaskRow(row);
+  if(metric === 'proc') return isTaskRow(row) && normalized !== 'done' && normalized !== 'fail';
+  if(metric === 'fail') return isTaskRow(row) && normalized === 'fail';
+  if(metric === 'done' || metric === 'answered' || metric === 'approved') return isTaskRow(row) && isApprovedRow(row);
+  if(metric === 'late') return isTaskRow(row) && isLateCompletedRow(row);
+  if(metric === 'returned') return isTaskRow(row) && isReturnedRow(row);
+  if(metric === 'unaccepted') return isTaskRow(row) && isUnacceptedRow(row);
+  if(metric === 'overdue') return isTaskRow(row) && normalized !== 'done' && days !== null && days < 0;
+  if(metric === 'due3') return isTaskRow(row) && normalized !== 'done' && days !== null && days >= 0 && days <= 3;
+  if(metric === 'today') return isTaskRow(row) && normalized !== 'done' && days === 0;
+  return true;
+}
+
+function docsByDashboardSlice(typeKey='all', metric='all') {
+  return (allDocs || []).filter(row => matchesDashboardType(row, typeKey) && metricMatches(row, metric));
+}
+
+window.showDashboardSlice = (typeKey='all', metric='all') => {
+  filteredDocs = docsByDashboardSlice(typeKey, metric);
+  currentPage = 1;
+  showPanel('docs');
+  renderTable();
+  showToast(`${filteredDocs.length} ta yozuv topildi`, 'info');
+};
+
+window.showDashboardTab = (tab='leaders') => {
+  dashboardActiveTab = tab;
+  renderDashboard();
+};
+
 function buildStats() {
   const el=document.getElementById('stats-content');
   if(!el) return;
@@ -2328,10 +2600,10 @@ function buildStats() {
   if(!data.length){ el.innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><h3>Ma\'lumot yo\'q</h3></div>'; return; }
 
   const total=data.length;
-  const statusCounts = getStatusCounts(data);
-  const done=statusCounts.done;
-  const proc=statusCounts.proc;
-  const fail=statusCounts.fail;
+  const stats = dashboardStats(data);
+  const done=stats.done;
+  const proc=stats.proc;
+  const fail=stats.fail;
   const srcs={VM:0,PF:0,VH:0,OTHER:0};
   data.forEach(r=>srcs[r.source||'OTHER']=(srcs[r.source||'OTHER']||0)+1);
 
@@ -2345,7 +2617,7 @@ function buildStats() {
       <div class="stat-box green"><div class="sv">${done}</div><div class="sl">Bajarildi</div></div>
       <div class="stat-box yellow"><div class="sv">${proc}</div><div class="sl">Jarayonda</div></div>
       <div class="stat-box red"><div class="sv">${fail}</div><div class="sl">Bajarilmadi</div></div>
-      <div class="stat-box navy"><div class="sv">${total>0?Math.round(done/total*100):0}%</div><div class="sl">Ijro foizi</div></div>
+      <div class="stat-box navy"><div class="sv">${stats.tasks>0?Math.round(done/stats.tasks*100):0}%</div><div class="sl">Ijro foizi</div></div>
     </div>
     <div class="stats-two-col">
       <div class="card">
@@ -2429,92 +2701,265 @@ function renderMiniBars(items=[], valueKey='total') {
   }).join('')}</div>`;
 }
 
+function dashboardFilteredRows() {
+  const f = dashboardFilterState;
+  const from = f.from ? new Date(f.from) : null;
+  const to = f.to ? new Date(f.to + 'T23:59:59') : null;
+  return (allDocs || []).filter(row => {
+    if(f.type && f.type !== 'all' && !matchesDashboardType(row, f.type)) return false;
+    if(f.org && !normalizeText(getOrgText(row)).includes(normalizeText(f.org))) return false;
+    if(f.dept) {
+      const dep = `${row.department||row.sektor||row.bolim||getRawField(row, ['bo‘lim','bolim','бўлим','отдел','department'])||''}`;
+      if(!normalizeText(dep).includes(normalizeText(f.dept))) return false;
+    }
+    if(from || to) {
+      const d = parseDate(row.deadline) || parseDate(row.docDate);
+      if(d) {
+        if(from && d < from) return false;
+        if(to && d > to) return false;
+      }
+    }
+    return true;
+  });
+}
+
+window.updateDashboardFilter = (key, value) => {
+  dashboardFilterState[key] = value || '';
+  renderDashboard();
+};
+
+function metricLink(typeKey, metric, value, cls='') {
+  return `<span class="metric-link ${cls}" onclick="showDashboardSlice('${typeKey}','${metric}')">${Number(value || 0).toLocaleString('uz-UZ')}</span>`;
+}
+
+function renderSummaryRow(typeKey, label, rows, total=false) {
+  const s = dashboardStats(rows);
+  return `<tr class="${total?'total-row':''}">
+    <td>${escH(label)}</td>
+    <td>${metricLink(typeKey,'all',s.docs,'dark')}</td>
+    <td>${metricLink(typeKey,'tasks',s.tasks,'dark')}</td>
+    <td>${metricLink(typeKey,'proc',s.proc,'info')}</td>
+    <td>${metricLink(typeKey,'fail',s.fail,'danger')}</td>
+    <td>${metricLink(typeKey,'done',s.done,'success')}</td>
+    <td>${metricLink(typeKey,'late',s.late,'dark')}</td>
+    <td>${metricLink(typeKey,'returned',s.returned,'warn')}</td>
+  </tr>`;
+}
+
+function renderDashboardSummaryTable(rows) {
+  const body = DASHBOARD_DOC_TYPES.map(item => {
+    const subset = rows.filter(row => dashboardDocTypeKey(row) === item.key);
+    return renderSummaryRow(item.key, docTypeLabel(item), subset);
+  }).join('');
+  return `<div class="ijro-summary-card">
+    <div class="table-wrap" style="border:0;border-radius:0;">
+      <table class="ijro-summary-table">
+        <thead><tr>
+          <th>${t('documentType')}</th><th>${t('docsCount')}</th><th>${t('tasksCount')}</th>
+          <th>${t('inProgress')}</th><th>${t('failed')}</th><th>${t('completed')}</th>
+          <th>${t('lateDone')}</th><th>${t('returnedControl')}</th>
+        </tr></thead>
+        <tbody>${body}${renderSummaryRow('all', t('total'), rows, true)}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function initials(name='') {
+  return String(name || '?').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase() || '?';
+}
+
+function buildProfileStats(rows, getter) {
+  const map = new Map();
+  rows.filter(isTaskRow).forEach(row => {
+    const name = normalizeOrgName(getter(row)) || 'Noma\'lum';
+    const cur = map.get(name) || { name, rows:[] };
+    cur.rows.push(row);
+    map.set(name, cur);
+  });
+  return [...map.values()].map(item => ({ ...item, stats: dashboardStats(item.rows) }))
+    .sort((a,b)=>b.stats.tasks-a.stats.tasks).slice(0, 10);
+}
+
+function renderPersonCard(item, subtitle='') {
+  const s = item.stats;
+  const max = Math.max(1, s.tasks);
+  const row = (label, value, color='') => `<div class="person-metric"><span>${escH(label)}</span><div class="person-bar ${color}"><i style="width:${Math.min(100, Math.round(value / max * 100))}%"></i></div><b>${value}</b></div>`;
+  return `<div class="person-card">
+    <div class="person-card-h"><div class="person-avatar">${escH(initials(item.name))}</div><div><h4>${escH(item.name)}</h4><p>${escH(subtitle || roleLabel())}</p></div></div>
+    <div class="person-metrics">
+      ${row(t('tasks'), s.tasks)}
+      ${row(t('inProgress'), s.proc, 'blue')}
+      ${row(t('completed'), s.done)}
+      ${row(t('late'), s.late, 'yellow')}
+      ${row(t('overdue'), s.overdue, 'red')}
+      ${row(t('approving'), s.returned || s.unaccepted, 'purple')}
+    </div>
+  </div>`;
+}
+
+function renderDashboardCards(rows) {
+  const tabs = [
+    ['leaders', t('byLeaders')],
+    ['executors', t('byExecutors')],
+    ['orgs', t('byOrganizations')],
+    ['overdue', t('severelyOverdue')],
+    ['due3', t('dueLess3')],
+    ['today', t('todayDue')]
+  ];
+  let cards = [];
+  if(dashboardActiveTab === 'leaders') cards = buildProfileStats(rows, r => r.resolution || r.leader || r.rahbar || r.userName).map(x => renderPersonCard(x, 'Rahbar'));
+  else if(dashboardActiveTab === 'executors') cards = buildProfileStats(rows, r => r.executor || r.assignee || r.ijrochi).map(x => renderPersonCard(x, "Mas'ul ijrochi"));
+  else if(dashboardActiveTab === 'orgs') cards = buildProfileStats(rows, r => getOrgText(r) || r.userOrg).map(x => renderPersonCard(x, `${t('rating')}: ${x.stats.tasks ? Math.round(x.stats.done/x.stats.tasks*100) : 0}%`));
+  else {
+    const metric = dashboardActiveTab === 'today' ? 'today' : dashboardActiveTab;
+    cards = rows.filter(row => metricMatches(row, metric)).slice(0, 12).map(row => renderPersonCard({
+      name: row.docName || row.taskText || row.docNum || 'Topshiriq',
+      stats: dashboardStats([row])
+    }, getOrgText(row) || row.executor || row.deadline || ''));
+  }
+  return `<div class="dashboard-tabs">${tabs.map(([key,label]) => `<button class="dashboard-tab ${dashboardActiveTab===key?'active':''}" onclick="showDashboardTab('${key}')">${escH(label)}</button>`).join('')}</div>
+    <div class="dashboard-card-scroll">${cards.join('') || `<div class="empty-inline">${t('noData')}</div>`}</div>`;
+}
+
+function renderDashboardFilters() {
+  const f = dashboardFilterState;
+  return `<div class="ijro-filterbar">
+    <select onchange="updateDashboardFilter('type', this.value)">
+      <option value="all" ${f.type==='all'?'selected':''}>${t('forExecution')}</option>
+      ${DASHBOARD_DOC_TYPES.map(item => `<option value="${item.key}" ${f.type===item.key?'selected':''}>${escH(docTypeLabel(item))}</option>`).join('')}
+    </select>
+    <input value="${escH(f.org)}" onchange="updateDashboardFilter('org', this.value)" placeholder="${t('organization')}">
+    <input value="${escH(f.dept)}" onchange="updateDashboardFilter('dept', this.value)" placeholder="${t('departments')}">
+    <input type="date" value="${escH(f.from)}" onchange="updateDashboardFilter('from', this.value)">
+    <input type="date" value="${escH(f.to)}" onchange="updateDashboardFilter('to', this.value)">
+  </div>`;
+}
+
+function renderDashboardStatusTabs(s) {
+  return [
+    ['info', t('info'), s.docs, 'all', 'all', 'info'],
+    ['returned', t('reControl'), s.returned, 'all', 'returned', 'danger'],
+    ['tasks', t('tasks'), s.tasks, 'all', 'tasks', ''],
+    ['answers', t('answers'), s.done, 'all', 'answered', 'warn'],
+    ['unaccepted', t('unacceptedReports'), s.unaccepted, 'all', 'unaccepted', 'danger'],
+    ['failed', t('failed'), s.fail, 'all', 'fail', 'danger'],
+    ['documents', t('documents'), s.docs, 'all', 'all', 'info']
+  ].map(([,label,value,type,metric,cls]) => `<div class="ijro-status-tab ${cls}" onclick="showDashboardSlice('${type}','${metric}')"><span>${escH(label)}</span><b>${Number(value||0).toLocaleString('uz-UZ')}</b></div>`).join('');
+}
+
 function renderDashboard() {
   const el = document.getElementById('dashboard-content');
   if(!el) return;
-  const rows = allDocs || [];
+  const rows = dashboardFilteredRows();
   if(!rows.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div><h3>Ma'lumot yo'q</h3><p>Excel yuklang yoki qo'lda topshiriq qo'shing</p></div>`;
+    el.innerHTML = `<div class="ijro-hero">
+      <div class="ijro-hero-top"><div><h2>${t('dashboardTitle')}</h2><p>${t('dashboardSub')}</p></div>${renderDashboardFilters()}</div>
+      <div class="ijro-status-tabs">${renderDashboardStatusTabs(dashboardStats(rows))}</div>
+    </div><div class="ijro-dashboard-body"><div class="empty-state"><div class="empty-icon">□</div><h3>${t('noData')}</h3><p>Excel yuklang yoki qo'lda topshiriq qo'shing</p></div></div>`;
+    applyLanguage(el);
     return;
   }
 
-  const total = rows.length;
-  const counts = getStatusCounts(rows);
-  const pending = counts.proc;
-  const overdueRows = rows.filter(row => normalizeDocStatus(row).key !== 'done' && daysUntil(parseDate(row.deadline)) < 0);
-  const efficiency = total ? Math.round((counts.done / total) * 100) : 0;
-  const dueSoon = rows
-    .map(row => ({ row, days: daysUntil(parseDate(row.deadline)) }))
-    .filter(x => x.days !== null && x.days <= 3 && normalizeDocStatus(x.row).key !== 'done')
-    .sort((a,b) => a.days - b.days)
-    .slice(0, 8);
-
-  const orgCount = {};
-  rows.forEach(row => {
-    const org = normalizeOrgName(getOrgText(row)) || 'Noma\'lum';
-    orgCount[org] = (orgCount[org] || 0) + 1;
-  });
-  const topOrgs = Object.entries(orgCount).sort((a,b)=>b[1]-a[1]).slice(0, 6);
-  const weekly = weeklyPerformance(rows);
-  const latest = [...rows].slice(0, 8);
-  const recentActivities = latest.map(row => ({
-    title: row.docName || row.taskText || 'Hujjat',
-    meta: `${getOrgText(row) || 'Noma\'lum'} · ${row.docDate || row.deadline || 'sana yo\'q'}`,
-    status: getStatusText(row)
-  }));
+  const s = dashboardStats(rows);
 
   el.innerHTML = `
-    <div class="pro-kpi-grid">
-      <div class="pro-kpi-card"><span>All Tasks</span><b>${total}</b><small>Jami topshiriqlar</small></div>
-      <div class="pro-kpi-card success"><span>Completed</span><b>${counts.done}</b><small>${efficiency}% efficiency</small></div>
-      <div class="pro-kpi-card warning"><span>Pending</span><b>${pending}</b><small>Jarayonda</small></div>
-      <div class="pro-kpi-card danger"><span>Overdue</span><b>${overdueRows.length}</b><small>Muddati o'tgan</small></div>
-      <div class="pro-kpi-card accent"><span>Efficiency</span><b>${efficiency}%</b><small>Ijro sifati</small></div>
+    <div class="ijro-hero">
+      <div class="ijro-hero-top"><div><h2>${t('dashboardTitle')}</h2><p>${t('dashboardSub')}</p></div>${renderDashboardFilters()}</div>
+      <div class="ijro-status-tabs">${renderDashboardStatusTabs(s)}</div>
     </div>
-
-    <div class="pro-grid-2">
-      <div class="card pro-card">
-        <div class="card-title">Weekly Performance</div>
-        ${renderMiniBars(weekly, 'done')}
-      </div>
-      <div class="card pro-card">
-        <div class="card-title">Organization Statistics</div>
-        ${topOrgs.map(([org,count]) => `
-          <div class="pro-progress-row">
-            <div><b>${escH(org)}</b><span>${count} ta topshiriq</span></div>
-            <div class="pro-progress"><i style="width:${Math.round(count / Math.max(1, topOrgs[0][1]) * 100)}%"></i></div>
-          </div>`).join('')}
-      </div>
-    </div>
-
-    <div class="pro-grid-3">
-      <div class="card pro-card">
-        <div class="card-title">Latest Tasks</div>
-        <div class="pro-list">${latest.map(row => `
-          <div class="pro-list-row">
-            <div><b>${escH(row.docName || row.taskText || 'Hujjat')}</b><span>${escH(getOrgText(row) || row.executor || 'Noma\'lum')}</span></div>
-            ${stBadge(getStatusText(row))}
-          </div>`).join('')}</div>
-      </div>
-      <div class="card pro-card">
-        <div class="card-title">Deadline Alerts</div>
-        <div class="pro-list">${dueSoon.length ? dueSoon.map(({row, days}) => `
-          <div class="pro-list-row deadline">
-            <div><b>${escH(row.docName || row.taskText || 'Topshiriq')}</b><span>${days < 0 ? Math.abs(days) + ' kun kechikkan' : days + ' kun qoldi'} · ${escH(row.deadline || '')}</span></div>
-            <button class="btn btn-sm btn-outline" onclick="showPanel('docs')">Ochish</button>
-          </div>`).join('') : '<div class="empty-inline">Yaqin deadline yo\'q</div>'}</div>
-      </div>
-      <div class="card pro-card">
-        <div class="card-title">Recent Activities</div>
-        <div class="activity-timeline">${recentActivities.map(item => `
-          <div class="activity-item">
-            <i></i>
-            <div><b>${escH(item.title)}</b><span>${escH(item.meta)}</span></div>
-          </div>`).join('')}</div>
-      </div>
+    <div class="ijro-dashboard-body">
+      <div class="ijro-section-bar"><h3>${t('byDocuments')}</h3><select class="ijro-select"><option>${t('signers')}</option></select></div>
+      ${renderDashboardSummaryTable(rows)}
+      ${renderDashboardCards(rows)}
     </div>
   `;
+  applyLanguage(el);
 }
+
+window.renderCalendarPanel = () => {
+  const el = document.getElementById('calendar-content');
+  if(!el) return;
+  const groups = [
+    [t('todayDue'), docsByDashboardSlice('all','today')],
+    [t('dueLess3'), docsByDashboardSlice('all','due3')],
+    [t('overdueTasks'), docsByDashboardSlice('all','overdue')]
+  ];
+  el.innerHTML = groups.map(([title, rows]) => `<div class="module-card">
+    <h3>${escH(title)} (${rows.length})</h3>
+    <div class="pro-list">${rows.slice(0,8).map(row => `<div class="pro-list-row">
+      <div><b>${escH(row.docName || row.taskText || 'Topshiriq')}</b><span>${escH(row.deadline || getOrgText(row) || '')}</span></div>
+      ${stBadge(getStatusText(row))}
+    </div>`).join('') || `<div class="empty-inline">${t('noData')}</div>`}</div>
+  </div>`).join('');
+  applyLanguage(el);
+};
+
+window.renderRolesPanel = () => {
+  const el = document.getElementById('roles-content');
+  if(!el) return;
+  const actions = [
+    ['user.block','Foydalanuvchi qo‘shish'],
+    ['task.create','Topshiriq yaratish'],
+    ['report.submit','Hisobot yuborish'],
+    ['report.approve','Hisobot tasdiqlash'],
+    ['audit.view','Audit log ko‘rish'],
+    ['report.export','Export qilish']
+  ];
+  const roles = ['superadmin','admin','org_admin','department_head','controller','executor','auditor','viewer'];
+  el.innerHTML = `<div class="card"><div class="table-wrap"><table class="role-table">
+    <thead><tr><th>Amal</th>${roles.map(r=>`<th>${escH(roleLabel(r))}</th>`).join('')}</tr></thead>
+    <tbody>${actions.map(([permission,label]) => `<tr><td>${escH(label)}</td>${roles.map(r => {
+      const perms = ROLE_PERMISSIONS[r] || [];
+      const ok = perms.includes('*') || perms.includes(permission) || (permission==='user.block' && r==='org_admin');
+      return `<td>${ok?'<span class="badge badge-done">Ha</span>':'<span class="badge badge-fail">Yo‘q</span>'}</td>`;
+    }).join('')}</tr>`).join('')}</tbody>
+  </table></div></div>`;
+  applyLanguage(el);
+};
+
+window.renderAuditPanel = async () => {
+  const el = document.getElementById('audit-content');
+  if(!el) return;
+  if(!hasPermission('audit.view')) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">!</div><h3>Audit log uchun ruxsat yo'q</h3></div>`;
+    return;
+  }
+  el.innerHTML = '<div class="card">Yuklanmoqda...</div>';
+  try {
+    const snap = await getDocs(query(collection(db,'logs'), orderBy('createdAt','desc'), limit(80)));
+    const rows = snap.docs.map(d=>({id:d.id,...d.data()}));
+    el.innerHTML = `<div class="card"><div class="table-wrap"><table>
+      <thead><tr><th>Vaqt</th><th>Foydalanuvchi</th><th>Rol</th><th>Amal</th><th>Qurilma</th></tr></thead>
+      <tbody>${rows.map(row => `<tr>
+        <td class="td-mono">${escH(row.createdAtLocal || (row.createdAt?.toDate ? row.createdAt.toDate().toLocaleString('uz-UZ') : ''))}</td>
+        <td>${escH(row.userName || row.uid || '')}</td>
+        <td>${escH(row.roleLabel || row.role || '')}</td>
+        <td>${escH(row.action || '')}</td>
+        <td class="td-wrap">${escH(row.timezone || row.path || '')}</td>
+      </tr>`).join('') || '<tr><td colspan="5">Log yo‘q</td></tr>'}</tbody>
+    </table></div></div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="alert alert-warn">Audit log o'qilmadi: ${escH(e.message)}</div>`;
+  }
+  applyLanguage(el);
+};
+
+window.renderIntegrationsPanel = () => {
+  const el = document.getElementById('integrations-content');
+  if(!el) return;
+  const hasGemini = !!localStorage.getItem('GEMINI_API_KEY');
+  const hasOpenRouter = !!localStorage.getItem('OPENROUTER_API_KEY');
+  el.innerHTML = `<div class="module-grid">
+    <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
+    <div class="module-card"><h3>Gemini AI</h3><p>Excel saralash va AI tahlil uchun kalit holati.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
+    <div class="module-card"><h3>OpenRouter</h3><p>Qo‘shimcha AI provider sifatida ishlaydi.</p><span class="badge ${hasOpenRouter?'badge-done':'badge-fail'}">${hasOpenRouter?'Kalit bor':'Kalit yo‘q'}</span></div>
+    <div class="module-card"><h3>Telegram bot</h3><p>Keyingi bosqich: deadline va login alertlarni Telegramga yuborish.</p><span class="badge badge-proc">Reja</span></div>
+    <div class="module-card"><h3>PDF / Excel</h3><p>Excel export mavjud. PDF/Word rasmiy shakl keyingi modulga tayyor.</p><span class="badge badge-done">Faol</span></div>
+    <div class="module-card"><h3>Security Rules</h3><p>Namuna firebase/firestore.rules.example ichida.</p><span class="badge badge-proc">Console talab qilinadi</span></div>
+  </div>`;
+  applyLanguage(el);
+};
 
 function buildSystemNotifications(rows = allDocs) {
   const notices = [];
@@ -2937,6 +3382,7 @@ function showApp(){
   if(role==='admin'||role==='superadmin'||role==='org_admin') loadAllUsers();
   // Load chat list in background
   setTimeout(() => loadChatList(), 500);
+  applyLanguage();
 }
 window.showApp = showApp;
 
@@ -2963,6 +3409,10 @@ window.showPanel = (name) => {
   });
   if (name === 'dashboard') renderDashboard();
   if (name === 'notifications') renderNotifications();
+  if (name === 'calendar') renderCalendarPanel();
+  if (name === 'roles') renderRolesPanel();
+  if (name === 'audit') renderAuditPanel();
+  if (name === 'integrations') renderIntegrationsPanel();
   if (name === 'docs') renderTable();
   if (name === 'stats') buildStats();
   if (name === 'admin' || name === 'superadmin') { loadAllUsers(); loadSuperAdminStats(); }
@@ -2976,6 +3426,7 @@ window.showPanel = (name) => {
   if (name === 'muhim') { loadMuhimTopshiriqlar(); }
   if (name === 'tashkilotlar') { loadTashkilotlar(); }
   if (name === 'ai-hisobot-admin') { loadAiHisobotAdmin(); }
+  applyLanguage();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
 
