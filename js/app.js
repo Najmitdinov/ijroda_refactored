@@ -5878,7 +5878,7 @@ const DEFAULT_RESPONSE_TEMPLATE = {
   userId: 'system',
   name: 'Standart javob xati shabloni',
   description: 'Tizimga biriktirilgan rasmiy javob xati shabloni.',
-  prompt: 'Ushbu shablon rekvizitlari va rasmiy xat uslubiga qat’iy amal qilinsin.',
+  prompt: 'Ushbu shablon rekvizitlari va rasmiy xat uslubiga qat’iy amal qilinsin: header/gerb/rekvizit yozuvlari o‘zgartirilmasin, sana va № avtomatik qo‘yilsin, qabul qiluvchi tashkilot o‘ng tomonda, javob matni 14 pt Times New Roman rasmiy uslubda, imzo esa bitta qatorda shakllantirilsin.',
   docType: 'Javob xati',
   fileName: 'default-response-template.docx',
   fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -5890,7 +5890,7 @@ const DEFAULT_RESPONSE_TEMPLATE = {
   analysis: {
     font: 'Times New Roman',
     layout: 'Rasmiy javob xati: tashkilot rekvizitlari, sana, chiquvchi raqam, adresat, asosiy matn va imzo bloki.',
-    style_notes: 'Standart rasmiy davlat idorasi javob xati uslubi saqlansin.'
+    style_notes: 'Header qismi shablondagidek saqlanadi. Sana va chiquvchi raqam avtomatik joylanadi. Qabul qiluvchi tashkilot o‘ng tomonda, asosiy javob matni alohida obzaslarda, imzo qatori va ijrochi ma’lumoti rasmiy xat skeletiga muvofiq chiqariladi.'
   }
 };
 
@@ -6808,10 +6808,26 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
     parsed.out_number = outNum;
     parsed.date = officialDate;
     parsed.recipient = parsed.recipient || recipientOrg;
+    let parsedBody = String(parsed.body || '').trim();
+    if(!parsedBody) parsedBody = String(parsed.answer_text || parsed.summary || '').trim();
+    if(parsedBody.length < 40) parsedBody = '';
+    if(!parsedBody) {
+      parsed.body = buildLocalResponseDocument({
+        header, outNum, officialDate, recipientOrg, responsible,
+        taskText: manualTaskText || taskText,
+        objectName, region, extra, executorName, executorPhone,
+        legalContext: legalRagContext
+      }).body;
+    } else {
+      parsed.body = parsedBody;
+    }
+    parsed.signature_block = parsed.signature_block || responsible || 'O.Shodiyev';
+    parsed.executor_name = parsed.executor_name || executorName;
+    parsed.executor_phone = parsed.executor_phone || executorPhone;
     const generated = {
       org: aiDocOrgScope(), userId:currentUser.uid, templateId:tpl.id, templateName:tpl.name,
       sourceFileName:file?.name || '', outNumber:outNum, date, officialDate, responsible,
-      requisites:{ userNumber, recipientOrg, objectName, region, header, executorName, executorPhone },
+      requisites:{ userNumber, recipientOrg, objectName, region, header, executorName, executorPhone, taskText: manualTaskText || taskText, extra },
       content:parsed,
       createdAt:serverTimestamp(), createdAtLocal:nowIso()
     };
@@ -6835,7 +6851,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
 function buildLocalResponseDocument({ header='', outNum='', officialDate='', recipientOrg='', responsible='', taskText='', objectName='', region='', extra='', executorName='', executorPhone='', legalContext='', providerError='' } = {}) {
   const task = String(taskText || '').replace(/\s+/g, ' ').trim();
   const context = String(legalContext || '').split('\n').filter(Boolean).slice(0, 8).join(' ');
-  const body = `Sizning ${task ? `topshiriqda bayon etilgan ${task.slice(0, 420)} masalasi` : 'yuborgan topshirig‘ingiz'} yuzasidan Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi tomonidan vakolat doirasida ko‘rib chiqildi.\n\n${objectName || region ? `Ko‘rib chiqish davomida ${objectName ? `"${objectName}" obyekti` : 'tegishli obyekt'}${region ? `, ${region} hududi` : ''} bo‘yicha shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari, texnik nazorat va normativ talablarga rioya etilishi masalalari tahlil qilindi.` : 'Ko‘rib chiqish davomida shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari, texnik nazorat va normativ talablarga rioya etilishi masalalari tahlil qilindi.'}\n\n${context && !context.includes('topilmadi') ? `Huquqiy baza ma’lumotlariga ko‘ra, masala quyidagi normativ kontekst doirasida baholandi: ${context.slice(0, 900)}.` : 'Huquqiy bazada topshiriq mazmuniga bevosita mos amaldagi normativ hujjat aniqlanmaganligi sababli uydirma modda yoki bandlar keltirilmaydi.'}\n\n${extra ? `Qo‘shimcha ma’lumot sifatida ${extra} inobatga olindi.` : ''} Topshiriq ijrosi bo‘yicha mas’ul bo‘linmalarga belgilangan tartibda ko‘rsatmalar berilib, zarur hujjatlar va asoslantirilgan ma’lumotlar tayyorlanishi ta’minlanadi.\n\n${providerError ? `Eslatma: AI provayder vaqtincha javob bermaganligi sababli zaxira rasmiy javob shakllantirildi (${providerError}).` : ''}`;
+  const body = `Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi Sizning ${task ? `topshiriqda bayon etilgan ${task.slice(0, 420)} masalasi` : 'yuborgan topshirig‘ingiz'} yuzasidan quyidagilarni ma’lum qiladi.\n\n${objectName || region ? `Mazkur masala ${objectName ? `"${objectName}" obyekti` : 'tegishli obyekt'}${region ? `, ${region} hududi` : ''} bo‘yicha shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari hamda amaldagi qurilish normalari talablariga muvofiqligi nuqtai nazaridan ko‘rib chiqildi.` : 'Mazkur masala shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari hamda amaldagi qurilish normalari talablariga muvofiqligi nuqtai nazaridan ko‘rib chiqildi.'}\n\n${context && !context.includes('topilmadi') ? `Ko‘rib chiqishda huquqiy bazadagi tegishli normativ hujjatlar va ularning amaldagi talablari inobatga olindi.` : 'Masala amaldagi normativ-huquqiy hujjatlar talablari doirasida ko‘rib chiqilishi ta’minlanadi.'} ${extra ? `Shuningdek, ${extra} bo‘yicha keltirilgan ma’lumotlar inobatga olindi.` : ''}\n\nTopshiriq ijrosi yuzasidan mas’ul tarkibiy bo‘linmalarga tegishli ko‘rsatmalar berilib, belgilangan tartibda zarur o‘rganish ishlari amalga oshiriladi hamda natijasi bo‘yicha asoslantirilgan axborot taqdim etiladi.`;
   return {
     title: 'Javob xati',
     recipient: recipientOrg,
@@ -6845,7 +6861,7 @@ function buildLocalResponseDocument({ header='', outNum='', officialDate='', rec
     header,
     body,
     footer: '',
-    signature_block: responsible || 'Rahbar',
+    signature_block: responsible || 'O.Shodiyev',
     executor_name: executorName,
     executor_phone: executorPhone,
     style_notes: 'Lokal RAG fallback: huquqiy bazadagi mavjud kontekst asosida, uydirma normativlarsiz shakllantirildi.',
@@ -6855,42 +6871,54 @@ function buildLocalResponseDocument({ header='', outNum='', officialDate='', rec
 
 function buildGeneratedDocHtml(g) {
   const c = g?.content || {};
-  const header = c.header || g.requisites?.header || officialResponseHeader(g.officialDate || c.date || g.date || formatOfficialDate(new Date()), c.out_number || g.outNumber || '');
   const recipient = c.recipient || g.requisites?.recipientOrg || '';
   const outNumber = c.out_number || g.outNumber || '';
   const docDate = c.date || g.officialDate || g.date || '';
   const executorName = c.executor_name || g.requisites?.executorName || '';
   const executorPhone = c.executor_phone || g.requisites?.executorPhone || '';
-  const signature = c.signature_block || g.responsible || 'Rahbar';
+  const signature = c.signature_block || g.responsible || 'O.Shodiyev';
+  const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
+  const bodyText = savedBody.length >= 40 ? savedBody : buildLocalResponseDocument({
+    outNum: outNumber,
+    officialDate: docDate,
+    recipientOrg: recipient,
+    responsible: signature,
+    taskText: g.requisites?.taskText || '',
+    objectName: g.requisites?.objectName || '',
+    region: g.requisites?.region || '',
+    extra: g.requisites?.extra || '',
+    executorName,
+    executorPhone
+  }).body;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    @page{size:A4;margin:10mm 16mm 14mm 16mm}
-    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.15;color:#111;margin:0;}
-    .ijro-line{font-size:10pt;color:#cc0000;font-weight:bold;margin-bottom:24px;}
-    .hdr{text-align:center;font-weight:bold;line-height:1.05;margin-bottom:8px;}
-    .hdr img{width:66px;height:66px;display:block;margin:0 auto 6px;}
-    .hdr-main{font-size:11pt;text-transform:uppercase;}
-    .hdr-address{font-size:7.5pt;font-weight:bold;margin-top:8px;}
-    .meta{font-size:14pt;font-weight:bold;line-height:1.4;margin:8px 0 18px;}
-    .recipient{font-size:14pt;font-weight:bold;text-align:center;white-space:pre-wrap;margin:0 0 22px 58%;line-height:1.18;}
-    .body{font-size:14pt;line-height:1.16;text-align:justify;text-indent:34px;white-space:pre-wrap;margin-top:0;}
-    .sig-row{display:flex;align-items:flex-start;justify-content:space-between;margin-top:44px;font-size:14pt;font-weight:bold;}
-    .sig-title{min-width:220px;}
-    .sig-name{text-align:right;min-width:140px;}
-    .executor{position:fixed;left:16mm;bottom:16mm;font-size:8pt;font-style:italic;line-height:1.2;}
-    .ftr{display:none;}
+    @page{size:A4;margin:14mm 18mm 16mm 18mm}
+    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.18;color:#000;background:#fff;margin:0;}
+    .hdr{text-align:center;font-weight:bold;line-height:1.08;margin:0 0 10px;}
+    .hdr img{width:76px;height:auto;display:block;margin:0 auto 7px;}
+    .hdr-main{font-size:13pt;text-transform:uppercase;}
+    .hdr-rule{border-top:2px solid #000;margin:7px 0 4px;}
+    .hdr-address{font-size:8pt;font-style:italic;font-weight:bold;line-height:1.12;}
+    .meta{font-size:14pt;font-weight:bold;line-height:1.45;margin:10px 0 22px;}
+    .recipient-table{width:100%;border-collapse:collapse;margin:0 0 22px;}
+    .recipient-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;line-height:1.15;vertical-align:top;}
+    .recipient-cell{width:42%;text-align:center;white-space:pre-wrap;}
+    .body{font-size:14pt;line-height:1.18;text-align:justify;text-indent:35px;white-space:pre-wrap;margin-top:0;}
+    .sig-table{width:100%;border-collapse:collapse;margin-top:44px;}
+    .sig-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;vertical-align:top;}
+    .sig-name{text-align:right;}
+    .executor{position:fixed;left:18mm;bottom:17mm;font-size:8pt;font-style:italic;line-height:1.18;}
   </style></head><body>
-    <div class="ijro-line">IJRO.GOV.UZ tizimi orqali ERI bilan tasdiqlangan, Hujjat kodi: ${escH(g.id || '')}</div>
     <div class="hdr">
-      <img src="https://najmitdinov.github.io/ijroda_refactored/assets/logo.svg" alt="">
+      <img src="https://najmitdinov.github.io/ijroda_refactored/assets/template-gerb.png" alt="">
       <div class="hdr-main">O‘ZBEKISTON RESPUBLIKASI<br>QURILISH VA UY-JOY KOMMUNAL XO‘JALIGI VAZIRLIGI<br>NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL<br>XO‘JALIGI BOSH BOSHQARMASI</div>
+      <div class="hdr-rule"></div>
       <div class="hdr-address">210100, Navoiy shahri, Zarapetyan ko‘chasi, 10-uy, Tel: (79)220-50-08, Faks: (79)220-50-08, E-mail: navqurilish@nv.uz, Sayt: navqurilish.uz</div>
     </div>
     <div class="meta">${escH(docDate)}<br>№ ${escH(outNumber)}</div>
-    <div class="recipient">${escH(recipient)}</div>
-    <div class="body">${escH(c.body || '')}</div>
-    <div class="sig-row"><div class="sig-title">Boshqarma boshlig‘i v.v.b</div><div class="sig-name">${escH(signature)}</div></div>
+    <table class="recipient-table"><tr><td></td><td class="recipient-cell">${escH(recipient)}</td></tr></table>
+    <div class="body">${escH(bodyText)}</div>
+    <table class="sig-table"><tr><td>Boshqarma boshlig‘i v.v.b</td><td class="sig-name">${escH(signature)}</td></tr></table>
     ${executorName || executorPhone ? `<div class="executor">Ijrochi: ${escH(executorName)}<br>Tel: ${escH(executorPhone)}</div>` : ''}
-    <div class="ftr">${escH(c.footer || '')}</div>
   </body></html>`;
 }
 
