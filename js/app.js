@@ -6228,6 +6228,7 @@ function aiKnowledgeContext() {
 
 // ===== LEGAL KNOWLEDGE BASE / LIGHT RAG =====
 let legalBaseDocsCache = [];
+const LEGAL_BASE_FALLBACK_COLLECTION = 'ai_knowledge_documents';
 
 function legalBaseCategories() {
   return ['Qonun','Prezident farmoni','Prezident qarori','Vazirlar Mahkamasi qarori','Farmoyish','Buyruq','Qurilish normativi','SHNQ','KMK','Texnik reglament','Ichki xizmat hujjati','Namunaviy xat','Arxiv hujjati'];
@@ -6253,6 +6254,67 @@ function legalBaseIndexText(meta, extractedText='') {
     meta.title, meta.category, meta.number, meta.date, meta.status, meta.version,
     meta.tags, meta.note, extractedText
   ].filter(Boolean).join(' ');
+}
+
+function normalizeLegalBaseDoc(id, data={}) {
+  const analysis = data.analysis || {};
+  return {
+    id,
+    org: data.org,
+    userId: data.userId,
+    title: data.title || data.name || data.fileName || '',
+    category: data.category || data.docType || 'Huquqiy hujjat',
+    number: data.number || data.requisites?.number || '',
+    date: data.date || data.requisites?.date || '',
+    status: data.status || 'Amalda',
+    version: data.version || '',
+    tags: Array.isArray(data.tags) ? data.tags : (Array.isArray(analysis.keywords) ? analysis.keywords : []),
+    note: data.note || analysis.summary || data.summary || '',
+    fileName: data.fileName || '',
+    fileUrl: data.fileUrl || '',
+    extractedText: data.extractedText || '',
+    indexText: data.indexText || '',
+    sourceCollection: data.sourceCollection || '',
+    legalBase: !!data.legalBase
+  };
+}
+
+async function fetchLegalBaseDocsFrom(collectionName, timeoutMs=12000) {
+  const snap = await withTimeout(
+    getDocs(query(collection(db, collectionName), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db, collectionName))),
+    timeoutMs,
+    `${collectionName} bazasidan javob kelmadi`
+  );
+  return snap.docs
+    .map(d => normalizeLegalBaseDoc(d.id, { ...d.data(), sourceCollection: collectionName }))
+    .filter(x => x.org === aiDocOrgScope() && (collectionName !== LEGAL_BASE_FALLBACK_COLLECTION || x.category || x.sourceCollection));
+}
+
+async function saveLegalBaseDoc(payload) {
+  try {
+    const ref = await addDoc(collection(db,'legal_knowledge_base'), payload);
+    return { id:ref.id, collection:'legal_knowledge_base' };
+  } catch(e) {
+    if(!/permission|insufficient/i.test(e.message || '')) throw e;
+    console.warn('legal_knowledge_base permission fallback:', e.message);
+    const fallbackPayload = {
+      ...payload,
+      docType: payload.category || 'Huquqiy hujjat',
+      legalBase: true,
+      analysis: {
+        summary: payload.note || payload.extractedText?.slice(0, 700) || '',
+        keywords: payload.tags || [],
+        legal_base_meta: {
+          number: payload.number || '',
+          date: payload.date || '',
+          status: payload.status || '',
+          version: payload.version || ''
+        }
+      }
+    };
+    const ref = await addDoc(collection(db, LEGAL_BASE_FALLBACK_COLLECTION), fallbackPayload);
+    return { id:ref.id, collection:LEGAL_BASE_FALLBACK_COLLECTION, fallback:true };
+  }
 }
 
 function scoreLegalBaseDoc(doc, queryText='') {
@@ -6297,12 +6359,15 @@ window.loadLegalBasePanel = async function() {
     cat.dataset.ready = '1';
   }
   try {
-    const snap = await withTimeout(
-      getDocs(query(collection(db,'legal_knowledge_base'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'legal_knowledge_base'))),
-      18000,
-      'Huquqiy baza yuklanmadi'
-    );
-    legalBaseDocsCache = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+    const primary = await fetchLegalBaseDocsFrom('legal_knowledge_base', 12000).catch(e => {
+      console.warn('primary legal base read:', e.message);
+      return [];
+    });
+    const fallback = await fetchLegalBaseDocsFrom(LEGAL_BASE_FALLBACK_COLLECTION, 12000).catch(e => {
+      console.warn('fallback legal base read:', e.message);
+      return [];
+    });
+    legalBaseDocsCache = [...primary, ...fallback.filter(x => x.legalBase)];
   } catch(e) {
     console.warn('legal base load:', e.message);
     legalBaseDocsCache = [];
@@ -6313,12 +6378,9 @@ window.loadLegalBasePanel = async function() {
 async function loadLegalBaseForAi() {
   if(legalBaseDocsCache.length) return;
   try {
-    const snap = await withTimeout(
-      getDocs(query(collection(db,'legal_knowledge_base'), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db,'legal_knowledge_base'))),
-      12000,
-      'Huquqiy baza AI uchun yuklanmadi'
-    );
-    legalBaseDocsCache = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(x => x.org === aiDocOrgScope());
+    const primary = await fetchLegalBaseDocsFrom('legal_knowledge_base', 10000).catch(() => []);
+    const fallback = await fetchLegalBaseDocsFrom(LEGAL_BASE_FALLBACK_COLLECTION, 10000).catch(() => []);
+    legalBaseDocsCache = [...primary, ...fallback.filter(x => x.legalBase)];
   } catch(e) {
     console.warn('legal base AI load:', e.message);
   }
@@ -6372,7 +6434,7 @@ window.uploadLegalBaseDocument = async function() {
     const extractedText = await legalBaseExtractText(file);
     const uploaded = await aiDocUploadFileSafe(file, 'legal_base');
     const indexText = legalBaseIndexText(meta, extractedText);
-    await addDoc(collection(db,'legal_knowledge_base'), {
+    const payload = {
       org: aiDocOrgScope(),
       userId: currentUser.uid,
       ...meta,
@@ -6390,11 +6452,12 @@ window.uploadLegalBaseDocument = async function() {
       vectorStatus: 'semantic_keyword_index',
       createdAt: serverTimestamp(),
       createdAtLocal: nowIso()
-    });
+    };
+    const saved = await saveLegalBaseDoc(payload);
     await writeAudit('legal_base.created', { title:meta.title, category:meta.category, number:meta.number, fileName:file.name }).catch(()=>{});
     clearLegalBaseForm();
     await loadLegalBasePanel();
-    if(statusEl) { statusEl.className='template-ai-status ok'; statusEl.textContent='Hujjat huquqiy bazaga saqlandi va AI qidiruvi uchun indekslandi.'; }
+    if(statusEl) { statusEl.className='template-ai-status ok'; statusEl.textContent=saved.fallback ? 'Hujjat serverdagi AI baza collection’iga saqlandi va huquqiy qidiruv uchun indekslandi.' : 'Hujjat huquqiy bazaga saqlandi va AI qidiruvi uchun indekslandi.'; }
     showToast('Huquqiy hujjat saqlandi', 'success');
   } catch(e) {
     if(statusEl) { statusEl.className='template-ai-status err'; statusEl.textContent=e.message; }
@@ -6404,7 +6467,8 @@ window.uploadLegalBaseDocument = async function() {
 
 window.deleteLegalBaseDocument = async function(id) {
   if(!confirm('Huquqiy hujjatni o‘chirmoqchimisiz?')) return;
-  await deleteDoc(doc(db,'legal_knowledge_base',id));
+  const item = legalBaseDocsCache.find(x => x.id === id);
+  await deleteDoc(doc(db, item?.sourceCollection || 'legal_knowledge_base', id));
   await loadLegalBasePanel();
 };
 
@@ -6697,11 +6761,18 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
       content:parsed,
       createdAt:serverTimestamp(), createdAtLocal:nowIso()
     };
-    const refDoc = await addDoc(collection(db,'ai_generated_documents'), generated);
-    lastGeneratedDocument = { id:refDoc.id, ...generated };
+    let refId = `local_${Date.now()}`;
+    try {
+      const refDoc = await addDoc(collection(db,'ai_generated_documents'), generated);
+      refId = refDoc.id;
+    } catch(saveErr) {
+      console.warn('generated document save fallback:', saveErr.message);
+      generated.saveError = saveErr.message;
+    }
+    lastGeneratedDocument = { id:refId, ...generated };
     renderGeneratedPreview(lastGeneratedDocument);
-    await loadGeneratedAiDocs();
-    if(status) { status.className='template-ai-status ok'; status.textContent='Javob xati yaratildi va bazaga saqlandi.'; }
+    await loadGeneratedAiDocs().catch(()=>{});
+    if(status) { status.className='template-ai-status ok'; status.textContent=generated.saveError ? 'Javob xati yaratildi. Bazaga yozish ruxsati cheklangan, lekin Word yuklash ishlaydi.' : 'Javob xati yaratildi va bazaga saqlandi.'; }
   } catch(e) {
     if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
   }
