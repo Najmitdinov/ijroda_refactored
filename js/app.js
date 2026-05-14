@@ -5975,26 +5975,54 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
   let lastError = '';
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
+    const models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    for(const model of models) {
+      try {
+        const parts = [{ text: prompt }];
+        if(filePart?.base64) parts.push({ inline_data: { mime_type: filePart.mimeType, data:filePart.base64 } });
+        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            contents: [{ role:'user', parts }],
+            generationConfig: { temperature:0.12, maxOutputTokens: jsonMode ? 7000 : 7600, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
+          })
+        });
+        if(!resp.ok) {
+          const errData = await resp.json().catch(()=>({}));
+          throw new Error(errData?.error?.message || `Gemini HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+        await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model });
+        return text;
+      } catch(e) {
+        lastError = e.message;
+        await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model, error:e.message }).catch(()=>{});
+        console.warn('Gemini template fallback:', model, e.message);
+      }
+    }
+  }
+  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
+  if(groqKey) {
     try {
-      const parts = [{ text: prompt }];
-      if(filePart?.base64) parts.push({ inline_data: { mime_type: filePart.mimeType, data:filePart.base64 } });
-      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+      const model = localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile';
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          contents: [{ role:'user', parts }],
-          generationConfig: { temperature:0.18, maxOutputTokens: jsonMode ? 5200 : 6500, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
-        })
+        headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
+        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:0.12, max_tokens:6200 })
       });
-      if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
+      if(!resp.ok) {
+        const errData = await resp.json().catch(()=>({}));
+        throw new Error(errData?.error?.message || `Groq HTTP ${resp.status}`);
+      }
       const data = await resp.json();
-      const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
-      await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
-      return text;
+      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model });
+      return data?.choices?.[0]?.message?.content || '';
     } catch(e) {
-      lastError = e.message;
-      await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model:'gemini-2.5-flash', error:e.message }).catch(()=>{});
-      console.warn('Gemini template fallback:', e.message);
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:e.message }).catch(()=>{});
+      console.warn('Groq template fallback:', e.message);
     }
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
@@ -6730,6 +6758,10 @@ MAJBURIY TALABLAR:
 - Har bir javob individual yozilsin.
 - AI hech qachon umumiy yoki shablon javob bermasin.
 - Javob mazmuni topshiriqqa to'liq mos bo'lsin.
+- "Sizning yuborgan topshirig'ingiz yuzasidan..." kabi umumiy gap bilan cheklanma.
+- Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, mas'ul xodim, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
+- Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
+- Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
 
 HUJJAT STRUCTURE:
 ${header}
@@ -6755,6 +6787,13 @@ YASHIL HUDUD: sana va xat raqami chap tomonda alohida qatorlarda ko'rsatiladi.
 SABZI RANG HUDUD: qabul qiluvchi tashkilot o'ng tomonda, qalin (bold), Times New Roman 14 pt ko'rinishida bo'ladi.
 KO'K HUDUD: faqat asosiy javob xati matni yoziladi. Matn Times New Roman 14 pt, rasmiy, qisqa, asoslangan va individual bo'lsin.
 SARIQ HUDUD: ijrochi va telefon past chapda italic ko'rinishida yoziladi.
+
+JAVOB YOZISH ALGORITMI:
+1. Topshiriq mazmunini ichki tahlil qil: kim yuborgan, nimani so'ragan, qaysi obyekt/hudud/qaror haqida, qanday natija talab qilingan.
+2. body matnining 1-obzasida aynan shu topshiriq predmeti va hujjat raqami/sanasini ko'rsat.
+3. 2-obzasda bosh boshqarma tomonidan amalga oshirilgan yoki amalga oshiriladigan aniq chora-tadbirlarni yoz.
+4. 3-obzasda faqat bazada mavjud huquqiy asoslarni ehtiyotkorlik bilan keltir; bazada yo'q modda/bandni uydirma.
+5. Yakuniy gap topshiriq mazmuniga mos bo'lsin: axborot taqdim etish, amaliy yordam berish, ijro nazoratini ta'minlash, kamchilikni bartaraf etish yoki tegishli mutaxassis biriktirish kabi aniq natija yozilsin.
 
 Shablon nomi: ${tpl.name}
 Hujjat turi: ${tpl.docType}
@@ -6820,7 +6859,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
     parsed.recipient = parsed.recipient || recipientOrg;
     let parsedBody = String(parsed.body || '').trim();
     if(!parsedBody) parsedBody = String(parsed.answer_text || parsed.summary || '').trim();
-    if(parsedBody.length < 40) parsedBody = '';
+    if(parsedBody.length < 40 || responseBodyLooksGeneric(parsedBody, `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`)) parsedBody = '';
     if(!parsedBody) {
       parsed.body = buildLocalResponseDocument({
         header, outNum, officialDate, recipientOrg, responsible,
@@ -6858,10 +6897,144 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
   }
 };
 
+const RESPONSE_STOP_WORDS = new Set('bilan uchun hamda bo‘yicha bo‘yicha yuzasidan mazkur ushbu sizning tomonidan tashkil qilindi etildi bo‘lgan bo‘ladi tegishli masala masalasi yuborgan topshiriq topshirigingiz topshirig‘ingiz respublikasi viloyati tuman shahri'.split(/\s+/));
+
+function compactResponseText(text='') {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function taskMeaningfulWords(text='', limit=16) {
+  const words = normalizeText(text)
+    .replace(/[^a-zа-я0-9'\s-]/gi, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 4 && !RESPONSE_STOP_WORDS.has(w));
+  return [...new Set(words)].slice(0, limit);
+}
+
+function splitTaskSentences(text='') {
+  return String(text || '')
+    .replace(/\r/g, '\n')
+    .split(/[\n.!?;]+/)
+    .map(compactResponseText)
+    .filter(s => s.length > 18);
+}
+
+function uniqueLimited(list=[], limit=6) {
+  const out = [];
+  list.forEach(item => {
+    const clean = compactResponseText(item);
+    if(clean && !out.some(x => normalizeText(x) === normalizeText(clean))) out.push(clean);
+  });
+  return out.slice(0, limit);
+}
+
+function extractResponseDocRefs(text='') {
+  const refs = [];
+  const addMatches = (regex) => {
+    for(const m of String(text || '').matchAll(regex)) refs.push(m[0]);
+  };
+  addMatches(/\b(?:PQ|PF|VMQ|ПҚ|ПФ|ВМҚ|ҚҚ)[-–]?\s*\d{1,5}\b/gi);
+  addMatches(/\b\d{1,5}\s*[-–]?\s*(?:sonli|сонли)\s*(?:qaror|farmon|farmoyish|buyruq|xat|topshiriq)?/gi);
+  addMatches(/\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{4}\s*(?:yil(?:dagi)?|йил(?:даги)?)?/gi);
+  return uniqueLimited(refs, 5);
+}
+
+function extractResponseLocations(text='', provided='') {
+  const found = [];
+  if(provided) found.push(provided);
+  for(const m of String(text || '').matchAll(/[\p{L}ʻ‘’'`.-]+(?:\s+[\p{L}ʻ‘’'`.-]+){0,2}\s+(?:tumani|shahri|viloyati)/giu)) found.push(m[0]);
+  return uniqueLimited(found, 4);
+}
+
+function detectResponseIntent(text='') {
+  const n = normalizeText(text);
+  const rules = [
+    { type:'assistance', label:'amaliy yordam ko‘rsatish', re:/(amaliy yordam|yordam ber|ko'mak|kumak|biriktir|mas'?ul xodim|mas’ul xodim)/ },
+    { type:'control', label:'o‘rganish va nazorat', re:/(nazorat|tekshir|o'rgan|organish|monitoring|joyiga chiqqan|kamchilik)/ },
+    { type:'execution', label:'ijroni ta’minlash', re:/(ijro|bajaril|amalga oshir|chora-tadbir|choralar|ta'minla|ta’minla)/ },
+    { type:'project', label:'loyiha-smeta va qurilish jarayonlari', re:/(loyiha|smeta|ekspertiza|qurilish-montaj|pudrat|texnik nazorat|shaharsozlik hujjat)/ },
+    { type:'permit', label:'ruxsat va kelishuv hujjatlari', re:/(ruxsat|kelishuv|xulosa|litsenziya|sertifikat|qabul qilish)/ },
+    { type:'information', label:'ma’lumot taqdim etish', re:/(ma'lumot|ma’lumot|axborot|so'rov|so‘rov|taqdim et|hisobot)/ },
+    { type:'remediation', label:'kamchiliklarni bartaraf etish', re:/(bartaraf|noqonuniy|qoidabuz|talab buz|javobgarlik|ogohlantir)/ }
+  ];
+  return rules.find(r => r.re.test(n)) || { type:'general', label:'topshiriq ijrosi', re:null };
+}
+
+function buildTaskSubject(taskText='', objectName='', region='') {
+  const sentences = splitTaskSentences(taskText);
+  const words = taskMeaningfulWords(taskText, 12);
+  const candidate = sentences.find(s => words.some(w => normalizeText(s).includes(w))) || sentences[0] || '';
+  if(objectName) return `"${objectName}" obyekti${region ? ` (${region})` : ''}`;
+  if(candidate) return candidate.length > 280 ? `${candidate.slice(0, 277)}...` : candidate;
+  if(region) return `${region} hududidagi masala`;
+  return 'topshiriqda ko‘tarilgan masala';
+}
+
+function legalContextSummary(legalContext='') {
+  const text = String(legalContext || '');
+  if(!text || /topilmadi|uydirma/i.test(text)) return '';
+  const rows = text.split('\n').map(compactResponseText).filter(Boolean);
+  const items = rows
+    .filter(r => /^\d+\./.test(r) || /Raqami:/i.test(r))
+    .slice(0, 4)
+    .join(' ');
+  return items ? `Huquqiy asos sifatida huquqiy bazada aniqlangan quyidagi amaldagi hujjatlar talablari inobatga olindi: ${items.slice(0, 900)}.` : 'Huquqiy bazada mavjud amaldagi normativ-huquqiy hujjatlar talablari doirasida ish yuritildi.';
+}
+
+function buildIntentActionParagraph(intent, subject, locations=[], docRefs=[], extra='') {
+  const place = locations.length ? `${locations.join(', ')} bo‘yicha ` : '';
+  const refs = docRefs.length ? ` (${docRefs.join(', ')})` : '';
+  const extraText = extra ? ` Foydalanuvchi tomonidan kiritilgan qo‘shimcha ma’lumotlar ham inobatga olindi: ${extra}.` : '';
+  if(intent.type === 'assistance') {
+    return `${place}${subject} yuzasidan amaliy yordam ko‘rsatish zarurati mavjudligi sababli hududiy bo‘lim hamda mas’ul mutaxassislar ishtirokida ijro mexanizmini tushuntirish, mas’ul xodimlarni biriktirish va bajarilishini muvofiqlashtirish choralari belgilanadi${refs}.${extraText}`;
+  }
+  if(intent.type === 'control') {
+    return `${place}${subject} bo‘yicha joyida o‘rganish, mavjud loyiha-smeta hujjatlari va qurilish-montaj ishlari holatini vakolat doirasida nazoratdan o‘tkazish hamda aniqlangan holatlar yuzasidan tegishli choralar ko‘rish belgilandi${refs}.${extraText}`;
+  }
+  if(intent.type === 'execution') {
+    return `${place}${subject} bo‘yicha topshiriq ijrosini tashkil etish maqsadida mas’ul tarkibiy bo‘linmalar kesimida vazifalar aniqlashtirilib, ijro muddatlari va natijadorlik holati nazoratga olinadi${refs}.${extraText}`;
+  }
+  if(intent.type === 'project') {
+    return `${place}${subject} yuzasidan loyiha-smeta yechimlari, shaharsozlik hujjatlari, texnik nazorat va qurilish-montaj ishlari ketma-ketligi amaldagi talablar asosida tahlil qilinib, zarur xulosa va takliflar tayyorlanadi${refs}.${extraText}`;
+  }
+  if(intent.type === 'permit') {
+    return `${place}${subject} bo‘yicha ruxsat beruvchi va kelishuv hujjatlarining mavjudligi, rasmiylashtirilish tartibi hamda vakolatli organlar bilan muvofiqlashtirish holati o‘rganiladi${refs}.${extraText}`;
+  }
+  if(intent.type === 'information') {
+    return `${place}${subject} yuzasidan so‘ralgan ma’lumotlar tegishli hujjatlar, ijro holati va mas’ul bo‘linmalar axboroti asosida umumlashtirilib, belgilangan tartibda taqdim etiladi${refs}.${extraText}`;
+  }
+  if(intent.type === 'remediation') {
+    return `${place}${subject} bo‘yicha aniqlangan kamchilik va qonunbuzilish holatlarini bartaraf etish, mas’ullarga ko‘rsatma berish hamda ijro natijasini nazorat qilish choralari ko‘riladi${refs}.${extraText}`;
+  }
+  return `${place}${subject} bo‘yicha topshiriqda belgilangan vazifalar vakolat doirasida tahlil qilinib, tegishli tarkibiy bo‘linmalar tomonidan aniq ijro choralarini amalga oshirish belgilanadi${refs}.${extraText}`;
+}
+
+function responseBodyLooksGeneric(body='', taskText='') {
+  const normBody = normalizeText(body);
+  if(!normBody || normBody.length < 80) return true;
+  const generic = [
+    "sizning yuborgan topshirig'ingiz yuzasidan quyidagilarni ma'lum qiladi",
+    'mazkur masala shaharsozlik hujjatlari loyiha-smeta yechimlari',
+    'masala amaldagi normativ-huquqiy hujjatlar talablari doirasida',
+    "topshiriq ijrosi yuzasidan mas'ul tarkibiy bo'linmalarga tegishli ko'rsatmalar"
+  ];
+  if(generic.filter(x => normBody.includes(x)).length >= 2) return true;
+  const words = taskMeaningfulWords(taskText, 12);
+  if(words.length >= 4) {
+    const overlap = words.filter(w => normBody.includes(w)).length;
+    if(overlap < 2) return true;
+  }
+  return false;
+}
+
 function buildLocalResponseDocument({ header='', outNum='', officialDate='', recipientOrg='', responsible='', taskText='', objectName='', region='', extra='', executorName='', executorPhone='', legalContext='', providerError='' } = {}) {
-  const task = String(taskText || '').replace(/\s+/g, ' ').trim();
-  const context = String(legalContext || '').split('\n').filter(Boolean).slice(0, 8).join(' ');
-  const body = `Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi Sizning ${task ? `topshiriqda bayon etilgan ${task.slice(0, 420)} masalasi` : 'yuborgan topshirig‘ingiz'} yuzasidan quyidagilarni ma’lum qiladi.\n\n${objectName || region ? `Mazkur masala ${objectName ? `"${objectName}" obyekti` : 'tegishli obyekt'}${region ? `, ${region} hududi` : ''} bo‘yicha shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari hamda amaldagi qurilish normalari talablariga muvofiqligi nuqtai nazaridan ko‘rib chiqildi.` : 'Mazkur masala shaharsozlik hujjatlari, loyiha-smeta yechimlari, qurilish-montaj ishlari hamda amaldagi qurilish normalari talablariga muvofiqligi nuqtai nazaridan ko‘rib chiqildi.'}\n\n${context && !context.includes('topilmadi') ? `Ko‘rib chiqishda huquqiy bazadagi tegishli normativ hujjatlar va ularning amaldagi talablari inobatga olindi.` : 'Masala amaldagi normativ-huquqiy hujjatlar talablari doirasida ko‘rib chiqilishi ta’minlanadi.'} ${extra ? `Shuningdek, ${extra} bo‘yicha keltirilgan ma’lumotlar inobatga olindi.` : ''}\n\nTopshiriq ijrosi yuzasidan mas’ul tarkibiy bo‘linmalarga tegishli ko‘rsatmalar berilib, belgilangan tartibda zarur o‘rganish ishlari amalga oshiriladi hamda natijasi bo‘yicha asoslantirilgan axborot taqdim etiladi.`;
+  const task = compactResponseText(taskText);
+  const docRefs = extractResponseDocRefs(task);
+  const locations = extractResponseLocations(task, region);
+  const intent = detectResponseIntent(`${task} ${extra} ${objectName} ${region}`);
+  const subject = buildTaskSubject(task, objectName, region);
+  const refText = docRefs.length ? ` ${docRefs.join(', ')} rekvizitlari bilan bog‘liq` : '';
+  const body = `${recipientOrg ? `${recipientOrg} tomonidan yuborilgan` : 'Yuqori turuvchi tashkilotdan kelgan'}${refText} topshiriqda ko‘tarilgan ${subject} masalasi Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi tomonidan vakolat doirasida tahlil qilindi.\n\n${buildIntentActionParagraph(intent, subject, locations, docRefs, extra)}\n\n${legalContextSummary(legalContext) || 'Bunda amaldagi shaharsozlik, qurilish normalari va vakolat doirasidagi normativ talablar asosida ish yuritiladi.'}\n\nMazkur topshiriq bo‘yicha bajariladigan ishlar natijasi umumlashtirilib, ${intent.type === 'information' ? 'so‘ralgan axborot' : intent.type === 'assistance' ? 'amaliy yordam va ijro holati to‘g‘risidagi axborot' : 'ijro holati yuzasidan asoslantirilgan axborot'} belgilangan tartibda taqdim etiladi.`;
   return {
     title: 'Javob xati',
     recipient: recipientOrg,
@@ -6889,7 +7062,8 @@ function buildGeneratedDocHtml(g) {
   const signature = c.signature_block || g.responsible || 'O.Shodiyev';
   const docCode = g.documentCode || g.id || '';
   const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
-  const bodyText = savedBody.length >= 40 ? savedBody : buildLocalResponseDocument({
+  const fallbackSeed = `${g.requisites?.taskText || ''} ${g.requisites?.objectName || ''} ${g.requisites?.region || ''} ${g.requisites?.extra || ''}`;
+  const bodyText = savedBody.length >= 40 && !responseBodyLooksGeneric(savedBody, fallbackSeed) ? savedBody : buildLocalResponseDocument({
     outNum: outNumber,
     officialDate: docDate,
     recipientOrg: recipient,
