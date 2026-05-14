@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-template-save-fix7';
+const APP_BUILD = '20260515-local-legal-base8';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

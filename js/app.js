@@ -6230,6 +6230,10 @@ function aiKnowledgeContext() {
 let legalBaseDocsCache = [];
 const LEGAL_BASE_FALLBACK_COLLECTION = 'ai_knowledge_documents';
 
+function legalBaseLocalKey() {
+  return `ijroda_legal_base_${aiDocOrgScope()}`;
+}
+
 function legalBaseCategories() {
   return ['Qonun','Prezident farmoni','Prezident qarori','Vazirlar Mahkamasi qarori','Farmoyish','Buyruq','Qurilish normativi','SHNQ','KMK','Texnik reglament','Ichki xizmat hujjati','Namunaviy xat','Arxiv hujjati'];
 }
@@ -6275,8 +6279,41 @@ function normalizeLegalBaseDoc(id, data={}) {
     extractedText: data.extractedText || '',
     indexText: data.indexText || '',
     sourceCollection: data.sourceCollection || '',
-    legalBase: !!data.legalBase
+    legalBase: !!data.legalBase,
+    localOnly: !!data.localOnly
   };
+}
+
+function readLocalLegalBaseDocs() {
+  try {
+    const raw = localStorage.getItem(legalBaseLocalKey());
+    const docs = raw ? JSON.parse(raw) : [];
+    return Array.isArray(docs) ? docs.map(d => normalizeLegalBaseDoc(d.id, { ...d, sourceCollection:'localStorage', localOnly:true, legalBase:true })) : [];
+  } catch(e) {
+    console.warn('local legal base read:', e.message);
+    return [];
+  }
+}
+
+function writeLocalLegalBaseDocs(docs) {
+  localStorage.setItem(legalBaseLocalKey(), JSON.stringify(docs.slice(0, 300)));
+}
+
+function saveLegalBaseDocLocal(payload, reason='') {
+  const docs = readLocalLegalBaseDocs();
+  const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const localDoc = normalizeLegalBaseDoc(id, {
+    ...payload,
+    id,
+    legalBase:true,
+    localOnly:true,
+    sourceCollection:'localStorage',
+    saveReason: reason,
+    createdAtLocal: payload.createdAtLocal || nowIso()
+  });
+  docs.unshift(localDoc);
+  writeLocalLegalBaseDocs(docs);
+  return { id, collection:'localStorage', local:true, reason };
 }
 
 async function fetchLegalBaseDocsFrom(collectionName, timeoutMs=12000) {
@@ -6295,8 +6332,7 @@ async function saveLegalBaseDoc(payload) {
     const ref = await addDoc(collection(db,'legal_knowledge_base'), payload);
     return { id:ref.id, collection:'legal_knowledge_base' };
   } catch(e) {
-    if(!/permission|insufficient/i.test(e.message || '')) throw e;
-    console.warn('legal_knowledge_base permission fallback:', e.message);
+    console.warn('legal_knowledge_base save fallback:', e.message);
     const fallbackPayload = {
       ...payload,
       docType: payload.category || 'Huquqiy hujjat',
@@ -6312,8 +6348,13 @@ async function saveLegalBaseDoc(payload) {
         }
       }
     };
-    const ref = await addDoc(collection(db, LEGAL_BASE_FALLBACK_COLLECTION), fallbackPayload);
-    return { id:ref.id, collection:LEGAL_BASE_FALLBACK_COLLECTION, fallback:true };
+    try {
+      const ref = await addDoc(collection(db, LEGAL_BASE_FALLBACK_COLLECTION), fallbackPayload);
+      return { id:ref.id, collection:LEGAL_BASE_FALLBACK_COLLECTION, fallback:true };
+    } catch(fallbackErr) {
+      console.warn('ai_knowledge_documents save fallback:', fallbackErr.message);
+      return saveLegalBaseDocLocal(payload, fallbackErr.message || e.message);
+    }
   }
 }
 
@@ -6367,10 +6408,10 @@ window.loadLegalBasePanel = async function() {
       console.warn('fallback legal base read:', e.message);
       return [];
     });
-    legalBaseDocsCache = [...primary, ...fallback.filter(x => x.legalBase)];
+    legalBaseDocsCache = [...primary, ...fallback.filter(x => x.legalBase), ...readLocalLegalBaseDocs()];
   } catch(e) {
     console.warn('legal base load:', e.message);
-    legalBaseDocsCache = [];
+    legalBaseDocsCache = readLocalLegalBaseDocs();
   }
   renderLegalBaseDocs();
 };
@@ -6380,9 +6421,10 @@ async function loadLegalBaseForAi() {
   try {
     const primary = await fetchLegalBaseDocsFrom('legal_knowledge_base', 10000).catch(() => []);
     const fallback = await fetchLegalBaseDocsFrom(LEGAL_BASE_FALLBACK_COLLECTION, 10000).catch(() => []);
-    legalBaseDocsCache = [...primary, ...fallback.filter(x => x.legalBase)];
+    legalBaseDocsCache = [...primary, ...fallback.filter(x => x.legalBase), ...readLocalLegalBaseDocs()];
   } catch(e) {
     console.warn('legal base AI load:', e.message);
+    legalBaseDocsCache = readLocalLegalBaseDocs();
   }
 }
 
@@ -6401,8 +6443,9 @@ window.renderLegalBaseDocs = function() {
       <span>${escH(d.category || '')} | ${escH(d.number || '')} | ${escH(d.date || '')} | ${escH(d.status || '')}</span>
       <p>${escH((d.tags || []).join(', '))}</p>
       <p>${escH(d.note || (d.extractedText || '').slice(0, 220))}</p>
+      ${d.localOnly ? '<p><b>Lokal saqlangan:</b> Firebase ruxsati yo‘q bo‘lsa ham AI qidiruvda ishlaydi.</p>' : ''}
       <div class="actions-row" style="margin-top:10px;">
-        <button class="btn btn-sm btn-outline" onclick="downloadUrl('${escH(d.fileUrl || '')}')">Ochish</button>
+        ${d.fileUrl ? `<button class="btn btn-sm btn-outline" onclick="downloadUrl('${escH(d.fileUrl || '')}')">Ochish</button>` : ''}
         <button class="btn btn-sm btn-danger" onclick="deleteLegalBaseDocument('${d.id}')">O‘chirish</button>
       </div>
     </div>`).join('') : '<div class="empty-state"><h3>Huquqiy hujjat yo‘q</h3><p>Qonun, qaror, SHNQ, KMK yoki boshqa normativ hujjat yuklang.</p></div>';
@@ -6457,7 +6500,14 @@ window.uploadLegalBaseDocument = async function() {
     await writeAudit('legal_base.created', { title:meta.title, category:meta.category, number:meta.number, fileName:file.name }).catch(()=>{});
     clearLegalBaseForm();
     await loadLegalBasePanel();
-    if(statusEl) { statusEl.className='template-ai-status ok'; statusEl.textContent=saved.fallback ? 'Hujjat serverdagi AI baza collection’iga saqlandi va huquqiy qidiruv uchun indekslandi.' : 'Hujjat huquqiy bazaga saqlandi va AI qidiruvi uchun indekslandi.'; }
+    if(statusEl) {
+      statusEl.className='template-ai-status ok';
+      statusEl.textContent=saved.local
+        ? 'Hujjat lokal huquqiy bazaga saqlandi. Firebase ruxsati cheklangan bo‘lsa ham AI qidiruvda ishlaydi.'
+        : saved.fallback
+          ? 'Hujjat serverdagi AI baza collection’iga saqlandi va huquqiy qidiruv uchun indekslandi.'
+          : 'Hujjat huquqiy bazaga saqlandi va AI qidiruvi uchun indekslandi.';
+    }
     showToast('Huquqiy hujjat saqlandi', 'success');
   } catch(e) {
     if(statusEl) { statusEl.className='template-ai-status err'; statusEl.textContent=e.message; }
@@ -6468,7 +6518,11 @@ window.uploadLegalBaseDocument = async function() {
 window.deleteLegalBaseDocument = async function(id) {
   if(!confirm('Huquqiy hujjatni o‘chirmoqchimisiz?')) return;
   const item = legalBaseDocsCache.find(x => x.id === id);
-  await deleteDoc(doc(db, item?.sourceCollection || 'legal_knowledge_base', id));
+  if(item?.localOnly || item?.sourceCollection === 'localStorage') {
+    writeLocalLegalBaseDocs(readLocalLegalBaseDocs().filter(x => x.id !== id));
+  } else {
+    await deleteDoc(doc(db, item?.sourceCollection || 'legal_knowledge_base', id));
+  }
   await loadLegalBasePanel();
 };
 
