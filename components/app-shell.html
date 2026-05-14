@@ -293,6 +293,10 @@
         <div class="nav-item" onclick="exportExcel('all')"><span class="nav-icon">⇩</span> Yakuniy hisobotlar</div>
       </div>
       <div class="sb-section">
+        <div class="sb-title">Yuridik AI</div>
+        <div class="nav-item" data-panel="legal-ai" onclick="showPanel('legal-ai');window.initLegalAiPanel && window.initLegalAiPanel();"><span class="nav-icon">§</span> Yuridik AI va hujjatlar tahlili</div>
+      </div>
+      <div class="sb-section">
         <div class="sb-title">Tashkilot</div>
         <div class="nav-item" data-panel="tashkilotlar" onclick="showPanel('tashkilotlar');loadTashkilotlar()"><span class="nav-icon">▨</span> Tashkilotlar <span class="nav-badge" id="badge-tashkilotlar" style="background:#0891b2;">0</span></div>
         <div class="nav-item" data-panel="sektorlar" onclick="showPanel('sektorlar')"><span class="nav-icon">▥</span> Bo'limlar</div>
@@ -326,6 +330,7 @@
       <div data-panel-include="./components/panels/roles.html"></div><!-- AUDIT -->
       <div data-panel-include="./components/panels/audit.html"></div><!-- INTEGRATIONS -->
       <div data-panel-include="./components/panels/integrations.html"></div><!-- UPLOAD -->
+      <div data-panel-include="./components/panels/legal-ai.html"></div><!-- LEGAL AI -->
       <div data-panel-include="./components/panels/upload.html"></div><!-- MAPPING -->
       <div data-panel-include="./components/panels/mapping.html"></div><!-- MANUAL -->
       <div data-panel-include="./components/panels/manual.html"></div><!-- ===== AI CHAT PANEL - PREMIUM ===== -->

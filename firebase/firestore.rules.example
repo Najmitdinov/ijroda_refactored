@@ -77,5 +77,58 @@ service cloud.firestore {
       allow create, update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin'];
       allow delete: if isAdmin();
     }
+
+    match /legal_documents/{docId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin', 'controller'];
+      allow delete: if isSuperadmin();
+    }
+
+    match /legal_document_chunks/{chunkId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && role() in ['superadmin', 'admin'];
+      allow delete: if isSuperadmin();
+    }
+
+    match /document_analysis/{analysisId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        resource.data.user_id == request.auth.uid ||
+        sameOrg(resource.data.organization_id)
+      );
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin', 'controller'];
+      allow delete: if isSuperadmin();
+    }
+
+    match /extracted_tasks/{taskId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin', 'department_head', 'controller'];
+      allow delete: if isSuperadmin();
+    }
+
+    match /ai_answers/{answerId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        resource.data.user_id == request.auth.uid ||
+        sameOrg(resource.data.organization_id)
+      );
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /ai_audit_logs/{logId} {
+      allow create: if signedIn();
+      allow read: if role() in ['superadmin', 'admin', 'auditor', 'controller'];
+      allow update, delete: if false;
+    }
+
+    match /construction_checklists/{checkId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if signedIn() && role() in ['superadmin', 'admin', 'org_admin', 'controller'];
+      allow delete: if isSuperadmin();
+    }
   }
 }
