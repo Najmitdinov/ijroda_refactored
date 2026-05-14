@@ -1,4 +1,4 @@
-const APP_BUILD = '20260514-legal-ai1';
+const APP_BUILD = '20260514-fishka-restore1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
