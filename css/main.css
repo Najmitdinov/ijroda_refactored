@@ -848,6 +848,18 @@ tbody td:last-child{border-right:none;}
 .legal-ai-action-wide{grid-column:1/-1;}
 .legal-ai-note{margin-top:14px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:11px 12px;font-size:12px;line-height:1.5;font-weight:700;}
 .legal-ai-provider{margin-top:10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);padding:10px 11px;font-size:12px;color:var(--muted);font-weight:700;line-height:1.45;}
+.legal-ai-provider.ok{background:#ecfdf5;color:#047857;border-color:#bbf7d0;}
+.legal-ai-provider.warn{background:#fffbeb;color:#b45309;border-color:#fde68a;}
+.legal-ai-provider.err{background:#fef2f2;color:#b91c1c;border-color:#fecaca;}
+.legal-ai-template-box{margin-top:14px;border:1px solid var(--border);border-radius:8px;background:linear-gradient(180deg,var(--surface),var(--surface2));padding:13px;}
+.legal-ai-control-head.compact{padding-bottom:10px;margin-bottom:10px;}
+.legal-ai-grid.compact{margin-top:10px;gap:9px;}
+.legal-ai-grid.compact input{width:100%;}
+.legal-ai-mini-upload{border:1px dashed var(--border2);background:var(--surface);border-radius:8px;padding:11px 12px;cursor:pointer;transition:.15s;text-transform:none;letter-spacing:0;}
+.legal-ai-mini-upload:hover{border-color:#2563eb;background:#eff6ff;}
+.legal-ai-mini-upload b{display:block;color:var(--text);font-size:12px;margin-bottom:3px;}
+.legal-ai-mini-upload span{display:block;color:var(--muted);font-size:12px;line-height:1.35;text-transform:none;letter-spacing:0;font-weight:700;word-break:break-word;}
+.legal-ai-generate-btn{width:100%;justify-content:center;margin-top:10px;}
 .legal-ai-tabs{display:flex;gap:7px;overflow-x:auto;border-bottom:1px solid var(--border);padding:10px 14px;background:var(--surface2);}
 .legal-ai-tab{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:9px 12px;font-size:12px;font-weight:900;color:var(--text2);white-space:nowrap;cursor:pointer;transition:.15s;}
 .legal-ai-tab:hover{border-color:#93c5fd;color:#1d4ed8;}
@@ -1034,6 +1046,8 @@ tbody td:last-child{border-right:none;}
 [data-theme="dark"] .legal-ai-note{background:#251a05;border-color:#854d0e;color:#fbbf24;}
 [data-theme="dark"] .legal-ai-provider-pill.local{background:#172554;color:#bfdbfe;border-color:#1e40af;}
 [data-theme="dark"] .legal-ai-provider-pill.ready{background:#052e1b;color:#86efac;border-color:#166534;}
+[data-theme="dark"] .legal-ai-mini-upload{background:var(--surface2);border-color:var(--border2);}
+[data-theme="dark"] .legal-ai-mini-upload:hover{background:var(--surface3);}
 
 /* Improved scrollbar for dark mode */
 [data-theme="dark"] ::-webkit-scrollbar-thumb{background:var(--border2);}

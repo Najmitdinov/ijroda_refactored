@@ -3583,6 +3583,11 @@ let legalAiState = {
   filePart: null,
   fileName: '',
   rawText: '',
+  templateFile: null,
+  templateFileName: '',
+  taskLetterFile: null,
+  taskLetterFileName: '',
+  generatedAnswer: null,
   result: null,
   audit: []
 };
@@ -3672,6 +3677,28 @@ function buildLegalAiShell() {
           </div>
           <div class="legal-ai-note">${escH(legalT('securityNote'))}</div>
           <div id="legal-ai-provider" class="legal-ai-provider">${escH(legalT('provider'))}: ${providerReady ? escH(legalT('providerReady')) : escH(legalT('providerMissing'))}</div>
+          <div class="legal-ai-template-box">
+            <div class="legal-ai-control-head compact">
+              <div><b>Shablon asosida javob</b><span>Shablon, raqam va topshiriq xatini kiriting</span></div>
+            </div>
+            <div class="legal-ai-mini-upload" onclick="document.getElementById('legal-ai-template-file').click()">
+              <b>Shablon fayli</b>
+              <span id="legal-ai-template-name">${legalAiState.templateFileName ? escH(legalAiState.templateFileName) : 'Word yoki PDF shablon tanlang'}</span>
+            </div>
+            <input id="legal-ai-template-file" type="file" accept=".doc,.docx,.pdf" style="display:none" onchange="handleLegalTemplateFile(this.files && this.files[0])">
+            <div class="legal-ai-grid compact">
+              <label class="wide">Chiquvchi raqami<input id="legal-ai-out-number" placeholder="Masalan: 01-12/345"></label>
+              <label class="wide">Topshiriq xati
+                <div class="legal-ai-mini-upload" onclick="document.getElementById('legal-ai-task-letter-file').click()">
+                  <b>Topshiriq hujjati</b>
+                  <span id="legal-ai-task-letter-name">${legalAiState.taskLetterFileName ? escH(legalAiState.taskLetterFileName) : 'PDF, Word, Excel yoki TXT fayl'}</span>
+                </div>
+              </label>
+              <input id="legal-ai-task-letter-file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.text,.png,.jpg,.jpeg,.webp" style="display:none" onchange="handleLegalTaskLetterFile(this.files && this.files[0])">
+            </div>
+            <button class="btn btn-success legal-ai-generate-btn" onclick="generateLegalTemplateAnswer()">Javob yaratish</button>
+            <div id="legal-ai-template-status" class="legal-ai-provider">Shablon formati asosida javob xati yaratiladi.</div>
+          </div>
         </div>
         <div class="legal-ai-workspace">
           <div class="legal-ai-workspace-head">
@@ -3757,6 +3784,166 @@ window.handleLegalAiFile = async function(file) {
     showToast('Hujjat tahlilga tayyor', 'success');
   } catch(e) {
     showToast('Faylni o qishda xatolik: ' + e.message, 'error');
+  }
+};
+
+window.handleLegalTemplateFile = function(file) {
+  if(!file) return;
+  if(file.size > LEGAL_AI_MAX_FILE_SIZE) {
+    showToast('Shablon hajmi 18 MB dan oshmasin', 'error');
+    return;
+  }
+  if(!/\.(doc|docx|pdf)$/i.test(file.name)) {
+    showToast('Shablon faqat Word yoki PDF formatda bo lsin', 'error');
+    return;
+  }
+  legalAiState.templateFile = file;
+  legalAiState.templateFileName = file.name;
+  const el = document.getElementById('legal-ai-template-name');
+  if(el) el.textContent = file.name;
+  showToast('Shablon tanlandi', 'success');
+};
+
+window.handleLegalTaskLetterFile = function(file) {
+  if(!file) return;
+  if(file.size > LEGAL_AI_MAX_FILE_SIZE) {
+    showToast('Topshiriq xati hajmi 18 MB dan oshmasin', 'error');
+    return;
+  }
+  if(!/\.(pdf|doc|docx|xls|xlsx|txt|png|jpe?g|webp)$/i.test(file.name)) {
+    showToast('PDF, Word, Excel, TXT yoki rasm fayl yuklang', 'error');
+    return;
+  }
+  legalAiState.taskLetterFile = file;
+  legalAiState.taskLetterFileName = file.name;
+  const el = document.getElementById('legal-ai-task-letter-name');
+  if(el) el.textContent = file.name;
+  showToast('Topshiriq xati tanlandi', 'success');
+};
+
+async function readLegalAiFileSmart(file) {
+  if(!file) return { text:'', filePart:null };
+  if(/\.docx$/i.test(file.name)) return { text: await readDocxAsText(file), filePart:null };
+  if(/\.(xls|xlsx)$/i.test(file.name)) return { text: await readExcelAsText(file), filePart:null };
+  if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return { text: await readAsText(file), filePart:null };
+  return { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } };
+}
+
+async function callLegalTemplateAnswerProvider({ templateText, taskText, templatePart, taskPart, outNumber, question }) {
+  const prompt = `Sen davlat organi uchun rasmiy javob xati yozadigan yuridik AI yordamchisisan.
+ENG MUHIM TALAB: javob xati foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub, joylashuv va rasmiy ohang maksimal darajada saqlansin.
+
+Chiquvchi raqami: ${outNumber}
+Foydalanuvchi izohi/savoli: ${question || 'Topshiriq xatiga rasmiy javob tayyorla.'}
+
+Shablondan ajratilgan matn:
+${(templateText || '').slice(0, 12000)}
+
+Topshiriq xatidan ajratilgan matn:
+${(taskText || '').slice(0, 16000)}
+
+FAQAT JSON qaytar:
+{
+ "title":"",
+ "summary":"",
+ "answer_text":"",
+ "html":"",
+ "style_notes":"",
+ "confidence_score":0
+}
+
+html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
+
+  const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
+  if(geminiKey) {
+    const parts = [{ text: prompt }];
+    if(templatePart?.base64) parts.push({ inline_data: { mime_type: templatePart.mimeType, data: templatePart.base64 } });
+    if(taskPart?.base64) parts.push({ inline_data: { mime_type: taskPart.mimeType, data: taskPart.base64 } });
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contents: [{ role:'user', parts }],
+        generationConfig: { temperature:0.14, maxOutputTokens:6500, responseMimeType:'application/json' }
+      })
+    });
+    if(!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
+    const data = await resp.json();
+    const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+    await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model:'gemini-2.5-flash' });
+    return parseAIJson(text);
+  }
+
+  const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
+  if(openRouterKey) {
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
+      body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
+    });
+    if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
+    const data = await resp.json();
+    await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
+    return parseAIJson(data?.choices?.[0]?.message?.content || '');
+  }
+  throw new Error('AI API kalit topilmadi. AI Sozlamalar bo limidan kalit kiriting.');
+}
+
+window.generateLegalTemplateAnswer = async function() {
+  if(!requirePermission('legal.answer', 'Shablon asosida javob yaratish')) return;
+  const templateFile = legalAiState.templateFile;
+  const taskFile = legalAiState.taskLetterFile;
+  const outNumber = document.getElementById('legal-ai-out-number')?.value?.trim();
+  const status = document.getElementById('legal-ai-template-status');
+  if(!templateFile || !taskFile || !outNumber) {
+    showToast('Shablon, chiquvchi raqami va topshiriq xatini kiriting', 'error');
+    return;
+  }
+  if(status) {
+    status.className = 'legal-ai-provider warn';
+    status.textContent = 'AI shablon va topshiriq xatini o qib, javob tayyorlamoqda...';
+  }
+  try {
+    const [templateData, taskData] = await Promise.all([
+      readLegalAiFileSmart(templateFile),
+      readLegalAiFileSmart(taskFile)
+    ]);
+    const answer = await callLegalTemplateAnswerProvider({
+      templateText: templateData.text,
+      taskText: taskData.text,
+      templatePart: templateData.filePart,
+      taskPart: taskData.filePart,
+      outNumber,
+      question: document.getElementById('legal-ai-question')?.value?.trim() || ''
+    });
+    if(!answer) throw new Error('AI javobi o qilmadi');
+    legalAiState.generatedAnswer = {
+      ...answer,
+      outNumber,
+      templateFileName: templateFile.name,
+      taskLetterFileName: taskFile.name,
+      createdAt: nowIso()
+    };
+    legalAiState.result = {
+      ...(legalAiState.result || legalLocalAnalyze(taskData.text || taskFile.name, {})),
+      report_text: answer.answer_text || answer.summary || '',
+      summary: answer.summary || answer.answer_text || '',
+      confidence_score: Number(answer.confidence_score || legalAiState.result?.confidence_score || 70)
+    };
+    legalAiState.activeTab = 'report';
+    legalAiState.audit.unshift({ action:'template_answer', at:nowIso(), provider:'AI', file:taskFile.name, confidence:legalAiState.result.confidence_score, note:`Chiquvchi raqam: ${outNumber}` });
+    renderLegalAiTabs();
+    renderLegalAiResult();
+    if(status) {
+      status.className = 'legal-ai-provider ok';
+      status.textContent = 'Javob xati shablon asosida yaratildi. Natija "Hisobot matni" tabida.';
+    }
+  } catch(e) {
+    if(status) {
+      status.className = 'legal-ai-provider err';
+      status.textContent = e.message;
+    }
+    showToast('Javob yaratilmadi: ' + e.message, 'error');
   }
 };
 
@@ -4464,7 +4651,7 @@ function legalRenderTab(result, tab) {
   if(tab === 'basis') return legalRenderBasis(result);
   if(tab === 'construction') return legalRenderConstruction(result);
   if(tab === 'risks') return legalRenderRisks(result);
-  if(tab === 'report') return `<div class="legal-ai-block"><h3>${escH(legalT('reportText'))}</h3><div class="legal-report-box">${escH(result.report_text || '')}</div></div>`;
+  if(tab === 'report') return `<div class="legal-ai-block"><h3>${escH(legalT('reportText'))}</h3><div class="legal-report-box">${escH(result.report_text || '')}</div>${legalAiState.generatedAnswer ? `<div class="legal-ai-task-actions"><button class="btn btn-primary btn-sm" onclick="downloadLegalGeneratedAnswer()">Word yuklash</button></div>` : ''}</div>`;
   if(tab === 'sources') return legalRenderSources(result.sources || []);
   if(tab === 'audit') return legalRenderAudit();
   return legalRenderSummary(result);
@@ -4646,8 +4833,23 @@ window.writeLegalReport = function() {
 };
 
 window.legalAiReset = function() {
-  legalAiState = { activeTab:'summary', file:null, filePart:null, fileName:'', rawText:'', result:null, audit:[] };
+  legalAiState = { activeTab:'summary', file:null, filePart:null, fileName:'', rawText:'', templateFile:null, templateFileName:'', taskLetterFile:null, taskLetterFileName:'', generatedAnswer:null, result:null, audit:[] };
   window.initLegalAiPanel?.(true);
+};
+
+window.downloadLegalGeneratedAnswer = function() {
+  const answer = legalAiState.generatedAnswer;
+  if(!answer) return;
+  const html = answer.html || `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+    body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;color:#111;margin:42px 56px;}
+    .meta{text-align:right;margin-bottom:20px}.body{white-space:pre-wrap}
+  </style></head><body><div class="meta">Chiquvchi raqam: ${escH(answer.outNumber || '')}</div><div class="body">${escH(answer.answer_text || answer.summary || '')}</div></body></html>`;
+  const blob = new Blob([html], { type:'application/msword;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Javob_xati_${aiDocSafeName(answer.outNumber || 'generated')}.doc`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 };
 
 async function updatePresence(status='online') {
@@ -5514,6 +5716,29 @@ function readDocxAsText(file) {
         } else {
           res('[DOCX fayl o\'qildi, lekin matn ajratilmadi. Mammoth.js yuklanmagan.]');
         }
+      } catch(err) { rej(err); }
+    };
+    r.onerror = rej;
+    r.readAsArrayBuffer(file);
+  });
+}
+
+function readExcelAsText(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = (e) => {
+      try {
+        if(typeof XLSX === 'undefined') {
+          res('[Excel fayl o qildi, lekin XLSX kutubxonasi yuklanmagan.]');
+          return;
+        }
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+        const text = wb.SheetNames.map(name => {
+          const sheet = wb.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header:1, raw:false, blankrows:false });
+          return `# ${name}\n` + rows.map(row => row.filter(v => v !== null && v !== undefined && String(v).trim() !== '').join(' | ')).filter(Boolean).join('\n');
+        }).join('\n\n');
+        res(text);
       } catch(err) { rej(err); }
     };
     r.onerror = rej;
