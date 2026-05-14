@@ -1,4 +1,4 @@
-const APP_BUILD = '20260514-nav-disable1';
+const APP_BUILD = '20260514-hide-muhim1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
