@@ -6667,31 +6667,75 @@ function localLearningBlankaAnalysis(file, text='', meta={}) {
 }
 
 async function analyzeLearningBlankaWithAi(file, text, meta) {
-  const prompt = `Siz davlat tashkilotlari uchun professional AI hujjat learning tizimisiz. Yuklangan real javob xati yoki blankani copy-paste qilish uchun emas, faqat uslub, struktura va davlat yozishma mantiqini o'rganish uchun tahlil qiling.
+  const prompt = `Siz davlat tashkiloti uchun AI learning tizimisiz. Yuklangan real javob xatlari va blankalarni tahlil qilib, uslub va strukturani xotiraga olasiz.
 
-QAT'IY TAQIQLANADI: eski xatni aynan ko'chirish, shaxsiy ma'lumotlarni qayta ishlatish, universal javob yaratish.
+VAZIFA: Quyidagi hujjatni chuqur tahlil qilib, keyingi javob xatlarida foydalanish uchun barcha zarur ma'lumotlarni JSON formatida qaytaring.
 
-AI o'rganishi kerak:
-- rasmiy yozish uslubi;
-- hujjat skeleti;
-- gap qurilishi va yuridik ohang;
-- qurilish sohasi terminlari;
-- yuqori tashkilotga javob berish etikasi;
-- qaysi iboralar faqat ilhom sifatida ishlatilishi mumkinligi.
+O'RGANISH KERAK BO'LGAN NARSALAR:
+1. Kirish formulasi — "Sizning ...dagi №...-sonli topshirig'ingizga asosan:" yoki "...ijrosini ta'minlash maqsadida quydagilarni ma'lum qilamiz" kabi
+2. Asosiy matn tuzilishi — birinchi, ikkinchi, uchinchi gaplar qanday boshlanadi
+3. Normativ hujjatlarga havola uslubi — Farmoy, VMQ, Qaror raqamlari qanday keltiriladi
+4. Yakuniy gap — "ma'lum qilamiz", "so'raymiz", "taqdim etilmoqda" kabi
+5. Imzo bloki — "Bosh boshqarma boshlig'i v.v.b / Bajardi: / Tel:" formati
+6. Professional iboralar — real xatlardan olingan jumlalar
+7. Xat turlari:
+   - Farmoy/qaror ijrosi xatlari
+   - Ma'lumot taqdim etish xatlari
+   - Murojaat ko'rib chiqish xatlari
+   - Talabnoma javob xatlari
+   - Topshiriq ijrosi xatlari
 
 FAQAT JSON qaytar:
-{"summary":"","document_structure":[],"writing_style":"","tone":"","opening_patterns":[],"transition_patterns":[],"closing_patterns":[],"signature_style":"","legal_terms":[],"construction_terms":[],"professional_phrases":[],"do_not_copy_phrases":[],"keywords":[],"quality_score":0,"memory_rules":[]}
+{
+  "summary": "Hujjat haqida qisqacha",
+  "document_structure": ["1-qism", "2-qism"],
+  "writing_style": "Yozish uslubi tavsifi",
+  "tone": "Rasmiy ohang tavsifi",
+  "opening_patterns": [
+    "Sizning [sana]dagi №[raqam]-sonli topshirig'ingizga asosan:",
+    "[Farmoy nomi] ijrosini ta'minlash maqsadida quydagilarni ma'lum qilamiz."
+  ],
+  "body_patterns": [
+    "O'rganish natijasida [holat] aniqlandi.",
+    "[Chora-tadbir] amalga oshirildi va belgilangan muddatda [natija] ta'minlanadi.",
+    "Mas'ul tarkibiy bo'linmalarga tegishli ko'rsatmalar berildi."
+  ],
+  "transition_patterns": ["Yuqoridagini inobatga olgan holda", "Shu munosabat bilan"],
+  "closing_patterns": ["ma'lum qilamiz.", "so'raymiz.", "taqdim etilmoqda."],
+  "signature_style": "Bosh boshqarma boshlig'i [v.v.b] [Familiya] / Bajardi: [Familiya] / Tel: [raqam]",
+  "letter_types_found": ["ijro ta'minlash", "ma'lumot taqdim etish", "murojaat javob"],
+  "legal_terms": ["Farmoy", "VMQ", "Qaror", "SHNQ", "KMK"],
+  "construction_terms": ["qurilish-montaj", "loyiha-smeta", "shaharsozlik"],
+  "professional_phrases": [
+    "ijrosini ta'minlash maqsadida",
+    "belgilangan muddatda",
+    "mas'ul tarkibiy bo'linmalarga ko'rsatmalar berildi",
+    "qonunchilik talablari asosida ko'rib chiqildi"
+  ],
+  "real_text_samples": [
+    "Birinchi xat namunasidan olingan tipik gap (50-100 so'z)",
+    "Ikkinchi xat namunasi"
+  ],
+  "do_not_copy_phrases": ["bu iboralarni aynan ko'chirmang"],
+  "keywords": ["qurilish", "ijro", "topshiriq"],
+  "quality_score": 90,
+  "memory_rules": [
+    "Kirish gapida xat raqami va sanasini keltir",
+    "Asosiy qismda bajarilgan ishni aniq ko'rsat",
+    "Yakuniy gapda natijani rasmiy uslubda ifodalа"
+  ]
+}
 
 Meta:
 Nomi: ${meta.title}
 Turi: ${meta.sampleType}
-Yil: ${meta.year}
-Tashkilot: ${meta.sourceOrg}
+Yil: ${meta.year || ''}
+Tashkilot: ${meta.sourceOrg || ''}
 Tags: ${(meta.tags || []).join(', ')}
-Izoh: ${meta.note}
+Izoh: ${meta.note || ''}
 
-Matn:
-${(text || '').slice(0, 18000)}`;
+Hujjat matni (barcha xatlarni o'rgan):
+${(text || '').slice(0, 20000)}`;
   try {
     const filePart = text ? null : { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' };
     const parsed = parseAIJson(await callTemplateAi(prompt, filePart, true));
@@ -6874,18 +6918,29 @@ function relevantAiLearningDocs(queryText='', limit=5) {
 
 function aiLearningContext(queryText='') {
   const docs = relevantAiLearningDocs(queryText, 5);
-  if(!docs.length) return 'AI Learning blankalar bazasida mos namuna topilmadi. Eski xatni copy-paste qilma; faqat topshiriqdan kelib chiqib yangi matn yarat.';
+  if(!docs.length) return 'AI Learning blankalar bazasida mos namuna topilmadi. Topshiriq mazmuniga mos yangi matn yarat.';
   return docs.map((d, i) => {
     const a = d.analysis || {};
-    const phrases = Array.isArray(a.professional_phrases) ? a.professional_phrases.slice(0, 5).join(' | ') : '';
-    const structure = Array.isArray(a.document_structure) ? a.document_structure.slice(0, 8).join(' → ') : (a.document_structure || '');
-    return `${i+1}. ${d.title || d.fileName} (${d.sampleType || 'learning'}, score ${d.qualityScore || ''})
+    const opening = Array.isArray(a.opening_patterns) ? a.opening_patterns.slice(0,3).join(' | ') : '';
+    const body = Array.isArray(a.body_patterns) ? a.body_patterns.slice(0,3).join(' | ') : '';
+    const closing = Array.isArray(a.closing_patterns) ? a.closing_patterns.slice(0,3).join(' | ') : '';
+    const phrases = Array.isArray(a.professional_phrases) ? a.professional_phrases.slice(0,6).join(' | ') : '';
+    const structure = Array.isArray(a.document_structure) ? a.document_structure.slice(0,8).join(' → ') : '';
+    const samples = Array.isArray(a.real_text_samples) ? a.real_text_samples.slice(0,2).join(' / ') : '';
+    const rules = Array.isArray(a.memory_rules) ? a.memory_rules.slice(0,4).join('; ') : '';
+    const letterTypes = Array.isArray(a.letter_types_found) ? a.letter_types_found.join(', ') : '';
+    return `══ BLANKA ${i+1}: ${d.title || d.fileName} (${d.sampleType || 'learning'}, sifat: ${d.qualityScore || '?'}/100) ══
 Uslub: ${a.writing_style || a.tone || d.note || ''}
+Xat turlari: ${letterTypes}
 Struktura: ${structure}
-Professional ohang/iboralar (copy qilmasdan ilhom sifatida): ${phrases}
-Qoidalar: eski xat matnini aynan ko‘chirma, faqat uslub va mantiqdan foydalan.
-Relevant parcha: ${(d.extractedText || '').slice(0, 900)}`;
-  }).join('\n\n').slice(0, 11000);
+Kirish formulalari: ${opening}
+Asosiy matn namunalari: ${body}
+Yakuniy iboralar: ${closing}
+Professional iboralar (ilhom uchun): ${phrases}
+Real namunalar (AYNAN KO'CHIRMA, faqat ilhom): ${samples}
+Qoidalar: ${rules}
+Bazadagi matndan parcha: ${(d.extractedText || '').slice(0, 600)}`;
+  }).join('\n\n').slice(0, 14000);
 }
 
 function responseTaskProfile(text='', meta={}) {
