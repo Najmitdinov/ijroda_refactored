@@ -5150,7 +5150,7 @@ window.legalAiReset = function() {
   window.initLegalAiPanel?.(true);
 };
 
-window.downloadLegalGeneratedAnswer = function() {
+window.downloadLegalGeneratedAnswer = async function() {
   const answer = legalAiState.generatedAnswer;
   if(!answer) return;
   const html = buildGeneratedDocHtml({
@@ -5173,7 +5173,7 @@ window.downloadLegalGeneratedAnswer = function() {
       executor_name: answer.executorName || '',
       executor_phone: answer.executorPhone || ''
     }
-  });
+  }, await getGerbDataUri());
   downloadHtmlAsWordFile(html, `Javob_xati_${aiDocSafeName(answer.outNumber || 'generated')}.doc`);
 };
 
@@ -7890,43 +7890,72 @@ function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {
   return false;
 }
 
-function buildGeneratedDocHtml(g) {
+let gerbDataUriCache = '';
+
+async function getGerbDataUri() {
+  if(gerbDataUriCache) return gerbDataUriCache;
+  try {
+    const resp = await fetch('./assets/template-gerb.png', { cache:'no-store' });
+    if(!resp.ok) throw new Error('Gerb rasmi topilmadi');
+    const blob = await resp.blob();
+    gerbDataUriCache = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('Gerb o‘qilmadi'));
+      reader.readAsDataURL(blob);
+    });
+    return gerbDataUriCache;
+  } catch(e) {
+    console.warn('Gerb data URI fallback:', e.message);
+    return 'https://najmitdinov.github.io/ijroda_refactored/assets/template-gerb.png';
+  }
+}
+
+function officialSignatureName(value='') {
+  const cleaned = compactResponseText(value)
+    .replace(/boshqarma\s+boshlig[‘'`i\s.]*v\.?v\.?b\.?/gi, '')
+    .replace(/bosh\s+boshqarma\s+boshlig[‘'`i\s.]*v\.?v\.?b\.?/gi, '')
+    .replace(/boshqarma\s+boshlig[‘'`i]*/gi, '')
+    .replace(/\b(v\.?v\.?b\.?|vazifasini\s+vaqtincha\s+bajaruvchi)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned || 'O.A.SHODIYEV';
+}
+
+function buildGeneratedDocHtml(g, gerbSrc='https://najmitdinov.github.io/ijroda_refactored/assets/template-gerb.png') {
   const c = g?.content || {};
   const recipient = c.recipient || g.requisites?.recipientOrg || '';
   const outNumber = c.out_number || g.outNumber || '';
   const docDate = normalizeOfficialDateText(c.date || g.officialDate || g.date || '');
   const executorName = c.executor_name || g.requisites?.executorName || '';
   const executorPhone = c.executor_phone || g.requisites?.executorPhone || '';
-  const signature = c.signature_block || g.responsible || 'O.Shodiyev';
-  const docCode = g.documentCode || g.id || '';
+  const signature = officialSignatureName(c.signature_block || g.responsible || 'O.A.SHODIYEV');
   const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
   if(!savedBody || savedBody.length < 40) {
     throw new Error('Bu hujjatda javob matni yo‘q. Avval AI orqali individual javob xati yarating.');
   }
   const bodyText = savedBody;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    @page{size:A4;margin:10mm 16mm 14mm 16mm}
+    @page{size:A4;margin:14mm 16mm 14mm 16mm}
     body{font-family:"Times New Roman",serif;font-size:14pt;line-height:1.18;color:#000;background:#fff;margin:0;}
-    .ijro-line{font-size:12pt;color:#d60000;text-align:center;margin:0 0 12px;}
-    .hdr{text-align:center;font-weight:bold;line-height:1.08;margin:0 0 8px;}
-    .hdr img{width:76px;height:auto;display:block;margin:0 auto 6px;}
+    .hdr{text-align:center;font-weight:bold;line-height:1.08;margin:0 0 10px;}
+    .hdr img{width:58px;height:auto;display:block;margin:0 auto 5px;}
     .hdr-main{font-size:13pt;text-transform:uppercase;}
     .hdr-rule{border-top:2px solid #000;margin:7px 0 3px;}
     .hdr-address{font-size:8pt;font-style:italic;font-weight:bold;line-height:1.12;}
-    .top-table{width:100%;border-collapse:collapse;margin:8px 0 8px;}
+    .top-table{width:100%;border-collapse:collapse;margin:22px 0 8px;}
     .top-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;vertical-align:top;}
-    .meta-cell{width:40%;line-height:1.9;}
-    .recipient-spacer{width:26%;}
-    .recipient-cell{width:34%;text-align:center;line-height:1.15;white-space:pre-wrap;padding-top:15px;}
-    .body{font-size:14pt;line-height:1.18;text-align:justify;text-indent:35px;white-space:pre-wrap;margin-top:8px;min-height:92mm;}
-    .sig-table{width:100%;border-collapse:collapse;margin-top:4px;}
+    .meta-cell{width:38%;line-height:1.35;padding-top:0;}
+    .recipient-spacer{width:27%;}
+    .recipient-cell{width:35%;text-align:center;line-height:1.15;white-space:pre-wrap;padding-top:22px;}
+    .body{font-size:14pt;line-height:1.18;text-align:justify;text-indent:35px;white-space:pre-wrap;margin-top:8px;min-height:0;}
+    .sig-table{width:100%;border-collapse:collapse;margin-top:8px;}
     .sig-table td{font-family:"Times New Roman",serif;font-size:14pt;font-weight:bold;vertical-align:top;}
     .sig-name{text-align:right;}
-    .executor{position:fixed;left:16mm;bottom:18mm;font-size:10pt;font-style:italic;line-height:1.18;}
+    .executor{margin-top:2px;font-size:10pt;font-style:italic;line-height:1.18;}
   </style></head><body>
-    <div class="ijro-line">IJRO.GOV.UZ tizimi orqali ERI bilan tasdiqlangan, Hujjat kodi: ${escH(docCode)}</div>
     <div class="hdr">
-      <img src="https://najmitdinov.github.io/ijroda_refactored/assets/template-gerb.png" alt="">
+      <img src="${gerbSrc}" alt="">
       <div class="hdr-main">O‘ZBEKISTON RESPUBLIKASI<br>QURILISH VA UY-JOY KOMMUNAL XO‘JALIGI VAZIRLIGI<br>NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL<br>XO‘JALIGI BOSH BOSHQARMASI</div>
       <div class="hdr-rule"></div>
       <div class="hdr-address">210100, Navoiy shahri, Zarapetyan ko‘chasi, 10-uy, Tel: (79)220-50-08, Faks: (79)220-50-08, E-mail: navqurilish@nv.uz, Sayt: navqurilish.uz</div>
@@ -7983,11 +8012,11 @@ function renderGeneratedAiDocs() {
     </div>`).join('') : '<div class="empty-state"><h3>Hujjat yaratilmagan</h3><p>Generate tugmasi orqali javob xatini yarating.</p></div>';
 }
 
-window.downloadGeneratedDocument = function(id) {
+window.downloadGeneratedDocument = async function(id) {
   const g = aiGeneratedDocsCache.find(x=>x.id===id) || (lastGeneratedDocument?.id === id ? lastGeneratedDocument : null);
   if(!g) { showToast('Yaratilgan hujjat topilmadi. Sahifani yangilab qayta urinib ko‘ring.', 'error'); return; }
   try {
-    downloadHtmlAsWordFile(buildGeneratedDocHtml(g), `Javob_xati_${aiDocSafeName(g.outNumber || g.id)}.doc`);
+    downloadHtmlAsWordFile(buildGeneratedDocHtml(g, await getGerbDataUri()), `Javob_xati_${aiDocSafeName(g.outNumber || g.id)}.doc`);
   } catch(e) {
     showToast(e.message, 'error');
   }
