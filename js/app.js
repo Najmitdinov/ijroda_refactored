@@ -6301,6 +6301,7 @@ async function getDefaultLearningBlankaText() {
 
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
   let lastError = '';
+  const generationTemperature = jsonMode ? 0.22 : 0.28;
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
@@ -6313,7 +6314,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             contents: [{ role:'user', parts }],
-            generationConfig: { temperature:0.12, maxOutputTokens: jsonMode ? 7000 : 7600, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
+            generationConfig: { temperature:generationTemperature, maxOutputTokens: jsonMode ? 7000 : 7600, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
           })
         });
         if(!resp.ok) {
@@ -6338,7 +6339,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
       const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method:'POST',
         headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:0.12, max_tokens:6200 })
+        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:6200 })
       });
       if(!resp.ok) {
         const errData = await resp.json().catch(()=>({}));
@@ -6359,7 +6360,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',
         headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.18, max_tokens:5200 })
+        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:5200 })
       });
       if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
       const data = await resp.json();
@@ -6890,6 +6891,95 @@ Relevant parcha: ${(d.extractedText || '').slice(0, 900)}`;
   }).join('\n\n').slice(0, 11000);
 }
 
+function responseTaskProfile(text='', meta={}) {
+  const source = compactResponseText(`${text || ''} ${meta.objectName || ''} ${meta.region || ''} ${meta.extra || ''}`);
+  const norm = normalizeText(source);
+  const numbers = [...new Set((source.match(/\b\d{1,4}\s*[-–]?\s*(?:sonli|son|raqamli)\b|№\s*\d+|\b\d{1,4}[-/]\d+\b/gi) || []).map(compactResponseText).filter(x => /\d/.test(x)).slice(0, 8))];
+  const dates = [...new Set((source.match(/\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b|\b\d{4}-yil(?:ning)?\s+\d{1,2}[-\s]*(?:yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)/gi) || []).slice(0, 6))];
+  const actions = [
+    ['amaliy_yordam', /(amaliy yordam|ko'?mak|yordam ber)/i],
+    ['malumot_taqdim', /(ma'?lumot|axborot|taqdim et|hisobot)/i],
+    ['nazorat_tekshiruv', /(nazorat|tekshir|o'?rgan|monitoring|dalolatnoma|nuqson)/i],
+    ['qaror_ijrosi', /(qaror ijrosi|ijrosini ta'?min|ijro yuzasidan)/i],
+    ['biriktirish', /(biriktir|mas'?ul xodim|vakil)/i],
+    ['qurilish_sifati', /(qurilish-montaj|pudrat|loyiha-smeta|texnik nazorat|obyekt|shaharsozlik)/i]
+  ].filter(([,re]) => re.test(norm)).map(([key]) => key);
+  const meaningful = taskMeaningfulWords(source, 18);
+  return {
+    numbers,
+    dates,
+    actions,
+    objectName: meta.objectName || '',
+    region: meta.region || '',
+    extra: meta.extra || '',
+    meaningful,
+    fingerprint: simpleHash(source)
+  };
+}
+
+function responseTaskProfileText(profile={}) {
+  return [
+    `Aniqlangan harakat turi: ${(profile.actions || []).join(', ') || 'umumiy rasmiy javob'}`,
+    `Raqamlar/rekvizitlar: ${(profile.numbers || []).join(', ') || 'aniqlanmadi'}`,
+    `Sanalar: ${(profile.dates || []).join(', ') || 'aniqlanmadi'}`,
+    `Obyekt: ${profile.objectName || 'kiritilmagan'}`,
+    `Hudud: ${profile.region || 'kiritilmagan'}`,
+    `Muhim kalit so‘zlar: ${(profile.meaningful || []).join(', ')}`
+  ].join('\n');
+}
+
+function responseBodySimilarity(a='', b='') {
+  const aw = new Set(taskMeaningfulWords(a, 90));
+  const bw = new Set(taskMeaningfulWords(b, 90));
+  if(!aw.size || !bw.size) return 0;
+  let overlap = 0;
+  aw.forEach(w => { if(bw.has(w)) overlap += 1; });
+  return overlap / Math.min(aw.size, bw.size);
+}
+
+function responseLooksCopiedFromMemory(body='', learningContext='') {
+  const bodyNorm = normalizeText(body);
+  const relevantParts = String(learningContext || '')
+    .split(/Relevant parcha:/i)
+    .slice(1)
+    .map(x => compactResponseText(x).slice(0, 650))
+    .filter(x => x.length > 120);
+  return relevantParts.some(part => {
+    const partNorm = normalizeText(part);
+    if(partNorm && bodyNorm.includes(partNorm.slice(0, 140))) return true;
+    return responseBodySimilarity(body, part) > 0.78;
+  });
+}
+
+function recentGeneratedBodies(limit=8) {
+  return [
+    ...(lastGeneratedDocument?.content?.body ? [lastGeneratedDocument.content.body] : []),
+    ...aiGeneratedDocsCache.map(g => g.content?.body || '').filter(Boolean)
+  ].slice(0, limit);
+}
+
+function responseTooSimilarToPrevious(body='', previousBodies=[]) {
+  return previousBodies.some(prev => responseBodySimilarity(body, prev) > 0.72);
+}
+
+function estimateResponseConfidence(body='', taskText='', legalContext='', learningContext='') {
+  const clean = compactResponseText(body);
+  if(!clean) return 0;
+  let score = 50;
+  if(clean.length >= 360) score += 8;
+  if(splitTaskSentences(clean).length >= 3) score += 6;
+  const taskWords = taskMeaningfulWords(taskText, 16);
+  const bodyNorm = normalizeText(clean);
+  const overlap = taskWords.filter(w => bodyNorm.includes(w)).length;
+  if(taskWords.length) score += Math.min(18, overlap * 3);
+  if(/(qaror|farmon|xat|topshiriq|ijro|nazorat|loyiha-smeta|pudrat|obyekt|texnik nazorat|dalolatnoma|amaliy yordam|axborot|taqdim)/i.test(bodyNorm)) score += 8;
+  if(legalContext && !/topilmadi|uydirma/i.test(legalContext)) score += 6;
+  if(learningContext && !/topilmadi/i.test(learningContext)) score += 6;
+  if(responseBodyLooksGeneric(clean, taskText)) score -= 35;
+  if(responseBodyFailsLegalQuality(clean, taskText, legalContext)) score -= 25;
+  return Math.max(0, Math.min(99, score));
+}
+
 async function saveGeneratedAnswerToLearningMemory(g, qualitySeed='') {
   const body = String(g?.content?.body || '').trim();
   if(!body || body.length < 120) return;
@@ -7387,29 +7477,44 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
-function extractValidatedResponseBody(parsed, qualitySeed='', legalContext='') {
-  if(!parsed || typeof parsed !== 'object') return '';
+function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[]) {
+  if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
   let body = String(parsed.body || '').trim();
   if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
-  if(
-    body.length < 40 ||
-    responseBodyLooksGeneric(body, qualitySeed) ||
-    responseBodyFailsLegalQuality(body, qualitySeed, legalContext)
-  ) return '';
-  return body;
+  if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
+  if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
+  if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
+  if(responseLooksCopiedFromMemory(body, learningContext)) return { ok:false, reason:'body learning blankadan copy-paste qilinganga o‘xshaydi', body, confidence:0 };
+  if(responseTooSimilarToPrevious(body, previousBodies)) return { ok:false, reason:'body oldingi yaratilgan javoblarga juda o‘xshash', body, confidence:0 };
+  const explicitConfidence = Number(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
+  const estimatedConfidence = estimateResponseConfidence(body, qualitySeed, legalContext, learningContext);
+  if(explicitConfidence && explicitConfidence < 80) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
+  const confidence = explicitConfidence ? Math.min(99, Math.max(explicitConfidence, estimatedConfidence)) : estimatedConfidence;
+  if(confidence < 80) return { ok:false, reason:`ishonchlilik darajasi past: ${confidence}%`, body, confidence };
+  return { ok:true, reason:'', body, confidence };
 }
 
-async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='') {
+function extractValidatedResponseBody(parsed, qualitySeed='', legalContext='') {
+  const check = validateAiResponseDocument(parsed, qualitySeed, legalContext, '', []);
+  return check.ok ? check.body : '';
+}
+
+async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[]) {
   let lastError = '';
-  for(let attempt = 0; attempt < 2; attempt++) {
+  const retryNotes = [];
+  for(let attempt = 0; attempt < 4; attempt++) {
     const strictPrompt = attempt === 0 ? prompt : `${prompt}
 
 OLDINGI JAVOB RAD ETILDI: u umumiy, bir xil yoki topshiriq mazmuniga yetarli darajada mos emas.
+RAD SABABI: ${retryNotes.slice(-2).join('; ') || lastError}
 QAT'IY TALAB:
 - Lokal yoki shablon javob yozma.
+- Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
+- Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
+- confidence_score kamida 85 bo'lsin; bunga ishonching yetmasa xatni qayta yoz.
 - FAQAT JSON qaytar.`;
     let parsed = null;
     try {
@@ -7422,12 +7527,15 @@ QAT'IY TALAB:
       lastError = 'AI javobi JSON formatda kelmadi';
       continue;
     }
-    const body = extractValidatedResponseBody(parsed, qualitySeed, legalContext);
-    if(body) {
-      parsed.body = body;
+    const check = validateAiResponseDocument(parsed, qualitySeed, legalContext, learningContext, previousBodies);
+    if(check.ok) {
+      parsed.body = check.body;
+      parsed.confidence_score = check.confidence;
+      parsed.quality_gate = 'passed';
       return parsed;
     }
-    lastError = 'AI topshiriqqa mos individual javob matni qaytarmadi';
+    retryNotes.push(check.reason);
+    lastError = check.reason || 'AI topshiriqqa mos individual javob matni qaytarmadi';
   }
   throw new Error(`AI individual javob xati yaratmadi: ${lastError || 'noma’lum xatolik'}. Hujjat yaratilmaydi.`);
 }
@@ -7473,6 +7581,9 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
     const ragQuery = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
     const legalRagContext = legalBaseContext(ragQuery);
     const learningRagContext = aiLearningContext(ragQuery);
+    const taskProfile = responseTaskProfile(ragQuery, { objectName, region, extra });
+    const previousBodies = recentGeneratedBodies(10);
+    if(status) status.textContent = 'AI blankani o‘rganib, topshiriq mazmuniga mos individual javob yozmoqda...';
     if(tpl.isDefault && !tpl.extractedText) {
       tpl.extractedText = await getDefaultResponseTemplateText().catch(() => '');
       tpl.analysis = DEFAULT_RESPONSE_TEMPLATE.analysis;
@@ -7570,6 +7681,20 @@ LEARNING QOIDASI:
 - Bir xil universal matn yozma.
 - Yangi javob aynan joriy topshiriq mazmuniga mos, unikallashgan va huquqiy jihatdan ehtiyotkor bo'lsin.
 
+BLANKA LEARNING AMALGA OSHIRISH KETMA-KETLIGI:
+1. Avval learning blankalardagi javob xati qanday qurilganini ichki tahlil qil: kirish predmeti, ijro holati, aniq chora, yakuniy so'rov/xulosa.
+2. Joriy topshiriq profilini alohida tahlil qil.
+3. Blankadan faqat skelet va professional ohangni ol; jumlani aynan ko'chirma.
+4. Joriy topshiriq bo'yicha yangi, individual va faktlarga mos javob yoz.
+5. Yakuniy JSON ichida confidence_score kamida 85 bo'lsin. Agar 85% ishonch bilan yozolmasang, past confidence qaytar va body'ni bo'sh qoldir.
+
+TOPSHIRIQ SEMANTIK PROFILI:
+${responseTaskProfileText(taskProfile)}
+
+AVVALGI YARATILGAN JAVOBLAR BILAN O'XSHASHLIK CHEKLOVI:
+- Quyidagi mazmunga juda o'xshash javob yozma, yangi topshiriqqa mos boshqa gap qurilishi va boshqa dalillar ishlat.
+${previousBodies.map((x, i) => `${i+1}. ${compactResponseText(x).slice(0, 420)}`).join('\n') || 'Oldingi javoblar yo‘q.'}
+
 NORMATIV-HUQUQIY HUJJATLAR BAZASIDAN TOPILGAN RELEVANT KONTEKST:
 ${legalRagContext}
 
@@ -7600,10 +7725,10 @@ Yuqori tashkilot topshirig'i matni:
 ${(taskText || '').slice(0, 16000)}
 
 FAQAT JSON qaytar:
-{"title":"","recipient":"","out_number":"","date":"","responsible":"","header":"","body":"","footer":"","signature_block":"","style_notes":"","html":""}
-header maydonida aynan majburiy header matnini qaytar. body maydonida individual, topshiriqqa mos, asoslangan rasmiy javob xati matnini ber. html maydoni ixtiyoriy.`;
+{"title":"","recipient":"","out_number":"","date":"","responsible":"","task_analysis":{"what_requested":"","object":"","region":"","required_action":"","answer_strategy":""},"learned_style_used":"","body":"","footer":"","signature_block":"","style_notes":"","confidence_score":0,"quality_self_check":{"legal":true,"grammar":true,"logic":true,"style":true,"not_copied":true},"html":""}
+header maydonida aynan majburiy header matnini qaytar. body maydonida individual, topshiriqqa mos, asoslangan rasmiy javob xati matnini ber. confidence_score 85 dan past bo'lmasin. html maydoni ixtiyoriy.`;
     const qualitySeed = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
-    const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext);
+    const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies);
     parsed.header = header;
     parsed.out_number = outNum;
     parsed.date = officialDate;
@@ -7620,6 +7745,9 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
       aiValidated:true,
       validation:{
         aiOnly:true,
+        confidenceScore:Number(parsed.confidence_score || 0),
+        taskFingerprint:taskProfile.fingerprint,
+        learningContextUsed:!!learningRagContext && !/topilmadi/i.test(learningRagContext),
         qualitySeedHash:simpleHash(qualitySeed),
         legalContextUsed:!!(legalRagContext && !/topilmadi|uydirma/i.test(legalRagContext)),
         validatedAtLocal:nowIso()
@@ -7639,7 +7767,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
     await saveGeneratedAnswerToLearningMemory(lastGeneratedDocument, qualitySeed).catch(e => console.warn('learning memory save:', e.message));
     renderGeneratedPreview(lastGeneratedDocument);
     await loadGeneratedAiDocs().catch(()=>{});
-    if(status) { status.className='template-ai-status ok'; status.textContent=generated.saveError ? 'Javob xati yaratildi. Bazaga yozish ruxsati cheklangan, lekin Word yuklash ishlaydi.' : 'Javob xati yaratildi va bazaga saqlandi.'; }
+    if(status) { status.className='template-ai-status ok'; status.textContent=generated.saveError ? `Javob xati yaratildi (${parsed.confidence_score || 0}% ishonchlilik). Bazaga yozish ruxsati cheklangan, lekin Word yuklash ishlaydi.` : `Javob xati yaratildi va bazaga saqlandi. Ishonchlilik: ${parsed.confidence_score || 0}%.`; }
   } catch(e) {
     if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
   }
