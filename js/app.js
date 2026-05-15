@@ -6140,11 +6140,14 @@ function parseAIJson(text) {
 // ===== AI TEMPLATE DOCUMENT BUILDER =====
 let aiTemplatesCache = [];
 let aiKnowledgeCache = [];
+let aiLearningCache = [];
 let aiGeneratedDocsCache = [];
 let activeTemplateAiTab = 'templates';
 let lastGeneratedDocument = null;
 let defaultResponseTemplateFile = null;
 let defaultResponseTemplateText = '';
+let defaultLearningBlankaFile = null;
+let defaultLearningBlankaText = '';
 
 const DEFAULT_RESPONSE_TEMPLATE = {
   id: '__default_response_template__',
@@ -6165,6 +6168,36 @@ const DEFAULT_RESPONSE_TEMPLATE = {
     font: 'Times New Roman',
     layout: 'Rasmiy javob xati: tashkilot rekvizitlari, sana, chiquvchi raqam, adresat, asosiy matn va imzo bloki.',
     style_notes: 'Qizil header qismi shablondagidek saqlanadi. Sana va chiquvchi raqam chap tomonda avtomatik joylanadi. Qabul qiluvchi tashkilot shu qatorda o‘ng tomonda, asosiy javob matni ko‘k qismda, imzo qatori va ijrochi ma’lumoti rasmiy xat skeletiga muvofiq chiqariladi.'
+  }
+};
+
+const AI_LEARNING_COLLECTION = 'ai_learning_blankas';
+const AI_LEARNING_MEMORY_COLLECTION = 'ai_learning_memory';
+
+const DEFAULT_LEARNING_BLANKA = {
+  id: '__default_learning_blanka_2020__',
+  org: 'default',
+  userId: 'system',
+  title: 'Blanka -2020 Shodiyor LOTIN',
+  sampleType: 'Blanka',
+  source: 'default_asset',
+  fileName: 'blanka-2020-shodiyor-lotin.docx',
+  fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  fileKind: 'word',
+  fileUrl: './assets/blanka-2020-shodiyor-lotin.docx',
+  approvedStatus: 'approved',
+  qualityScore: 95,
+  isDefault: true,
+  tags: ['blanka', 'javob xati', 'davlat uslubi', 'Times New Roman 14'],
+  note: 'Real blanka skeleti va rasmiy xat uslubini o‘rganish uchun biriktirilgan namunaviy hujjat.',
+  extractedText: '',
+  analysis: {
+    summary: 'Davlat tashkiloti blankasi: header va rekvizitlar saqlanadi, sana va xat raqami chapda, adresat o‘ngda, asosiy javob matni obzas bilan, imzo va ijrochi bloki rasmiy tartibda joylanadi.',
+    document_structure: ['doimiy header', 'sana va chiquvchi raqam', 'qabul qiluvchi tashkilot', 'asosiy javob matni', 'imzo bloki', 'ijrochi ma’lumoti'],
+    writing_style: 'Rasmiy, yuridik, davlat tashkiloti uslubi, qisqa va aniq obzaslar.',
+    professional_phrases: ['ko‘rib chiqildi', 'belgilangan tartibda', 'ijrosi ta’minlanadi', 'amaliy yordam ko‘rsatiladi'],
+    do_not_copy_phrases: ['eski xat matnini aynan ko‘chirma'],
+    keywords: ['qurilish', 'uy-joy kommunal xo‘jaligi', 'javob xati', 'ijro intizomi']
   }
 };
 
@@ -6243,6 +6276,27 @@ async function getDefaultResponseTemplateText() {
   DEFAULT_RESPONSE_TEMPLATE.extractedText = defaultResponseTemplateText.slice(0, 18000);
   DEFAULT_RESPONSE_TEMPLATE.analysis = localTemplateAnalysis(file, defaultResponseTemplateText);
   return defaultResponseTemplateText;
+}
+
+async function getDefaultLearningBlankaFile() {
+  if(defaultLearningBlankaFile) return defaultLearningBlankaFile;
+  const response = await withTimeout(fetch(DEFAULT_LEARNING_BLANKA.fileUrl, { cache:'no-store' }), 12000, 'Standart learning blankani yuklash vaqti tugadi');
+  if(!response.ok) throw new Error('Standart learning blanka topilmadi');
+  const blob = await response.blob();
+  defaultLearningBlankaFile = new File([blob], DEFAULT_LEARNING_BLANKA.fileName, { type: DEFAULT_LEARNING_BLANKA.fileType });
+  return defaultLearningBlankaFile;
+}
+
+async function getDefaultLearningBlankaText() {
+  if(defaultLearningBlankaText) return defaultLearningBlankaText;
+  const file = await getDefaultLearningBlankaFile();
+  defaultLearningBlankaText = await aiDocExtractText(file).catch(() => '');
+  DEFAULT_LEARNING_BLANKA.extractedText = defaultLearningBlankaText.slice(0, 22000);
+  DEFAULT_LEARNING_BLANKA.analysis = {
+    ...DEFAULT_LEARNING_BLANKA.analysis,
+    ...localLearningBlankaAnalysis(file, defaultLearningBlankaText, DEFAULT_LEARNING_BLANKA)
+  };
+  return defaultLearningBlankaText;
 }
 
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
@@ -6364,6 +6418,7 @@ window.loadTemplateBuilderPanel = async function() {
   await Promise.all([
     loadAiTemplates().catch(e => { console.warn('templates load:', e.message); aiTemplatesCache = [{ ...DEFAULT_RESPONSE_TEMPLATE }]; renderAiTemplates(); }),
     loadAiKnowledgeDocs().catch(e => { console.warn('knowledge load:', e.message); aiKnowledgeCache = []; renderAiKnowledgeDocs(); }),
+    loadAiLearningDocs().catch(e => { console.warn('learning load:', e.message); aiLearningCache = [{ ...DEFAULT_LEARNING_BLANKA }]; renderAiLearningDocs(); }),
     loadGeneratedAiDocs().catch(e => { console.warn('generated load:', e.message); aiGeneratedDocsCache = []; renderGeneratedAiDocs(); })
   ]);
   renderTemplateSelects();
@@ -6505,6 +6560,374 @@ window.uploadKnowledgeDocument = async function() {
     if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
   }
 };
+
+function aiLearningLocalKey() {
+  return `ijroda_ai_learning_${aiDocOrgScope()}`;
+}
+
+function aiLearningTokens(text='') {
+  return normalizeText(text)
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2)
+    .slice(0, 1200);
+}
+
+async function aiLearningExtractText(file) {
+  if(!file) return '';
+  if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 70000);
+  if(/^text\//.test(file.type) || /\.(txt|rtf)$/i.test(file.name)) return (await readAsText(file)).slice(0, 70000);
+  return '';
+}
+
+function normalizeAiLearningDoc(id, data={}) {
+  const analysis = data.analysis || {};
+  const tags = Array.isArray(data.tags) ? data.tags : (Array.isArray(analysis.keywords) ? analysis.keywords : []);
+  return {
+    id,
+    org: data.org,
+    userId: data.userId,
+    title: data.title || data.name || data.fileName || 'Learning hujjat',
+    sampleType: data.sampleType || data.docType || 'Javob xati',
+    source: data.source || 'uploaded',
+    year: data.year || '',
+    sourceOrg: data.sourceOrg || data.organization || '',
+    tags,
+    note: data.note || analysis.summary || '',
+    fileName: data.fileName || '',
+    fileUrl: data.fileUrl || '',
+    fileType: data.fileType || '',
+    fileKind: data.fileKind || '',
+    extractedText: data.extractedText || '',
+    analysis,
+    qualityScore: Number(data.qualityScore || analysis.quality_score || 70),
+    approvedStatus: data.approvedStatus || data.status || 'approved',
+    sourceCollection: data.sourceCollection || '',
+    localOnly: !!data.localOnly,
+    isDefault: !!data.isDefault,
+    usableForLearning: data.usableForLearning !== false
+  };
+}
+
+function readLocalAiLearningDocs() {
+  try {
+    const raw = localStorage.getItem(aiLearningLocalKey());
+    const docs = raw ? JSON.parse(raw) : [];
+    return Array.isArray(docs) ? docs.map(d => normalizeAiLearningDoc(d.id, { ...d, sourceCollection:'localStorage', localOnly:true })) : [];
+  } catch(e) {
+    console.warn('local AI learning read:', e.message);
+    return [];
+  }
+}
+
+function writeLocalAiLearningDocs(docs) {
+  localStorage.setItem(aiLearningLocalKey(), JSON.stringify(docs.slice(0, 250)));
+}
+
+function saveAiLearningLocal(payload, reason='') {
+  const docs = readLocalAiLearningDocs();
+  const id = payload.id || `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const localDoc = normalizeAiLearningDoc(id, {
+    ...payload,
+    id,
+    localOnly:true,
+    sourceCollection:'localStorage',
+    saveReason: reason,
+    createdAtLocal: payload.createdAtLocal || nowIso()
+  });
+  docs.unshift(localDoc);
+  writeLocalAiLearningDocs(docs);
+  return { id, collection:'localStorage', local:true, reason };
+}
+
+function localLearningBlankaAnalysis(file, text='', meta={}) {
+  const clean = compactResponseText(text || '');
+  const lower = normalizeText(`${file?.name || ''} ${meta.title || ''} ${clean}`);
+  const sentences = splitTaskSentences(clean).slice(0, 12);
+  const phraseMatches = clean.match(/\b([A-ZОЎҒҚҲO‘G‘][^.!?]{35,180}(?:ko‘rib chiqildi|ta’minlanadi|taqdim etiladi|amalga oshiriladi|so‘raymiz|ma’lum qiladi)[^.!?]*[.!?])/g) || [];
+  return {
+    summary: clean ? clean.slice(0, 800) : `${meta.title || file?.name || 'Blanka'} hujjati AI learning bazaga qo‘shildi.`,
+    document_structure: [
+      lower.includes('ijro.gov') ? 'IJRO.GOV.UZ tasdiq qatori' : '',
+      lower.includes('o‘zbekiston respublikasi') ? 'davlat tashkiloti headeri' : '',
+      lower.includes('boshqarma boshlig') || lower.includes('boshlig') ? 'rahbar imzo bloki' : '',
+      lower.includes('ijrochi') ? 'ijrochi va telefon bloki' : '',
+      'sana, chiquvchi raqam, adresat, asosiy matn'
+    ].filter(Boolean),
+    writing_style: 'Rasmiy davlat uslubi, Times New Roman 14 ruhidagi qisqa obzaslar, yuridik aniqlik va ijro intizomi terminlari.',
+    tone: 'qat’iy, hurmatli, idoraviy, mas’uliyatli',
+    opening_patterns: sentences.slice(0, 2),
+    closing_patterns: sentences.slice(-2),
+    professional_phrases: [...new Set(phraseMatches.map(x => compactResponseText(x)).slice(0, 8))],
+    do_not_copy_phrases: ['eski xat matnini aynan ko‘chirma', 'bir xil universal javob yozma'],
+    legal_terms: [...new Set((clean.match(/\b(qonun|qaror|farmon|farmoyish|SHNQ|KMK|normativ|band|modda|ijro|nazorat|ekspertiza)\b/gi) || []).slice(0, 18))],
+    construction_terms: [...new Set((clean.match(/\b(qurilish|obyekt|loyiha-smeta|pudrat|texnik nazorat|mualliflik nazorati|foydalanishga topshirish|shaharsozlik)\b/gi) || []).slice(0, 18))],
+    keywords: [...new Set(aiLearningTokens(`${meta.title || ''} ${meta.tags || ''} ${clean}`).slice(0, 28))],
+    quality_score: clean.length > 600 ? 82 : 70,
+    aiSyncStatus: 'local_profile'
+  };
+}
+
+async function analyzeLearningBlankaWithAi(file, text, meta) {
+  const prompt = `Siz davlat tashkilotlari uchun professional AI hujjat learning tizimisiz. Yuklangan real javob xati yoki blankani copy-paste qilish uchun emas, faqat uslub, struktura va davlat yozishma mantiqini o'rganish uchun tahlil qiling.
+
+QAT'IY TAQIQLANADI: eski xatni aynan ko'chirish, shaxsiy ma'lumotlarni qayta ishlatish, universal javob yaratish.
+
+AI o'rganishi kerak:
+- rasmiy yozish uslubi;
+- hujjat skeleti;
+- gap qurilishi va yuridik ohang;
+- qurilish sohasi terminlari;
+- yuqori tashkilotga javob berish etikasi;
+- qaysi iboralar faqat ilhom sifatida ishlatilishi mumkinligi.
+
+FAQAT JSON qaytar:
+{"summary":"","document_structure":[],"writing_style":"","tone":"","opening_patterns":[],"transition_patterns":[],"closing_patterns":[],"signature_style":"","legal_terms":[],"construction_terms":[],"professional_phrases":[],"do_not_copy_phrases":[],"keywords":[],"quality_score":0,"memory_rules":[]}
+
+Meta:
+Nomi: ${meta.title}
+Turi: ${meta.sampleType}
+Yil: ${meta.year}
+Tashkilot: ${meta.sourceOrg}
+Tags: ${(meta.tags || []).join(', ')}
+Izoh: ${meta.note}
+
+Matn:
+${(text || '').slice(0, 18000)}`;
+  try {
+    const filePart = text ? null : { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' };
+    const parsed = parseAIJson(await callTemplateAi(prompt, filePart, true));
+    return parsed || localLearningBlankaAnalysis(file, text, meta);
+  } catch(e) {
+    return { ...localLearningBlankaAnalysis(file, text, meta), aiSyncStatus:'needs_ai_sync', error:e.message };
+  }
+}
+
+async function fetchAiLearningDocsFrom(collectionName, timeoutMs=12000) {
+  const snap = await withTimeout(
+    getDocs(query(collection(db, collectionName), where('org','==',aiDocOrgScope()), orderBy('createdAt','desc'))).catch(async()=>getDocs(collection(db, collectionName))),
+    timeoutMs,
+    `${collectionName} bazasidan javob kelmadi`
+  );
+  return snap.docs
+    .map(d => normalizeAiLearningDoc(d.id, { ...d.data(), sourceCollection: collectionName }))
+    .filter(x => x.org === aiDocOrgScope());
+}
+
+async function loadAiLearningDocs() {
+  await getDefaultLearningBlankaText().catch(()=>{});
+  const defaultDoc = normalizeAiLearningDoc(DEFAULT_LEARNING_BLANKA.id, DEFAULT_LEARNING_BLANKA);
+  const uploaded = await fetchAiLearningDocsFrom(AI_LEARNING_COLLECTION, 12000).catch(e => {
+    console.warn('AI learning uploaded read:', e.message);
+    return [];
+  });
+  const memory = await fetchAiLearningDocsFrom(AI_LEARNING_MEMORY_COLLECTION, 12000).catch(e => {
+    console.warn('AI learning memory read:', e.message);
+    return [];
+  });
+  aiLearningCache = [
+    defaultDoc,
+    ...uploaded,
+    ...memory.filter(x => x.usableForLearning && normalizeText(x.approvedStatus).includes('approved')),
+    ...readLocalAiLearningDocs()
+  ];
+  renderAiLearningDocs();
+}
+
+function renderAiLearningDocs() {
+  const el = document.getElementById('learn-list');
+  if(!el) return;
+  const rows = aiLearningCache;
+  el.innerHTML = rows.length ? rows.map(d => `
+    <div class="template-ai-item">
+      <b>${escH(d.title || d.fileName || 'Learning hujjat')}</b>
+      <span>${escH(d.sampleType || '')} | ${escH(d.year || '')} | Score: ${escH(d.qualityScore || '')} | ${escH(d.approvedStatus || '')}</span>
+      <p>${escH(d.analysis?.summary || d.note || (d.extractedText || '').slice(0, 240))}</p>
+      <p>${escH((d.tags || d.analysis?.keywords || []).slice(0, 12).join(', '))}</p>
+      ${d.localOnly ? '<p><b>Lokal:</b> Firebase ruxsati cheklansa ham shu brauzerda AI learning kontekstida ishlaydi.</p>' : ''}
+      <div class="actions-row" style="margin-top:10px;">
+        ${d.fileUrl ? `<button class="btn btn-sm btn-outline" onclick="downloadUrl('${escH(d.fileUrl || '')}')">Ochish</button>` : ''}
+        ${d.isDefault ? '' : `<button class="btn btn-sm btn-outline" onclick="setAiLearningApproval('${d.id}','approved')">Tasdiqlash</button><button class="btn btn-sm btn-outline" onclick="setAiLearningApproval('${d.id}','rejected')">Rad etish</button><button class="btn btn-sm btn-danger" onclick="deleteAiLearningDoc('${d.id}')">O‘chirish</button>`}
+      </div>
+    </div>`).join('') : '<div class="empty-state"><h3>Learning blanka yo‘q</h3><p>Oldingi javob xatlari yoki real blankalarni yuklang.</p></div>';
+}
+
+window.clearAiLearningForm = function() {
+  ['learn-title','learn-year','learn-org','learn-tags','learn-note'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const file = document.getElementById('learn-file'); if(file) file.value = '';
+};
+
+window.uploadAiLearningBlanka = async function() {
+  if(!requirePermission('ai.template', 'AI Learning blanka qo‘shish')) return;
+  const file = document.getElementById('learn-file')?.files?.[0];
+  const status = document.getElementById('learn-status');
+  const meta = {
+    title: document.getElementById('learn-title')?.value?.trim() || file?.name || '',
+    sampleType: document.getElementById('learn-type')?.value || 'Oldingi javob xati',
+    year: document.getElementById('learn-year')?.value?.trim() || '',
+    sourceOrg: document.getElementById('learn-org')?.value?.trim() || '',
+    tags: document.getElementById('learn-tags')?.value?.split(',').map(x=>x.trim()).filter(Boolean) || [],
+    note: document.getElementById('learn-note')?.value?.trim() || ''
+  };
+  if(!file) { showToast('Learning uchun fayl tanlang', 'error'); return; }
+  if(!/\.(pdf|doc|docx|txt|rtf|png|jpg|jpeg|webp)$/i.test(file.name)) { showToast('PDF, DOCX, RTF, TXT yoki skaner rasm yuklang', 'error'); return; }
+  if(status) { status.className='template-ai-status warn'; status.textContent='Blanka o‘qilmoqda, OCR/AI tahlil qilinmoqda va learning bazaga yozilmoqda...'; }
+  try {
+    const extractedText = await aiLearningExtractText(file);
+    const uploaded = await aiDocUploadFileSafe(file, 'ai_learning');
+    const analysis = await analyzeLearningBlankaWithAi(file, extractedText, meta);
+    const qualityScore = Math.max(50, Math.min(100, Number(analysis.quality_score || analysis.qualityScore || 75)));
+    const payload = {
+      org: aiDocOrgScope(),
+      userId: currentUser.uid,
+      ...meta,
+      fileName:file.name,
+      fileType:file.type || '',
+      fileKind:aiDocFileKind(file),
+      fileUrl:uploaded.url,
+      storagePath:uploaded.path,
+      uploadError:uploaded.uploadError || '',
+      extractedText:extractedText.slice(0, 45000),
+      analysis,
+      qualityScore,
+      approvedStatus: qualityScore >= 70 ? 'approved' : 'pending_review',
+      usableForLearning:true,
+      indexTokens:[...new Set(aiLearningTokens(`${meta.title} ${meta.sampleType} ${meta.tags.join(' ')} ${extractedText} ${JSON.stringify(analysis)}`))].slice(0, 420),
+      ocrStatus: extractedText ? 'text_extracted' : 'file_saved_ai_ocr_needed',
+      embeddingStatus:'semantic_keyword_index',
+      createdAt:serverTimestamp(),
+      createdAtLocal:nowIso()
+    };
+    let saved;
+    try {
+      const ref = await addDoc(collection(db, AI_LEARNING_COLLECTION), payload);
+      saved = { id:ref.id, collection:AI_LEARNING_COLLECTION };
+    } catch(e) {
+      console.warn('AI learning save fallback:', e.message);
+      saved = saveAiLearningLocal(payload, e.message);
+    }
+    await writeAudit('ai_learning.created', { title:meta.title, sampleType:meta.sampleType, fileName:file.name, saved }).catch(()=>{});
+    clearAiLearningForm();
+    await loadAiLearningDocs();
+    if(status) {
+      status.className='template-ai-status ok';
+      status.textContent=saved.local
+        ? 'Blanka lokal learning bazaga saqlandi. Firebase ruxsati cheklangan bo‘lsa ham shu brauzerda AI kontekstida ishlaydi.'
+        : 'Blanka AI learning bazaga saqlandi va javob xati yaratish promptiga ulandi.';
+    }
+  } catch(e) {
+    if(status) { status.className='template-ai-status err'; status.textContent='Learning blanka saqlanmadi: ' + e.message; }
+    showToast('Learning blanka saqlanmadi: ' + e.message, 'error');
+  }
+};
+
+window.setAiLearningApproval = async function(id, statusValue='approved') {
+  const item = aiLearningCache.find(x => x.id === id);
+  if(!item || item.isDefault) return;
+  if(item.localOnly || item.sourceCollection === 'localStorage') {
+    const docs = readLocalAiLearningDocs().map(x => x.id === id ? { ...x, approvedStatus:statusValue, usableForLearning: statusValue !== 'rejected' } : x);
+    writeLocalAiLearningDocs(docs);
+  } else {
+    await updateDoc(doc(db, item.sourceCollection || AI_LEARNING_COLLECTION, id), {
+      approvedStatus:statusValue,
+      usableForLearning: statusValue !== 'rejected',
+      updatedAt:serverTimestamp(),
+      updatedAtLocal:nowIso()
+    });
+  }
+  await loadAiLearningDocs();
+};
+
+window.deleteAiLearningDoc = async function(id) {
+  if(!confirm('Learning hujjatni o‘chirmoqchimisiz?')) return;
+  const item = aiLearningCache.find(x => x.id === id);
+  if(!item || item.isDefault) return;
+  if(item.localOnly || item.sourceCollection === 'localStorage') {
+    writeLocalAiLearningDocs(readLocalAiLearningDocs().filter(x => x.id !== id));
+  } else {
+    await deleteDoc(doc(db, item.sourceCollection || AI_LEARNING_COLLECTION, id));
+  }
+  await loadAiLearningDocs();
+};
+
+function scoreAiLearningDoc(doc, queryText='') {
+  const queryTokens = [...new Set(aiLearningTokens(queryText))];
+  if(!queryTokens.length) return doc.isDefault ? 2 : 0;
+  const hay = normalizeText(`${doc.title || ''} ${doc.sampleType || ''} ${doc.year || ''} ${doc.sourceOrg || ''} ${(doc.tags || []).join(' ')} ${doc.note || ''} ${doc.extractedText || ''} ${JSON.stringify(doc.analysis || {})}`);
+  let score = doc.isDefault ? 2 : 0;
+  queryTokens.forEach(t => {
+    if(hay.includes(t)) score += 1;
+    if(normalizeText((doc.tags || []).join(' ')).includes(t)) score += 2;
+    if(normalizeText(`${doc.title || ''} ${doc.sampleType || ''}`).includes(t)) score += 3;
+  });
+  if(normalizeText(doc.approvedStatus || '').includes('rejected')) score -= 100;
+  score += Math.min(5, Math.floor(Number(doc.qualityScore || 70) / 20));
+  return score;
+}
+
+function relevantAiLearningDocs(queryText='', limit=5) {
+  return aiLearningCache
+    .filter(d => d.usableForLearning && !normalizeText(d.approvedStatus || '').includes('rejected'))
+    .map(doc => ({ ...doc, _score: scoreAiLearningDoc(doc, queryText) }))
+    .filter(doc => doc._score > 0)
+    .sort((a,b) => b._score - a._score)
+    .slice(0, limit);
+}
+
+function aiLearningContext(queryText='') {
+  const docs = relevantAiLearningDocs(queryText, 5);
+  if(!docs.length) return 'AI Learning blankalar bazasida mos namuna topilmadi. Eski xatni copy-paste qilma; faqat topshiriqdan kelib chiqib yangi matn yarat.';
+  return docs.map((d, i) => {
+    const a = d.analysis || {};
+    const phrases = Array.isArray(a.professional_phrases) ? a.professional_phrases.slice(0, 5).join(' | ') : '';
+    const structure = Array.isArray(a.document_structure) ? a.document_structure.slice(0, 8).join(' → ') : (a.document_structure || '');
+    return `${i+1}. ${d.title || d.fileName} (${d.sampleType || 'learning'}, score ${d.qualityScore || ''})
+Uslub: ${a.writing_style || a.tone || d.note || ''}
+Struktura: ${structure}
+Professional ohang/iboralar (copy qilmasdan ilhom sifatida): ${phrases}
+Qoidalar: eski xat matnini aynan ko‘chirma, faqat uslub va mantiqdan foydalan.
+Relevant parcha: ${(d.extractedText || '').slice(0, 900)}`;
+  }).join('\n\n').slice(0, 11000);
+}
+
+async function saveGeneratedAnswerToLearningMemory(g, qualitySeed='') {
+  const body = String(g?.content?.body || '').trim();
+  if(!body || body.length < 120) return;
+  const analysis = localLearningBlankaAnalysis(null, body, {
+    title: `Yaratilgan javob xati ${g.outNumber || ''}`,
+    sampleType: 'Yaratilgan javob xati',
+    tags: ['generated', 'javob xati', ...(g.requisites?.region ? [g.requisites.region] : [])]
+  });
+  const payload = {
+    org: aiDocOrgScope(),
+    userId: currentUser?.uid || '',
+    title: `Yaratilgan javob xati ${g.outNumber || ''}`.trim(),
+    sampleType: 'Yaratilgan javob xati',
+    source: 'generated_response',
+    year: String(new Date().getFullYear()),
+    sourceOrg: 'Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi',
+    tags: ['generated', 'professional javob xati', ...(g.requisites?.region ? [g.requisites.region] : []), ...(g.requisites?.objectName ? [g.requisites.objectName] : [])].filter(Boolean),
+    note: 'AI tomonidan yaratilgan va sifat nazoratidan o‘tgan javob xati. Keyingi xatlar uchun uslubiy memory sifatida saqlanadi.',
+    extractedText: body.slice(0, 30000),
+    analysis,
+    qualityScore: 85,
+    approvedStatus: 'auto_approved',
+    usableForLearning:true,
+    generatedDocumentId:g.id || '',
+    taskFingerprint:simpleHash(qualitySeed),
+    outNumber:g.outNumber || '',
+    createdAt:serverTimestamp(),
+    createdAtLocal:nowIso()
+  };
+  try {
+    const ref = await addDoc(collection(db, AI_LEARNING_MEMORY_COLLECTION), payload);
+    aiLearningCache.unshift(normalizeAiLearningDoc(ref.id, { ...payload, sourceCollection:AI_LEARNING_MEMORY_COLLECTION }));
+  } catch(e) {
+    console.warn('AI learning memory fallback:', e.message);
+    const saved = saveAiLearningLocal(payload, e.message);
+    aiLearningCache.unshift(normalizeAiLearningDoc(saved.id, { ...payload, id:saved.id, sourceCollection:'localStorage', localOnly:true }));
+  }
+}
 
 function renderTemplateSelects() {
   const tplSel = document.getElementById('resp-template');
@@ -7046,8 +7469,10 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
     const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
     if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
+    if(!aiLearningCache.length) await loadAiLearningDocs().catch(()=>{});
     const ragQuery = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
     const legalRagContext = legalBaseContext(ragQuery);
+    const learningRagContext = aiLearningContext(ragQuery);
     if(tpl.isDefault && !tpl.extractedText) {
       tpl.extractedText = await getDefaultResponseTemplateText().catch(() => '');
       tpl.analysis = DEFAULT_RESPONSE_TEMPLATE.analysis;
@@ -7136,6 +7561,15 @@ ${header}
 Qo'shimcha rasmiy hujjatlar bazasi:
 ${aiKnowledgeContext() || 'Bazaga qo shimcha hujjat yuklanmagan.'}
 
+AI LEARNING BLANKALAR VA REAL JAVOB XATLARI USLUBIY XOTIRASI:
+${learningRagContext}
+
+LEARNING QOIDASI:
+- Yuqoridagi real blankalar va eski javob xatlaridan faqat uslub, struktura, davlat yozishma mantiqi va professional ohangni o'rgan.
+- Hech qachon eski xatni copy-paste qilma.
+- Bir xil universal matn yozma.
+- Yangi javob aynan joriy topshiriq mazmuniga mos, unikallashgan va huquqiy jihatdan ehtiyotkor bo'lsin.
+
 NORMATIV-HUQUQIY HUJJATLAR BAZASIDAN TOPILGAN RELEVANT KONTEKST:
 ${legalRagContext}
 
@@ -7202,6 +7636,7 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
       generated.saveError = saveErr.message;
     }
     lastGeneratedDocument = { id:refId, ...generated };
+    await saveGeneratedAnswerToLearningMemory(lastGeneratedDocument, qualitySeed).catch(e => console.warn('learning memory save:', e.message));
     renderGeneratedPreview(lastGeneratedDocument);
     await loadGeneratedAiDocs().catch(()=>{});
     if(status) { status.className='template-ai-status ok'; status.textContent=generated.saveError ? 'Javob xati yaratildi. Bazaga yozish ruxsati cheklangan, lekin Word yuklash ishlaydi.' : 'Javob xati yaratildi va bazaga saqlandi.'; }

@@ -184,6 +184,19 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /ai_learning_blankas/{id} {
+      allow read: if signedIn();
+      allow create, update: if isOrgAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /ai_learning_memory/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if isOrgAdmin();
+      allow delete: if isAdmin();
+    }
+
     match /ai_generated_documents/{id} {
       allow read, write: if signedIn();
     }

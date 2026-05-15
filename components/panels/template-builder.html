@@ -8,6 +8,7 @@
     <div class="template-ai-tabs">
       <button class="template-ai-tab active" data-tpl-tab="templates" onclick="showTemplateAiTab('templates')">Shablon qo'shish</button>
       <button class="template-ai-tab" data-tpl-tab="knowledge" onclick="showTemplateAiTab('knowledge')">Qo'shimcha ma'lumotlar</button>
+      <button class="template-ai-tab" data-tpl-tab="learning" onclick="showTemplateAiTab('learning')">AI Learning Blankalar</button>
       <button class="template-ai-tab" data-tpl-tab="response" onclick="showTemplateAiTab('response')">Topshiriqlarga javob yaratish</button>
       <button class="template-ai-tab" data-tpl-tab="generated" onclick="showTemplateAiTab('generated')">Yaratilgan hujjatlar</button>
     </div>
@@ -50,6 +51,32 @@
       <div class="card">
         <div class="card-title">AI tahlil qilingan baza</div>
         <div id="kb-list" class="template-ai-list">Yuklanmoqda...</div>
+      </div>
+    </div>
+
+    <div class="template-ai-grid" data-tpl-panel="learning" style="display:none;">
+      <div class="card">
+        <div class="card-title">Real blankalar va javob xatlarini o‘rgatish</div>
+        <div class="form-grid">
+          <div class="field wide"><label>Hujjat nomi</label><input id="learn-title" placeholder="Masalan: Vazirlikka yuborilgan javob xati"></div>
+          <div class="field"><label>Hujjat turi</label><select id="learn-type">
+            <option>Oldingi javob xati</option><option>Blanka</option><option>Rasmiy yozishma</option><option>Davlat tashkiloti javobi</option><option>Namunaviy xat</option>
+          </select></div>
+          <div class="field"><label>Yil</label><input id="learn-year" placeholder="2020"></div>
+          <div class="field wide"><label>Tashkilot</label><input id="learn-org" placeholder="Hujjat qaysi tashkilot amaliyotidan olingan"></div>
+          <div class="field wide"><label>Kalit so‘zlar</label><input id="learn-tags" placeholder="qurilish, javob xati, vazirlik, ijro"></div>
+          <div class="field wide"><label>Izoh</label><textarea id="learn-note" placeholder="Uslub, qo‘llanish holati yoki alohida e’tibor beriladigan jihatlar"></textarea></div>
+          <div class="field wide"><label>Fayl</label><input id="learn-file" type="file" accept=".pdf,.doc,.docx,.rtf,.txt,.png,.jpg,.jpeg,.webp"></div>
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-primary" onclick="uploadAiLearningBlanka()">Yuklash va AI o‘rgatish</button>
+          <button class="btn btn-outline" onclick="clearAiLearningForm()">Tozalash</button>
+        </div>
+        <div id="learn-status" class="template-ai-status"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">AI o‘rgangan blankalar</div>
+        <div id="learn-list" class="template-ai-list">Yuklanmoqda...</div>
       </div>
     </div>
 

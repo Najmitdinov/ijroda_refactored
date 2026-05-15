@@ -37,6 +37,11 @@ service firebase.storage {
       allow write: if signedIn() && (request.auth.uid == uid || isOrgAdmin()) && isAllowedFile();
     }
 
+    match /ai_learning/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (request.auth.uid == uid || isOrgAdmin()) && isAllowedFile();
+    }
+
     match /legal_base/{uid}/{fileName} {
       allow read: if signedIn();
       allow write: if signedIn() && (request.auth.uid == uid || isOrgAdmin()) && isAllowedFile();
