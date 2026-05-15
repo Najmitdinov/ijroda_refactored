@@ -4109,26 +4109,45 @@ async function readLegalAiFileSmart(file) {
 }
 
 async function callLegalTemplateAnswerProvider({ templateText, taskText, templatePart, taskPart, outNumber, question }) {
-  const prompt = `Sen davlat organi uchun rasmiy javob xati yozadigan yuridik AI yordamchisisan.
-ENG MUHIM TALAB: javob xati foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub, joylashuv va rasmiy ohang maksimal darajada saqlansin.
+  function buildLocalLegalTemplateAnswer({ taskText='', outNumber='', question='', providerError='' } = {}) {
+  const cleanTask = String(taskText  question  '').replace(/\s+/g, ' ').trim();
+  const lines = cleanTask.split(/[.\n]/).map(l => l.trim()).filter(l => l.length > 20);
+  const mainPoint = lines[0]  cleanTask.slice(0, 300)  "ko'rsatilgan masala";
+  const additionalPoints = lines.slice(1, 3).join('; ');
 
-Chiquvchi raqami: ${outNumber}
-Foydalanuvchi izohi/savoli: ${question || 'Topshiriq xatiga rasmiy javob tayyorla.'}
+  const taskLower = cleanTask.toLowerCase();
+  let normativBasis = "O'zbekiston Respublikasining amaldagi normativ-huquqiy hujjatlari";
+  if (taskLower.includes('quril')  taskLower.includes('loyiha')  taskLower.includes('shnq')  taskLower.includes('kmk')) {
+    normativBasis = "O'zbekiston Respublikasining shaharsozlik faoliyati, qurilish-montaj ishlari va loyiha-smeta hujjatlariga oid amaldagi SHNQ va KMK talablari";
+  } else if (taskLower.includes('uy-joy')  taskLower.includes('kommunal')) {
+    normativBasis = "O'zbekiston Respublikasining uy-joy kommunal xo'jaligi sohasidagi amaldagi me'yoriy-huquqiy hujjatlari";
+  } else if (taskLower.includes('yer')  taskLower.includes('kadastr')  taskLower.includes('mulk')) {
+    normativBasis = "O'zbekiston Respublikasining yer kadastri va ko'chmas mulkka oid amaldagi qonun hujjatlari";
+  } else if (taskLower.includes('nazorat') || taskLower.includes('tekshir')) {
+    normativBasis = "O'zbekiston Respublikasining davlat nazorati va tekshiruvlariga oid amaldagi normativ-huquqiy hujjatlari";
+  }
 
-Shablondan ajratilgan matn:
-${(templateText || '').slice(0, 12000)}
+  const part1 = normativBasis + " doirasida " + mainPoint + " masalasi bo'yicha kelgan topshiriq ko'rib chiqildi.";
+  const part2 = additionalPoints
+    ? "Topshiriqda bayon etilgan " + additionalPoints + " kabi holatlar tahlil qilindi va tegishli xulosalar ishlab chiqildi."
+    : "Topshiriqda ko'tarilgan masala yuzasidan tegishli o'rganish va tahlil ishlari amalga oshirildi.";
+  const part3 = "Mas'ul tarkibiy bo'linmalarga zarur ko'rsatmalar berildi. Aniqlangan ma'lumotlar va xulosalar belgilangan muddatlarda rasmiy tartibda taqdim etiladi.";
+  const part4 = "Qo'shimcha ma'lumotlar yoki aniqlashtirish talab etilsa, masala amaldagi qonunchilik talablari asosida qo'shimcha ko'rib chiqiladi.";
+  const answerText = part1 + "\n\n" + part2 + "\n\n" + part3 + "\n\n" + part4;
 
-Topshiriq xatidan ajratilgan matn:
-${(taskText || '').slice(0, 16000)}
+  const warningNote = providerError
+    ? "Diqqat: AI provayder vaqtincha ishlamadi (" + providerError + "). Javob lokal rejimda shakllandi. Gemini yoki OpenRouter kalitini tekshiring."
+    : "Lokal rejimda shakllangan javob. AI provayder ulansa, to'liq huquqiy tahlil taqdim etiladi.";
 
-FAQAT JSON qaytar:
-{
- "title":"",
- "summary":"",
- "answer_text":"",
- "html":"",
- "style_notes":"",
- "confidence_score":0
+  return {
+    title: 'Javob xati',
+    summary: warningNote,
+    answer_text: answerText,
+    html: '',
+    style_notes: 'Lokal dinamik javob. AI kaliti kiritilsa, individual huquqiy asoslar bilan to\'liq javob yaratiladi.',
+    confidence_score: providerError ? 45 : 60,
+    out_number: outNumber
+  };
 }
 
 html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
