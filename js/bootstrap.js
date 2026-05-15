@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-telegram-security12';
+const APP_BUILD = '20260515-legal-selfcheck13';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

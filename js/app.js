@@ -6956,6 +6956,14 @@ ${dateText}
 № ${outNumber}`;
 }
 
+const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QAT'IY SELF-CHECK:
+1. Yuridik tekshiruv: qonuniy asos, vakolat doirasi, normativ hujjat, modda/band va huquqiy xulosa noto'g'ri qo'llanmasin. Bazada yo'q hujjat yoki modda uydirilmasin.
+2. Imloviy tekshiruv: adabiy o'zbek lotin yozuvi, to'g'ri tinish belgilari va rasmiy terminlar ishlatilsin.
+3. Uslubiy tekshiruv: oddiy xalq tili, sun'iy AI uslubi, ortiqcha cho'zilgan gaplar va ruscha uslubdagi tarjima jumlalar ishlatilmasin.
+4. Mantiqiy tekshiruv: javob aynan topshiriq mazmuniga mos, izchil, zidliksiz va mavzudan chiqmagan bo'lsin.
+5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
+6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
+
 window.generateResponseDocument = async function(numberConfirmed=false) {
   if(!requirePermission('ai.template', 'AI javob xati yaratish')) return;
   const tpl = aiTemplatesCache.find(t => t.id === document.getElementById('resp-template')?.value) || {
@@ -7036,6 +7044,8 @@ MAJBURIY TALABLAR:
 - Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, mas'ul xodim, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
 - Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
 - Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
+
+${LEGAL_RESPONSE_QUALITY_RULES}
 
 HUJJAT STRUCTURE:
 ${header}
@@ -7133,7 +7143,12 @@ header maydonida aynan majburiy header matnini qaytar. body maydonida individual
     parsed.recipient = parsed.recipient || recipientOrg;
     let parsedBody = String(parsed.body || '').trim();
     if(!parsedBody) parsedBody = String(parsed.answer_text || parsed.summary || '').trim();
-    if(parsedBody.length < 40 || responseBodyLooksGeneric(parsedBody, `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`)) parsedBody = '';
+    const qualitySeed = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
+    if(
+      parsedBody.length < 40 ||
+      responseBodyLooksGeneric(parsedBody, qualitySeed) ||
+      responseBodyFailsLegalQuality(parsedBody, qualitySeed, legalRagContext)
+    ) parsedBody = '';
     if(!parsedBody) {
       parsed.body = buildLocalResponseDocument({
         header, outNum, officialDate, recipientOrg, responsible,
@@ -7301,6 +7316,28 @@ function responseBodyLooksGeneric(body='', taskText='') {
   return false;
 }
 
+function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {
+  const clean = compactResponseText(body);
+  const norm = normalizeText(clean);
+  if(clean.length < 220) return true;
+  const forbidden = /(salom|assalomu|iltimos|xop|mayli|yaxshi bo'lardi|shuni aytmoqchimiz|taxminan|balki|menimcha|ai sifatida|sun'iy intellekt)/i;
+  if(forbidden.test(norm)) return true;
+  if(/uydirma|bazada yo'q hujjat|aniqlanmaganligi sababli/i.test(norm)) return true;
+  const sentences = splitTaskSentences(clean);
+  if(sentences.length < 2) return true;
+  const taskWords = taskMeaningfulWords(taskText, 14);
+  if(taskWords.length >= 5) {
+    const overlap = taskWords.filter(w => norm.includes(w)).length;
+    if(overlap < 3) return true;
+  }
+  const hasProfessionalTone = /(vakolat|ijro|normativ|hujjat|talab|nazorat|loyiha|qurilish|obyekt|taqdim|ta'min|ta’min|o'rgan|o‘rgan)/i.test(norm);
+  if(!hasProfessionalTone) return true;
+  const inventedWarning = /(qonunning \d+[-\s]*(modda|band)|\d+[-\s]*(modda|band))/i.test(norm)
+    && !new RegExp(clean.match(/(\d+[-\s]*(?:modda|band))/i)?.[1] || '$^', 'i').test(`${taskText} ${legalContext}`);
+  if(inventedWarning && !legalContext) return true;
+  return false;
+}
+
 function buildLocalResponseDocument({ header='', outNum='', officialDate='', recipientOrg='', responsible='', taskText='', objectName='', region='', extra='', executorName='', executorPhone='', legalContext='', providerError='' } = {}) {
   const task = compactResponseText(taskText);
   const docRefs = extractResponseDocRefs(task);
@@ -7337,7 +7374,7 @@ function buildGeneratedDocHtml(g) {
   const docCode = g.documentCode || g.id || '';
   const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
   const fallbackSeed = `${g.requisites?.taskText || ''} ${g.requisites?.objectName || ''} ${g.requisites?.region || ''} ${g.requisites?.extra || ''}`;
-  const bodyText = savedBody.length >= 40 && !responseBodyLooksGeneric(savedBody, fallbackSeed) ? savedBody : buildLocalResponseDocument({
+  const bodyText = savedBody.length >= 40 && !responseBodyLooksGeneric(savedBody, fallbackSeed) && !responseBodyFailsLegalQuality(savedBody, fallbackSeed, '') ? savedBody : buildLocalResponseDocument({
     outNum: outNumber,
     officialDate: docDate,
     recipientOrg: recipient,
