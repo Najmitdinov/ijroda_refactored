@@ -5174,12 +5174,7 @@ window.downloadLegalGeneratedAnswer = function() {
       executor_phone: answer.executorPhone || ''
     }
   });
-  const blob = new Blob([html], { type:'application/msword;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `Javob_xati_${aiDocSafeName(answer.outNumber || 'generated')}.doc`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadHtmlAsWordFile(html, `Javob_xati_${aiDocSafeName(answer.outNumber || 'generated')}.doc`);
 };
 
 async function updatePresence(status='online') {
@@ -7905,13 +7900,8 @@ function buildGeneratedDocHtml(g) {
   const signature = c.signature_block || g.responsible || 'O.Shodiyev';
   const docCode = g.documentCode || g.id || '';
   const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
-  const fallbackSeed = `${g.requisites?.taskText || ''} ${g.requisites?.objectName || ''} ${g.requisites?.region || ''} ${g.requisites?.extra || ''}`;
-  const aiValidated = c.ai_validated === true || c.ai_only === true || g.aiValidated === true || g.validation?.aiOnly === true;
   if(!savedBody || savedBody.length < 40) {
     throw new Error('Bu hujjatda javob matni yo‘q. Avval AI orqali individual javob xati yarating.');
-  }
-  if(!aiValidated && responseBodyLooksGeneric(savedBody, fallbackSeed)) {
-    throw new Error('Bu hujjatning javob matni individual emas. Avval AI orqali qayta yarating.');
   }
   const bodyText = savedBody;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
@@ -7948,6 +7938,21 @@ function buildGeneratedDocHtml(g) {
   </body></html>`;
 }
 
+function downloadHtmlAsWordFile(html, filename) {
+  const blob = new Blob([html], { type:'application/msword;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 1500);
+}
+
 function renderGeneratedPreview(g) {
   const el = document.getElementById('resp-preview');
   if(!el) return;
@@ -7980,14 +7985,9 @@ function renderGeneratedAiDocs() {
 
 window.downloadGeneratedDocument = function(id) {
   const g = aiGeneratedDocsCache.find(x=>x.id===id) || (lastGeneratedDocument?.id === id ? lastGeneratedDocument : null);
-  if(!g) return;
+  if(!g) { showToast('Yaratilgan hujjat topilmadi. Sahifani yangilab qayta urinib ko‘ring.', 'error'); return; }
   try {
-    const blob = new Blob([buildGeneratedDocHtml(g)], { type:'application/msword;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `Javob_xati_${aiDocSafeName(g.outNumber || g.id)}.doc`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadHtmlAsWordFile(buildGeneratedDocHtml(g), `Javob_xati_${aiDocSafeName(g.outNumber || g.id)}.doc`);
   } catch(e) {
     showToast(e.message, 'error');
   }
