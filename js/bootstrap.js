@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-browser-parse18';
+const APP_BUILD = '20260515-download-fix1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
