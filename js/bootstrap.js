@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-deepseek-primary1';
+const APP_BUILD = '20260515-deepseek-only1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
