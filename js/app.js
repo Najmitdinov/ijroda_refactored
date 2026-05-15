@@ -4109,45 +4109,33 @@ async function readLegalAiFileSmart(file) {
 }
 
 async function callLegalTemplateAnswerProvider({ templateText, taskText, templatePart, taskPart, outNumber, question }) {
-  function buildLocalLegalTemplateAnswer({ taskText='', outNumber='', question='', providerError='' } = {}) {
-  const cleanTask = String(taskText  question  '').replace(/\s+/g, ' ').trim();
-  const lines = cleanTask.split(/[.\n]/).map(l => l.trim()).filter(l => l.length > 20);
-  const mainPoint = lines[0]  cleanTask.slice(0, 300)  "ko'rsatilgan masala";
-  const additionalPoints = lines.slice(1, 3).join('; ');
+  const prompt = `Sen davlat organi uchun rasmiy javob xati yozadigan yuridik AI yordamchisisan.
+ENG MUHIM TALAB: javob xati foydalanuvchi yuklagan shablon asosida yozilsin. Header, footer, rekvizitlar, shrift, uslub, joylashuv va rasmiy ohang maksimal darajada saqlansin.
 
-  const taskLower = cleanTask.toLowerCase();
-  let normativBasis = "O'zbekiston Respublikasining amaldagi normativ-huquqiy hujjatlari";
-  if (taskLower.includes('quril')  taskLower.includes('loyiha')  taskLower.includes('shnq')  taskLower.includes('kmk')) {
-    normativBasis = "O'zbekiston Respublikasining shaharsozlik faoliyati, qurilish-montaj ishlari va loyiha-smeta hujjatlariga oid amaldagi SHNQ va KMK talablari";
-  } else if (taskLower.includes('uy-joy')  taskLower.includes('kommunal')) {
-    normativBasis = "O'zbekiston Respublikasining uy-joy kommunal xo'jaligi sohasidagi amaldagi me'yoriy-huquqiy hujjatlari";
-  } else if (taskLower.includes('yer')  taskLower.includes('kadastr')  taskLower.includes('mulk')) {
-    normativBasis = "O'zbekiston Respublikasining yer kadastri va ko'chmas mulkka oid amaldagi qonun hujjatlari";
-  } else if (taskLower.includes('nazorat') || taskLower.includes('tekshir')) {
-    normativBasis = "O'zbekiston Respublikasining davlat nazorati va tekshiruvlariga oid amaldagi normativ-huquqiy hujjatlari";
-  }
+Chiquvchi raqami: ${outNumber}
+Foydalanuvchi izohi/savoli: ${question || 'Topshiriq xatiga rasmiy javob tayyorla.'}
 
-  const part1 = normativBasis + " doirasida " + mainPoint + " masalasi bo'yicha kelgan topshiriq ko'rib chiqildi.";
-  const part2 = additionalPoints
-    ? "Topshiriqda bayon etilgan " + additionalPoints + " kabi holatlar tahlil qilindi va tegishli xulosalar ishlab chiqildi."
-    : "Topshiriqda ko'tarilgan masala yuzasidan tegishli o'rganish va tahlil ishlari amalga oshirildi.";
-  const part3 = "Mas'ul tarkibiy bo'linmalarga zarur ko'rsatmalar berildi. Aniqlangan ma'lumotlar va xulosalar belgilangan muddatlarda rasmiy tartibda taqdim etiladi.";
-  const part4 = "Qo'shimcha ma'lumotlar yoki aniqlashtirish talab etilsa, masala amaldagi qonunchilik talablari asosida qo'shimcha ko'rib chiqiladi.";
-  const answerText = part1 + "\n\n" + part2 + "\n\n" + part3 + "\n\n" + part4;
+Shablondan ajratilgan matn:
+${(templateText || '').slice(0, 12000)}
 
-  const warningNote = providerError
-    ? "Diqqat: AI provayder vaqtincha ishlamadi (" + providerError + "). Javob lokal rejimda shakllandi. Gemini yoki OpenRouter kalitini tekshiring."
-    : "Lokal rejimda shakllangan javob. AI provayder ulansa, to'liq huquqiy tahlil taqdim etiladi.";
+Topshiriq xatidan ajratilgan matn:
+${(taskText || '').slice(0, 16000)}
 
-  return {
-    title: 'Javob xati',
-    summary: warningNote,
-    answer_text: answerText,
-    html: '',
-    style_notes: 'Lokal dinamik javob. AI kaliti kiritilsa, individual huquqiy asoslar bilan to\'liq javob yaratiladi.',
-    confidence_score: providerError ? 45 : 60,
-    out_number: outNumber
-  };
+QAT'IY QOIDALAR:
+- Har bir javob topshiriq mazmunidan kelib chiqib individual yozilsin.
+- Bir xil universal javob, umumiy shablon gaplar va copy-paste taqiqlanadi.
+- Agar topshiriqda obyekt, hudud, qaror raqami, muddat, mas'ul shaxs yoki so'ralgan amaliy harakat bo'lsa, javob matnida aynan shu ma'lumotlar mantiqan aks etsin.
+- Baza kontekstida mavjud bo'lmagan qonun, modda yoki band raqami uydirilmasin.
+- Javob yakunida ichki yuridik, imloviy, uslubiy va mantiqiy tekshiruvdan o'tkazilgan final variant berilsin.
+
+FAQAT JSON qaytar:
+{
+ "title":"",
+ "summary":"",
+ "answer_text":"",
+ "html":"",
+ "style_notes":"",
+ "confidence_score":0
 }
 
 html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
@@ -4197,22 +4185,8 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
       console.warn('OpenRouter legal template fallback:', e.message);
     }
   }
-  return buildLocalLegalTemplateAnswer({ taskText, outNumber, question, providerError:lastError });
-}
-
-function buildLocalLegalTemplateAnswer({ taskText='', outNumber='', question='', providerError='' } = {}) {
-  const cleanTask = String(taskText || question || '').replace(/\s+/g, ' ').trim();
-  const basis = 'O‘zbekiston Respublikasining shaharsozlik faoliyati, loyiha-smeta hujjatlari, qurilish-montaj ishlari, texnik nazorat va obyektlarni foydalanishga qabul qilishga oid amaldagi normativ-huquqiy hujjatlari, shu jumladan SHNQ va KMK talablari doirasida';
-  const answerText = `${basis} ko‘rib chiqildi.\n\n${cleanTask ? `Kelgan topshiriqda bayon etilgan masala yuzasidan ${cleanTask.slice(0, 450)} mazmunidagi holatlar tahlil qilindi.` : 'Kelgan topshiriqda bayon etilgan masala belgilangan tartibda tahlil qilindi.'} Bosh boshqarma vakolati doirasida qurilish sohasi bo‘yicha loyiha yechimlari, shaharsozlik hujjatlari, muhandislik infratuzilmasi, texnik shartlar hamda normativ talablar ijrosi yuzasidan tegishli o‘rganish ishlari amalga oshiriladi.\n\nTopshiriq ijrosi bo‘yicha mas’ul tarkibiy bo‘linmalarga tegishli ko‘rsatmalar berilib, aniqlangan ma’lumotlar asosida belgilangan muddatlarda asoslantirilgan axborot taqdim etilishi ta’minlanadi. Qo‘shimcha hujjatlar yoki aniqlashtiruvchi ma’lumotlar kelib tushgan taqdirda, masala amaldagi qonunchilik talablari asosida qo‘shimcha ravishda ko‘rib chiqiladi.`;
-  return {
-    title: 'Javob xati',
-    summary: providerError ? `AI provayder vaqtincha javob bermadi (${providerError}). Lokal rasmiy javob shakllantirildi.` : 'Lokal rasmiy javob shakllantirildi.',
-    answer_text: answerText,
-    html: '',
-    style_notes: 'Lokal zaxira javob. AI provayder ishlaganda individual huquqiy asoslar yanada batafsil shakllantiriladi.',
-    confidence_score: providerError ? 55 : 65,
-    out_number: outNumber
-  };
+  if(lastError) throw new Error(`AI javob yaratmadi: ${lastError}`);
+  throw new Error('AI kaliti sozlanmagan. Gemini yoki OpenRouter API kalitini kiriting.');
 }
 
 window.generateLegalTemplateAnswer = async function() {
@@ -6585,9 +6559,13 @@ function aiLearningLocalKey() {
   return `ijroda_ai_learning_${aiDocOrgScope()}`;
 }
 
+function stripNonWordChars(text='') {
+  return String(text || '').replace(/[^A-Za-z0-9А-Яа-яЁёЎўҚқҒғҲҳʼ'’‘`´\s-]/g, ' ');
+}
+
 function aiLearningTokens(text='') {
   return normalizeText(text)
-    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/[^A-Za-z0-9А-Яа-яЁёЎўҚқҒғҲҳʼ'’‘`´\s-]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length > 2)
     .slice(0, 1200);
@@ -6913,7 +6891,7 @@ Relevant parcha: ${(d.extractedText || '').slice(0, 900)}`;
 function responseTaskProfile(text='', meta={}) {
   const source = compactResponseText(`${text || ''} ${meta.objectName || ''} ${meta.region || ''} ${meta.extra || ''}`);
   const norm = normalizeText(source);
-  const numbers = [...new Set((source.match(/\b\d{1,4}\s*[-–]?\s*(?:sonli|son|raqamli)\b|№\s*\d+|\b\d{1,4}[-/]\d+\b/gi) || []).map(compactResponseText).filter(x => /\d/.test(x)).slice(0, 8))];
+  const numbers = [...new Set((source.match(/\b\d{1,4}\s*[-\u2013]?\s*(?:sonli|son|raqamli)\b|\u2116\s*\d+|\b\d{1,4}[-/]\d+\b/gi) || []).map(compactResponseText).filter(x => /\d/.test(x)).slice(0, 8))];
   const dates = [...new Set((source.match(/\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b|\b\d{4}-yil(?:ning)?\s+\d{1,2}[-\s]*(?:yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)/gi) || []).slice(0, 6))];
   const actions = [
     ['amaliy_yordam', /(amaliy yordam|ko'?mak|yordam ber)/i],
@@ -7817,7 +7795,7 @@ function splitTaskSentences(text='') {
 function responseBodyLooksGeneric(body='', taskText='') {
   const normBody = normalizeText(body);
   if(!normBody || normBody.length < 80) return true;
-  const plainBody = normBody.replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s+/g, ' ').trim();
+  const plainBody = stripNonWordChars(normBody).replace(/\s+/g, ' ').trim();
   const generic = [
     "sizning yuborgan topshirig'ingiz yuzasidan quyidagilarni ma'lum qiladi",
     'mazkur masala shaharsozlik hujjatlari loyiha-smeta yechimlari',

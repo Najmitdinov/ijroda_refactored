@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-ai-learning-confidence17';
+const APP_BUILD = '20260515-browser-parse18';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
