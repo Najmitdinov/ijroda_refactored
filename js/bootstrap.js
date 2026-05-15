@@ -1,4 +1,4 @@
-const APP_BUILD = '20260515-ai-only-response14';
+const APP_BUILD = '20260515-ai-only-response15';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
