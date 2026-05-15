@@ -2981,6 +2981,7 @@ window.renderIntegrationsPanel = () => {
   const el = document.getElementById('integrations-content');
   if(!el) return;
   const hasGemini = !!localStorage.getItem('GEMINI_API_KEY');
+  const hasDeepSeek = !!localStorage.getItem('DEEPSEEK_API_KEY');
   const hasGroq = !!localStorage.getItem('GROQ_API_KEY');
   const hasOpenRouter = !!localStorage.getItem('OPENROUTER_API_KEY');
   const tg = getTelegramSettings();
@@ -2989,8 +2990,8 @@ window.renderIntegrationsPanel = () => {
   el.innerHTML = `
     <div class="module-grid">
       <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
-      <div class="module-card"><h3>Gemini AI</h3><p>Javob xati, Excel saralash va AI tahlil uchun asosiy provider.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
-      <div class="module-card"><h3>Groq / OpenRouter</h3><p>AI fallback zanjiri: Gemini → Groq → OpenRouter.</p><span class="badge ${(hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
+      <div class="module-card"><h3>Gemini AI</h3><p>PDF/rasm va javob xati uchun asosiy multimodal provider.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
+      <div class="module-card"><h3>DeepSeek / Groq / OpenRouter</h3><p>AI fallback zanjiri: Gemini → DeepSeek → Groq → OpenRouter.</p><span class="badge ${(hasDeepSeek||hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasDeepSeek||hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
       <div class="module-card"><h3>PDF / Excel</h3><p>Excel import/export, Word yuklash va hujjat tahlili faol.</p><span class="badge badge-done">Faol</span></div>
     </div>
 
@@ -3344,7 +3345,7 @@ function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // ===== PROFESSIONAL SAAS CORE =====
 const SAAS_VERSION = '3.0.0-premium-saas';
 const SAAS_COLLECTIONS = ['users','chats','messages','analytics','logs','subscriptions','reports','settings','aiUsage','aiLogs','documents','fishkalar'];
-const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Gemini','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
+const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Gemini','DeepSeek','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
 let appSettingsCache = { ...DEFAULT_FEATURES };
 let adminUsersCache = [];
 
@@ -3902,7 +3903,7 @@ function legalStatusLabel(status='') {
 function buildLegalAiShell() {
   const docOptions = LEGAL_AI_DOC_TYPES.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
   const sectorOptions = LEGAL_AI_SECTORS.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
-  const providerReady = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
+  const providerReady = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('DEEPSEEK_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
   const providerClass = providerReady ? 'ready' : 'local';
   return `
     <div class="legal-ai-shell">
@@ -4167,6 +4168,21 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
     }
   }
 
+  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(deepSeekKey) {
+    try {
+      if(templatePart?.base64 || taskPart?.base64) throw new Error('DeepSeek fallback faqat matn uchun. Fayl/PDF shablon uchun Gemini kerak.');
+      const model = deepSeekModel();
+      const text = await callDeepSeekChat(prompt, { temperature:0.14, maxTokens:6200, jsonMode:true });
+      await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars:prompt.length, model });
+      return parseAIJson(text);
+    } catch(e) {
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars:prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
+      console.warn('DeepSeek legal template fallback:', e.message);
+    }
+  }
+
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
     try {
@@ -4186,7 +4202,7 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
     }
   }
   if(lastError) throw new Error(`AI javob yaratmadi: ${lastError}`);
-  throw new Error('AI kaliti sozlanmagan. Gemini yoki OpenRouter API kalitini kiriting.');
+  throw new Error('AI kaliti sozlanmagan. Gemini, DeepSeek yoki OpenRouter API kalitini kiriting.');
 }
 
 window.generateLegalTemplateAnswer = async function() {
@@ -4811,6 +4827,22 @@ ${(input.rawText || '').slice(0, 14000)}`;
       }
     }
     throw new Error(lastError || 'Gemini javobi o qilmadi');
+  }
+
+  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(deepSeekKey && input.rawText) {
+    try {
+      const model = deepSeekModel();
+      const text = await callDeepSeekChat(prompt, { temperature:0.12, maxTokens:5200, jsonMode:true });
+      const parsed = parseAIJson(text);
+      if(parsed) {
+        await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars: prompt.length, model });
+        return { ...parsed, _provider:'DeepSeek' };
+      }
+    } catch(e) {
+      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars: prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
+      console.warn('DeepSeek legal fallback:', e.message);
+    }
   }
 
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
@@ -6287,6 +6319,35 @@ async function getDefaultLearningBlankaText() {
   return defaultLearningBlankaText;
 }
 
+function deepSeekModel() {
+  return localStorage.getItem('DEEPSEEK_MODEL') || 'deepseek-v4-pro';
+}
+
+async function callDeepSeekChat(prompt, { temperature=0.2, maxTokens=6200, jsonMode=false } = {}) {
+  const key = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(!key) throw new Error('DeepSeek API kalit topilmadi');
+  const model = deepSeekModel();
+  const resp = await fetch('https://api.deepseek.com/chat/completions', {
+    method:'POST',
+    headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model,
+      messages:[{role:'user',content:prompt}],
+      temperature,
+      max_tokens:maxTokens,
+      thinking:{ type:'enabled' },
+      reasoning_effort:'high',
+      ...(jsonMode ? { response_format:{ type:'json_object' } } : {})
+    })
+  });
+  if(!resp.ok) {
+    const errData = await resp.json().catch(()=>({}));
+    throw new Error(errData?.error?.message || `DeepSeek HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  return data?.choices?.[0]?.message?.content || '';
+}
+
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
   let lastError = '';
   const generationTemperature = jsonMode ? 0.22 : 0.28;
@@ -6318,6 +6379,20 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
         await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model, error:e.message }).catch(()=>{});
         console.warn('Gemini template fallback:', model, e.message);
       }
+    }
+  }
+  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(deepSeekKey) {
+    try {
+      if(filePart?.base64) throw new Error('DeepSeek fallback faqat matn uchun. Fayl/PDF tahlili uchun Gemini kerak.');
+      const model = deepSeekModel();
+      const text = await callDeepSeekChat(prompt, { temperature:generationTemperature, maxTokens: jsonMode ? 7000 : 7600, jsonMode });
+      await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars:prompt.length, model });
+      return text;
+    } catch(e) {
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars:prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
+      console.warn('DeepSeek template fallback:', e.message);
     }
   }
   const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
@@ -6360,7 +6435,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
       console.warn('OpenRouter template fallback:', e.message);
     }
   }
-  throw new Error(lastError || 'AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini yoki OpenRouter kalitini kiriting.');
+  throw new Error(lastError || 'AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini, DeepSeek yoki OpenRouter kalitini kiriting.');
 }
 
 function localTemplateAnalysis(file, text='') {
@@ -8193,6 +8268,18 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
       }
     },
     {
+      name: 'DeepSeek',
+      getKey: () => localStorage.getItem('DEEPSEEK_API_KEY') || '',
+      call: async () => {
+        if(type === 'file' && filePart?.base64) {
+          throw new Error('DeepSeek fallback faqat matn uchun. PDF/screenshot uchun Gemini kalit kerak.');
+        }
+        const text = await callDeepSeekChat(userContent, { temperature:0.2, maxTokens:1800, jsonMode:true });
+        if (!text) throw new Error('Bo\'sh javob');
+        return text;
+      }
+    },
+    {
       name: 'OpenRouter',
       getKey: () => localStorage.getItem('OPENROUTER_API_KEY') || '',
       call: async (key) => {
@@ -8305,8 +8392,12 @@ function updateApiKeyStatus() {
       el.textContent = 'Kiritilgan (...' + key.slice(-6) + ')';
       el.style.color = 'var(--green-mid)';
     } else {
+      const dsKey = localStorage.getItem('DEEPSEEK_API_KEY');
       const orKey = localStorage.getItem('OPENROUTER_API_KEY');
-      if (orKey) {
+      if (dsKey) {
+        el.textContent = 'DeepSeek (...' + dsKey.slice(-6) + ')';
+        el.style.color = 'var(--blue-mid)';
+      } else if (orKey) {
         el.textContent = 'OpenRouter (...' + orKey.slice(-6) + ')';
         el.style.color = 'var(--blue-mid)';
       } else {
@@ -8318,7 +8409,7 @@ function updateApiKeyStatus() {
 }
 
 window.setApiKey = () => {
-  const key = prompt('🔑 Google Gemini API kalitini kiriting (AIza... bilan boshlanadi):\n\n👉 Kalit olish: https://aistudio.google.com/app/apikey\n\nBu kalit localStorage da saqlanadi (sahifa yopilsa o\'chmaydi).\n\n💡 Yoki "AI Sozlamalar" bo\'limidan OpenRouter kalitini ham kiritishingiz mumkin.');
+  const key = prompt('🔑 Google Gemini API kalitini kiriting (AIza... bilan boshlanadi):\n\n👉 Kalit olish: https://aistudio.google.com/app/apikey\n\nBu kalit localStorage da saqlanadi (sahifa yopilsa o\'chmaydi).\n\n💡 Yoki "AI Sozlamalar" bo\'limidan DeepSeek yoki OpenRouter kalitini ham kiritishingiz mumkin.');
   if(!key) return;
   const trimmed = key.trim();
   if(!trimmed.startsWith('AIza')) {
@@ -8606,7 +8697,7 @@ document.addEventListener('click', (e) => {
 // ╚══════════════════════════════════════════════════════════════╝
 
 // AI Provider config — priority order
-// Gemini: non-streaming (generateContent), OpenRouter: streaming fallback
+// Gemini: multimodal primary, DeepSeek/Groq/OpenRouter: text fallback
 const AI_PROVIDERS = [
   {
     name: 'Gemini', icon: '🟦', streaming: false, model: 'gemini-2.5-flash',
@@ -8617,7 +8708,15 @@ const AI_PROVIDERS = [
     headers: () => ({ 'Content-Type': 'application/json' })
   },
   {
-    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.1-70b-versatile',
+    name: 'DeepSeek', icon: 'DS', streaming: true, model: 'deepseek-v4-pro',
+    getUrl: () => 'https://api.deepseek.com/chat/completions',
+    getKey: () => localStorage.getItem('DEEPSEEK_API_KEY') || '',
+    buildBody: (messages) => ({ model: deepSeekModel(), messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048, temperature: 0.7, thinking:{ type:'enabled' }, reasoning_effort:'high' }),
+    parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
+    headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
+  },
+  {
+    name: 'Groq', icon: 'GQ', streaming: true, model: 'llama-3.1-70b-versatile',
     getUrl: () => 'https://api.groq.com/openai/v1/chat/completions',
     getKey: () => localStorage.getItem('GROQ_API_KEY') || '',
     buildBody: (messages) => ({ model: localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048, temperature: 0.7 }),
@@ -8632,7 +8731,15 @@ const AI_PROVIDERS = [
     parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
     headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
   }
-].sort((a,b)=> (appSettingsCache.providerPriority||DEFAULT_FEATURES.providerPriority).indexOf(a.name) - (appSettingsCache.providerPriority||DEFAULT_FEATURES.providerPriority).indexOf(b.name));
+].sort((a,b)=> providerPriorityIndex(a.name) - providerPriorityIndex(b.name));
+
+function providerPriorityIndex(name) {
+  const custom = appSettingsCache.providerPriority || [];
+  const customIdx = custom.indexOf(name);
+  if(customIdx >= 0) return customIdx;
+  const defaultIdx = DEFAULT_FEATURES.providerPriority.indexOf(name);
+  return defaultIdx >= 0 ? defaultIdx : 999;
+}
 
 // Rate limiter — max 20 messages per hour per user
 const RATE_LIMIT = { max: 20, windowMs: 3600000 };
@@ -8907,11 +9014,13 @@ window.loadAdminAnalytics = async () => {
 window.setProviderKey = (provider) => {
   const labels = {
     GEMINI: 'Gemini (AIza... bilan boshlanadi)',
+    DEEPSEEK: 'DeepSeek (sk-... bilan boshlanadi)',
     GROQ: 'Groq (gsk_... bilan boshlanadi)',
     OPENROUTER: 'OpenRouter (sk-or-... bilan boshlanadi)'
   };
   const hints = {
     GEMINI: '\n👉 Kalit olish: https://aistudio.google.com/app/apikey',
+    DEEPSEEK: '\n👉 Kalit olish: https://platform.deepseek.com/api_keys',
     GROQ: '\n👉 Kalit olish: https://console.groq.com/keys',
     OPENROUTER: '\n👉 Kalit olish: https://openrouter.ai/keys'
   };
@@ -8921,6 +9030,9 @@ window.setProviderKey = (provider) => {
   // Validate
   if (provider === 'GEMINI' && !trimmed.startsWith('AIza')) {
     showToast('❌ Gemini kalit "AIza" bilan boshlanishi kerak!', 'error'); return;
+  }
+  if (provider === 'DEEPSEEK' && !trimmed.startsWith('sk-')) {
+    showToast('DeepSeek kalit odatda "sk-" bilan boshlanadi!', 'error'); return;
   }
   localStorage.setItem(provider + '_API_KEY', trimmed);
   showToast(`✅ ${provider} API kalit saqlandi`, 'success');
