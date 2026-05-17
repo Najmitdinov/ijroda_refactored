@@ -100,16 +100,26 @@ export async function sendTelegramDailyDigest(chatId?: string) {
 
 async function getTelegramDatabaseStats() {
   type CountRow = { count: number };
-  const [linkedEmployees, sessions, pendingNotifications] = await Promise.all([
-    query<CountRow>('select count(*)::int as count from employees where telegram_id is not null'),
-    query<CountRow>('select count(*)::int as count from telegram_sessions'),
-    query<CountRow>("select count(*)::int as count from notifications where channel = 'TELEGRAM' and sent_at is null")
-  ]);
-  return {
-    linkedEmployees: linkedEmployees.rows[0]?.count ?? 0,
-    sessions: sessions.rows[0]?.count ?? 0,
-    pendingNotifications: pendingNotifications.rows[0]?.count ?? 0
-  };
+  try {
+    const [linkedEmployees, sessions, pendingNotifications] = await Promise.all([
+      query<CountRow>('select count(*)::int as count from employees where telegram_id is not null'),
+      query<CountRow>('select count(*)::int as count from telegram_sessions'),
+      query<CountRow>("select count(*)::int as count from notifications where channel = 'TELEGRAM' and sent_at is null")
+    ]);
+    return {
+      linkedEmployees: linkedEmployees.rows[0]?.count ?? 0,
+      sessions: sessions.rows[0]?.count ?? 0,
+      pendingNotifications: pendingNotifications.rows[0]?.count ?? 0
+    };
+  } catch (error) {
+    console.warn('[telegram] database stats unavailable', error);
+    return {
+      linkedEmployees: 0,
+      sessions: 0,
+      pendingNotifications: 0,
+      databaseUnavailable: true
+    };
+  }
 }
 
 function escapeHtml(input: string) {
