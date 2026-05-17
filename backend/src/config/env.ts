@@ -11,11 +11,17 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   TELEGRAM_ADMIN_SECRET: z.string().optional(),
+  TELEGRAM_TEST_CHAT_ID: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional()
 });
 
-export const env = envSchema.parse(process.env);
+const parsedEnv = envSchema.parse(process.env);
+
+export const env = {
+  ...parsedEnv,
+  API_PORT: Number(process.env.PORT || parsedEnv.API_PORT)
+};
 
 export const corsOrigins = env.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);

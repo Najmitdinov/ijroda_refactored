@@ -26,11 +26,13 @@ router.get('/status', requireTelegramAdmin, async (_req, res) => {
 
 router.post('/test', requireTelegramAdmin, async (req, res) => {
   const input = z.object({
-    chatId: z.string().min(1),
+    chatId: z.string().optional(),
     text: z.string().optional()
   }).parse(req.body);
+  const chatId = input.chatId || env.TELEGRAM_TEST_CHAT_ID;
+  if (!chatId) return res.status(400).json({ error: 'TELEGRAM_CHAT_ID_REQUIRED' });
   const result = await sendTelegramMessage(
-    input.chatId,
+    chatId,
     input.text || '<b>Ijro AI</b>\nTelegram bot backend orqali muvaffaqiyatli ulandi.'
   );
   res.json({ data: result });
