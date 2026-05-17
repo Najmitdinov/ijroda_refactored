@@ -6852,7 +6852,7 @@ Bazadagi matndan parcha: ${(d.extractedText || '').slice(0, 600)}`;
 }
 
 function responseTaskProfile(text='', meta={}) {
-  const source = compactResponseText(`${text || ''} ${meta.objectName || ''} ${meta.region || ''} ${meta.extra || ''}`);
+  const source = compactResponseText(`${text || ''} ${meta.region || ''} ${meta.extra || ''}`);
   const norm = normalizeText(source);
   const numbers = [...new Set((source.match(/\b\d{1,4}\s*[-\u2013]?\s*(?:sonli|son|raqamli)\b|\u2116\s*\d+|\b\d{1,4}[-/]\d+\b/gi) || []).map(compactResponseText).filter(x => /\d/.test(x)).slice(0, 8))];
   const dates = [...new Set((source.match(/\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b|\b\d{4}-yil(?:ning)?\s+\d{1,2}[-\s]*(?:yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)/gi) || []).slice(0, 6))];
@@ -6869,7 +6869,6 @@ function responseTaskProfile(text='', meta={}) {
     numbers,
     dates,
     actions,
-    objectName: meta.objectName || '',
     region: meta.region || '',
     extra: meta.extra || '',
     meaningful,
@@ -6882,7 +6881,6 @@ function responseTaskProfileText(profile={}) {
     `Aniqlangan harakat turi: ${(profile.actions || []).join(', ') || 'umumiy rasmiy javob'}`,
     `Raqamlar/rekvizitlar: ${(profile.numbers || []).join(', ') || 'aniqlanmadi'}`,
     `Sanalar: ${(profile.dates || []).join(', ') || 'aniqlanmadi'}`,
-    `Obyekt: ${profile.objectName || 'kiritilmagan'}`,
     `Hudud: ${profile.region || 'kiritilmagan'}`,
     `Muhim kalit so‘zlar: ${(profile.meaningful || []).join(', ')}`
   ].join('\n');
@@ -6956,7 +6954,7 @@ async function saveGeneratedAnswerToLearningMemory(g, qualitySeed='') {
     source: 'generated_response',
     year: String(new Date().getFullYear()),
     sourceOrg: 'Navoiy viloyati Qurilish va uy-joy kommunal xo‘jaligi bosh boshqarmasi',
-    tags: ['generated', 'professional javob xati', ...(g.requisites?.region ? [g.requisites.region] : []), ...(g.requisites?.objectName ? [g.requisites.objectName] : [])].filter(Boolean),
+    tags: ['generated', 'professional javob xati', ...(g.requisites?.region ? [g.requisites.region] : [])].filter(Boolean),
     note: 'AI tomonidan yaratilgan va sifat nazoratidan o‘tgan javob xati. Keyingi xatlar uchun uslubiy memory sifatida saqlanadi.',
     extractedText: body.slice(0, 30000),
     analysis,
@@ -6987,14 +6985,6 @@ function renderTemplateSelects() {
   const respDate = document.getElementById('resp-date');
   if(respDate) respDate.value = formatDateInput(new Date());
   setupResponseNumberInput();
-  const resp = document.getElementById('resp-responsible');
-  if(resp) {
-    const users = xodimlarCache.length ? xodimlarCache : [{ id:'', ism:'', familiya:currentUserData?.fullName || currentUser?.email || '' }];
-    resp.innerHTML = users.map(x => {
-      const name = [x.ism, x.familiya].filter(Boolean).join(' ') || x.fullName || x.name || x.email || '';
-      return `<option value="${escH(name)}">${escH(name || 'Mas ul')}</option>`;
-    }).join('');
-  }
 }
 
 function aiKnowledgeContext() {
@@ -7370,11 +7360,6 @@ window.confirmResponseNumberAndGenerate = function() {
     return;
   }
   const recipient = (recipientInput?.value || '').trim();
-  if(!recipient) {
-    if(error) error.textContent = 'Qabul qiluvchi tashkilotni kiriting.';
-    recipientInput?.focus();
-    return;
-  }
   const outNumber = `01-22/${userNumber}`;
   const hidden = document.getElementById('resp-user-number');
   const recipientHidden = document.getElementById('resp-recipient-org');
@@ -7385,7 +7370,7 @@ window.confirmResponseNumberAndGenerate = function() {
   if(recipientHidden) recipientHidden.value = recipient;
   if(executorHidden) executorHidden.value = (executorInput?.value || '').trim();
   if(phoneHidden) phoneHidden.value = (phoneInput?.value || '').trim();
-  if(summary) summary.textContent = `Chiquvchi raqam: ${outNumber}. Qabul qiluvchi: ${recipient}`;
+  if(summary) summary.textContent = `Chiquvchi raqam: ${outNumber}. Qabul qiluvchi: ${recipient || 'hujjatdan avtomatik aniqlanadi'}`;
   closeResponseNumberModal();
   generateResponseDocument(true);
 };
@@ -7489,6 +7474,59 @@ function cleanGeneratedResponseBody(text, meta={}) {
   return cleanedLines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function normalizeResponseRecipientName(name='') {
+  let s = compactResponseText(name)
+    .replace(/^o['‘`ʻ]?zbekiston\s+respublikasi\s+/i, '')
+    .replace(/^(kimdan|yuboruvchi|jo['‘`ʻ]?natuvchi|manba)\s*[:\-]\s*/i, '')
+    .replace(/[.,;:]+$/g, '')
+    .trim();
+  if(!s) return '';
+  if(s === s.toUpperCase()) {
+    s = s.toLocaleLowerCase('uz-UZ');
+    s = s.charAt(0).toLocaleUpperCase('uz-UZ') + s.slice(1);
+  }
+  return s;
+}
+
+function responseRecipientToDative(name='') {
+  let s = normalizeResponseRecipientName(name);
+  if(!s) return '';
+  if(/\b(ga|ka|qa)$/i.test(s)) return s;
+  if(/(vazirligi|hokimligi|boshqarmasi|qo['‘`ʻ]?mitasi|agentligi|departamenti|markazi|muassasasi)$/i.test(s)) return s + 'ga';
+  if(/(vazirlik|hokimlik|boshqarma|agentlik|departament|markaz)$/i.test(s)) return s + 'ka';
+  return s + 'ga';
+}
+
+function isSpecificResponseRecipient(name='') {
+  const s = normalizeResponseRecipientName(name);
+  return s.length >= 12 && /(vazirligi|vazirlik|hokimligi|hokimlik|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|qo['‘`ʻ]?mita|agentligi|agentlik|departamenti|departament|markazi|markaz|mahkamasi)/i.test(s);
+}
+
+function inferResponseRecipientFromText(text='') {
+  const rawLines = String(text || '').split(/\r?\n/).map(x => compactResponseText(x)).filter(Boolean).slice(0, 120);
+  const candidates = [];
+  const ownOrg = /navoiy\s+viloyati\s+qurilish|bosh\s+boshqarmasi|navqurilish/i;
+  const orgWords = /(vazirligi|vazirlik|hokimligi|hokimlik|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|qo['‘`ʻ]?mita|agentligi|agentlik|departamenti|departament|markazi|markaz|vazirlar\s+mahkamasi)/i;
+  rawLines.forEach((line, idx) => {
+    let c = line;
+    const prev = rawLines[idx - 1] || '';
+    if(/^o['‘`ʻ]?zbekiston\s+respublikasi$/i.test(prev) && !/^o['‘`ʻ]?zbekiston/i.test(c)) {
+      c = `${prev} ${c}`;
+    }
+    if(!orgWords.test(c) || ownOrg.test(c)) return;
+    if(c.length < 7 || c.length > 180) return;
+    const score =
+      (/vazirligi|vazirlik/i.test(c) ? 40 : 0) +
+      (/vazirlar\s+mahkamasi/i.test(c) ? 35 : 0) +
+      (/hokimligi|hokimlik/i.test(c) ? 25 : 0) +
+      (/boshqarmasi|boshqarma/i.test(c) ? 15 : 0) +
+      Math.max(0, 60 - idx);
+    candidates.push({ text:c, score });
+  });
+  candidates.sort((a,b) => b.score - a.score);
+  return responseRecipientToDative(candidates[0]?.text || '');
+}
+
 async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[]) {
   let lastError = '';
   const retryNotes = [];
@@ -7549,31 +7587,39 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
   const now = new Date();
   const date = formatDateInput(now);
   const officialDate = formatOfficialDate(now);
-  const responsible = document.getElementById('resp-responsible')?.value || '';
-  const recipientOrg = document.getElementById('resp-recipient-org')?.value?.trim() || '';
+  const responsible = 'O.Shodiyev';
+  let recipientOrg = document.getElementById('resp-recipient-org')?.value?.trim() || '';
   const executorName = document.getElementById('resp-executor-name')?.value?.trim() || '';
   const executorPhone = document.getElementById('resp-executor-phone')?.value?.trim() || '';
-  const objectName = document.getElementById('resp-object-name')?.value?.trim() || '';
   const region = document.getElementById('resp-region')?.value?.trim() || '';
-  const manualTaskText = document.getElementById('resp-task-text')?.value?.trim() || '';
   const extra = document.getElementById('resp-extra')?.value?.trim() || '';
   const status = document.getElementById('resp-status');
   if(!userNumber || !numberConfirmed) {
     openResponseNumberModal();
     return;
   }
-  if(!recipientOrg) { openResponseNumberModal(); return; }
-  if(!file && !manualTaskText) { showToast('Topshiriq matni yoki topshiriq fayli majburiy', 'error'); return; }
+  if(!file) { showToast('Yuqori tashkilotdan kelgan topshiriq hujjatini yuklang', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
     const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
+    const inferredRecipient = inferResponseRecipientFromText(taskText) || inferResponseRecipientFromText(extra);
+    recipientOrg = isSpecificResponseRecipient(recipientOrg) ? responseRecipientToDative(recipientOrg) : inferredRecipient;
+    if(!recipientOrg) {
+      showToast('Qabul qiluvchi tashkilot hujjatdan aniqlanmadi. Xat raqami oynasida tashkilotni kiriting.', 'error');
+      openResponseNumberModal();
+      return;
+    }
+    const recipientHidden = document.getElementById('resp-recipient-org');
+    const summary = document.getElementById('resp-number-summary');
+    if(recipientHidden) recipientHidden.value = recipientOrg;
+    if(summary) summary.textContent = `Chiquvchi raqam: ${outNum}. Qabul qiluvchi: ${recipientOrg}`;
     if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
     if(!aiLearningCache.length) await loadAiLearningDocs().catch(()=>{});
-    const ragQuery = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
+    const ragQuery = `${taskText} ${region} ${extra}`;
     const legalRagContext = legalBaseContext(ragQuery);
     const learningRagContext = aiLearningContext(ragQuery);
-    const taskProfile = responseTaskProfile(ragQuery, { objectName, region, extra });
+    const taskProfile = responseTaskProfile(ragQuery, { region, extra });
     const previousBodies = recentGeneratedBodies(10);
     if(status) status.textContent = 'AI blankani o‘rganib, topshiriq mazmuniga mos individual javob yozmoqda...';
     if(tpl.isDefault && !tpl.extractedText) {
@@ -7699,20 +7745,16 @@ QAT'IY CHEKLOV: Huquqiy asos sifatida faqat yuqoridagi huquqiy baza kontekstida 
 
 Chiquvchi xat raqami: ${outNum}
 Sana: ${officialDate}
-Mas'ul shaxs: ${responsible}
 Tashkilot nomi: ${recipientOrg}
 Ijrochi: ${executorName || 'Kiritilmagan'}
 Ijrochi telefon raqami: ${executorPhone || 'Kiritilmagan'}
-Obyekt nomi: ${objectName}
 Hudud: ${region}
-Foydalanuvchi kiritgan topshiriq matni: ${manualTaskText || 'Kiritilmagan'}
 Qo'shimcha ma'lumot: ${extra}
 
 KIRISH MA'LUMOTLARI JSON:
 {
   "tashkilot": ${JSON.stringify(recipientOrg)},
-  "topshiriq": ${JSON.stringify(manualTaskText || taskText || '')},
-  "obyekt": ${JSON.stringify(objectName)},
+  "topshiriq": ${JSON.stringify(taskText || '')},
   "hudud": ${JSON.stringify(region)},
   "user_number": ${JSON.stringify(userNumber)},
   "qoshimcha": ${JSON.stringify(extra)}
@@ -7727,7 +7769,7 @@ header/html/footer/signature_block maydonlarini bo'sh qoldirishing mumkin; ular 
 body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana, №, qabul qiluvchi, MAVZU, imzo, ijrochi va telefon kiritilmasin.
 body birinchi gapi blankadagi kirish formulasi bilan boshlansin va topshiriqdan kelgan sana/raqam bo'lsa shular ishlatilsin.
 confidence_score 85 dan past bo'lmasin.`;
-    const qualitySeed = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
+    const qualitySeed = `${taskText} ${region} ${extra}`;
     const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies);
     parsed.body = cleanGeneratedResponseBody(parsed.body || parsed.answer_text || parsed.summary || '', {
       recipient: recipientOrg,
@@ -7737,8 +7779,8 @@ confidence_score 85 dan past bo'lmasin.`;
     parsed.header = header;
     parsed.out_number = outNum;
     parsed.date = officialDate;
-    parsed.recipient = parsed.recipient || recipientOrg;
-    parsed.signature_block = parsed.signature_block || responsible || 'O.Shodiyev';
+    parsed.recipient = recipientOrg;
+    parsed.signature_block = 'O.Shodiyev';
     parsed.executor_name = parsed.executor_name || executorName;
     parsed.executor_phone = parsed.executor_phone || executorPhone;
     parsed.ai_validated = true;
@@ -7746,7 +7788,7 @@ confidence_score 85 dan past bo'lmasin.`;
     const generated = {
       org: aiDocOrgScope(), userId:currentUser.uid, templateId:tpl.id, templateName:tpl.name,
       sourceFileName:file?.name || '', outNumber:outNum, date, officialDate, responsible,
-      requisites:{ userNumber, recipientOrg, objectName, region, header, executorName, executorPhone, taskText: manualTaskText || taskText, extra },
+      requisites:{ userNumber, recipientOrg, region, header, executorName, executorPhone, taskText, extra },
       aiValidated:true,
       validation:{
         aiOnly:true,
@@ -7877,7 +7919,7 @@ function officialSignatureName(value='') {
     .replace(/\b(v\.?v\.?b\.?|vazifasini\s+vaqtincha\s+bajaruvchi)\b/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  return cleaned || 'O.A.SHODIYEV';
+  return cleaned || 'O.Shodiyev';
 }
 
 function buildGeneratedDocHtml(g, gerbSrc='https://najmitdinov.github.io/ijroda_refactored/assets/template-gerb.png') {
@@ -7887,7 +7929,7 @@ function buildGeneratedDocHtml(g, gerbSrc='https://najmitdinov.github.io/ijroda_
   const docDate = normalizeOfficialDateText(c.date || g.officialDate || g.date || '');
   const executorName = c.executor_name || g.requisites?.executorName || '';
   const executorPhone = c.executor_phone || g.requisites?.executorPhone || '';
-  const signature = officialSignatureName(c.signature_block || g.responsible || 'O.A.SHODIYEV');
+  const signature = 'O.Shodiyev';
   const savedBody = cleanGeneratedResponseBody(String(c.body || c.answer_text || c.summary || '').trim(), {
     recipient,
     outNumber,
