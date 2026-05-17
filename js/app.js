@@ -7441,6 +7441,7 @@ function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', lea
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
   let body = String(parsed.body || '').trim();
   if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
+  body = cleanGeneratedResponseBody(body);
   if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
@@ -7459,6 +7460,35 @@ function extractValidatedResponseBody(parsed, qualitySeed='', legalContext='') {
   return check.ok ? check.body : '';
 }
 
+function cleanGeneratedResponseBody(text, meta={}) {
+  let s = String(text || '').replace(/\r/g, '\n').replace(/\u00a0/g, ' ').trim();
+  if(!s) return '';
+  const firstOpening = s.search(/\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i);
+  const firstHeaderNoise = s.search(/O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|MAVZU\s*:/i);
+  if(firstOpening > 0 && (firstHeaderNoise < 0 || firstHeaderNoise < firstOpening)) {
+    s = s.slice(firstOpening).trim();
+  }
+  const recipientNorm = normalizeText(meta.recipient || meta.recipientOrg || '');
+  const outNumber = String(meta.outNumber || '').trim();
+  const dateText = String(meta.date || meta.officialDate || '').trim();
+  const noiseLine = /O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|XO['‘`ʻ]?JALIGI|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|Tel\s*:|Faks\s*:|E-?mail\s*:|Sayt\s*:|MAVZU\s*:/i;
+  const dateLine = /^\s*20\d{2}\s*[- ]?y\.?.{0,35}(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)\s*$/i;
+  const numberLine = /^\s*(№|N[oº]?|#)\s*[0-9A-Za-zА-Яа-я\/.-]+\s*$/i;
+  const answerOpening = /\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i;
+  const cleanedLines = s.split(/\n+/).map(line => line.trim()).filter(line => {
+    if(!line) return false;
+    const n = normalizeText(line);
+    const isAnswerOpening = answerOpening.test(line);
+    if(dateLine.test(line) || numberLine.test(line)) return false;
+    if(!isAnswerOpening && outNumber && line.includes(outNumber) && line.length < 100) return false;
+    if(!isAnswerOpening && dateText && line.includes(dateText) && line.length < 100) return false;
+    if(!isAnswerOpening && recipientNorm && (n === recipientNorm || (n.includes(recipientNorm) && line.length < 140))) return false;
+    if(!isAnswerOpening && noiseLine.test(line)) return false;
+    return true;
+  });
+  return cleanedLines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[]) {
   let lastError = '';
   const retryNotes = [];
@@ -7471,6 +7501,8 @@ QAT'IY TALAB:
 - Lokal yoki shablon javob yozma.
 - Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
+- Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
+- Body birinchi gapi blankadagi kabi "Sizning ...dagi ...-sonli topshirig'ingizga asosan" yoki "...ning ...dagi ...-sonli xatiga asosan" formulasi bilan boshlansin.
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
 - Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
@@ -7585,6 +7617,10 @@ MAJBURIY TALABLAR:
 - Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, mas'ul xodim, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
 - Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
 - Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
+- BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
+- BODY faqat asosiy javob xati matni bo'lsin.
+- BODY birinchi gapi blankalardagi kabi boshlansin: "Sizning [kelgan sana]dagi [kelgan raqam]-sonli topshirig'ingizga asosan ..." yoki "[tashkilot]ning [kelgan sana]dagi [kelgan raqam]-sonli xatiga asosan ...". Kelgan sana/raqam topshiriqdan topilmasa, tashkilot nomi va topshiriq mazmuni bilan rasmiy kirish gap yoz.
+- AUTO_DATE va AUTO_NUMBER body ichida ishlatilmasin; ular faqat tepada rekvizit sifatida chiqadi.
 
 ${LEGAL_RESPONSE_QUALITY_RULES}
 
@@ -7611,11 +7647,12 @@ QIZIL HUDUDDAGI HEADER/GERB/REKVIZIT BLOKI O'ZGARTIRILMASIN.
 YASHIL HUDUD: sana va xat raqami chap tomonda alohida qatorlarda ko'rsatiladi.
 SABZI RANG HUDUD: qabul qiluvchi tashkilot o'ng tomonda, qalin (bold), Times New Roman 14 pt ko'rinishida bo'ladi.
 KO'K HUDUD: faqat asosiy javob xati matni yoziladi. Matn Times New Roman 14 pt, rasmiy, qisqa, asoslangan va individual bo'lsin.
+KO'K HUDUDGA QAYTA HEADER YOZISH TAQIQLANADI: sana, №, qabul qiluvchi, O'zbekiston Respublikasi headeri, manzil, "MAVZU:" va imzo bloklari body ichiga kirmaydi.
 SARIQ HUDUD: ijrochi va telefon past chapda italic ko'rinishida yoziladi.
 
 JAVOB YOZISH ALGORITMI:
 1. Topshiriq mazmunini ichki tahlil qil: kim yuborgan, nimani so'ragan, qaysi obyekt/hudud/qaror haqida, qanday natija talab qilingan.
-2. body matnining 1-obzasida aynan shu topshiriq predmeti va hujjat raqami/sanasini ko'rsat.
+2. body matnining 1-obzasini blankadagi kirish formulasi bilan boshlat: "Sizning ...dagi ...-sonli topshirig'ingizga asosan" yoki "...ning ...dagi ...-sonli xatiga asosan". Faqat kelgan hujjat raqami/sanasini ko'rsat; chiquvchi AUTO_NUMBER/AUTO_DATE ni body ichida takrorlama.
 3. 2-obzasda bosh boshqarma tomonidan amalga oshirilgan yoki amalga oshiriladigan aniq chora-tadbirlarni yoz.
 4. 3-obzasda faqat bazada mavjud huquqiy asoslarni ehtiyotkorlik bilan keltir; bazada yo'q modda/bandni uydirma.
 5. Yakuniy gap topshiriq mazmuniga mos bo'lsin: axborot taqdim etish, amaliy yordam berish, ijro nazoratini ta'minlash, kamchilikni bartaraf etish yoki tegishli mutaxassis biriktirish kabi aniq natija yozilsin.
@@ -7686,9 +7723,17 @@ ${(taskText || '').slice(0, 16000)}
 
 FAQAT JSON qaytar:
 {"title":"","recipient":"","out_number":"","date":"","responsible":"","task_analysis":{"what_requested":"","object":"","region":"","required_action":"","answer_strategy":""},"learned_style_used":"","body":"","footer":"","signature_block":"","style_notes":"","confidence_score":0,"quality_self_check":{"legal":true,"grammar":true,"logic":true,"style":true,"not_copied":true},"html":""}
-header maydonida aynan majburiy header matnini qaytar. body maydonida individual, topshiriqqa mos, asoslangan rasmiy javob xati matnini ber. confidence_score 85 dan past bo'lmasin. html maydoni ixtiyoriy.`;
+header/html/footer/signature_block maydonlarini bo'sh qoldirishing mumkin; ular tizim tomonidan alohida chiziladi.
+body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana, №, qabul qiluvchi, MAVZU, imzo, ijrochi va telefon kiritilmasin.
+body birinchi gapi blankadagi kirish formulasi bilan boshlansin va topshiriqdan kelgan sana/raqam bo'lsa shular ishlatilsin.
+confidence_score 85 dan past bo'lmasin.`;
     const qualitySeed = `${manualTaskText} ${taskText} ${objectName} ${region} ${extra}`;
     const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies);
+    parsed.body = cleanGeneratedResponseBody(parsed.body || parsed.answer_text || parsed.summary || '', {
+      recipient: recipientOrg,
+      outNumber: outNum,
+      date: officialDate
+    });
     parsed.header = header;
     parsed.out_number = outNum;
     parsed.date = officialDate;
@@ -7843,7 +7888,11 @@ function buildGeneratedDocHtml(g, gerbSrc='https://najmitdinov.github.io/ijroda_
   const executorName = c.executor_name || g.requisites?.executorName || '';
   const executorPhone = c.executor_phone || g.requisites?.executorPhone || '';
   const signature = officialSignatureName(c.signature_block || g.responsible || 'O.A.SHODIYEV');
-  const savedBody = String(c.body || c.answer_text || c.summary || '').trim();
+  const savedBody = cleanGeneratedResponseBody(String(c.body || c.answer_text || c.summary || '').trim(), {
+    recipient,
+    outNumber,
+    date: docDate
+  });
   if(!savedBody || savedBody.length < 40) {
     throw new Error('Bu hujjatda javob matni yo‘q. Avval AI orqali individual javob xati yarating.');
   }
@@ -7899,7 +7948,12 @@ function renderGeneratedPreview(g) {
   const el = document.getElementById('resp-preview');
   if(!el) return;
   const c = g.content || {};
-  el.innerHTML = `<h3>${escH(c.title || 'Javob xati')}</h3><div style="font-weight:700;color:var(--text);margin-bottom:10px;">${escH(g.outNumber || c.out_number || '')} | ${escH(g.officialDate || c.date || g.date || '')}</div><div style="font-weight:900;text-align:right;margin-bottom:12px;">${escH(c.recipient || g.requisites?.recipientOrg || '')}</div><div>${escH(c.header || g.requisites?.header || '').replace(/\n/g,'<br>')}</div><hr style="border:0;border-top:1px solid var(--border);margin:14px 0;"><div>${escH(c.body || '').replace(/\n/g,'<br>')}</div>${g.requisites?.executorName || g.requisites?.executorPhone ? `<div style="font-style:italic;font-size:12px;margin-top:18px;">Ijrochi: ${escH(g.requisites?.executorName || '')}<br>Tel: ${escH(g.requisites?.executorPhone || '')}</div>` : ''}
+  const previewBody = cleanGeneratedResponseBody(c.body || '', {
+    recipient: c.recipient || g.requisites?.recipientOrg || '',
+    outNumber: g.outNumber || c.out_number || '',
+    date: g.officialDate || c.date || g.date || ''
+  });
+  el.innerHTML = `<h3>${escH(c.title || 'Javob xati')}</h3><div style="font-weight:700;color:var(--text);margin-bottom:10px;">${escH(g.outNumber || c.out_number || '')} | ${escH(g.officialDate || c.date || g.date || '')}</div><div style="font-weight:900;text-align:right;margin-bottom:12px;">${escH(c.recipient || g.requisites?.recipientOrg || '')}</div><div>${escH(c.header || g.requisites?.header || '').replace(/\n/g,'<br>')}</div><hr style="border:0;border-top:1px solid var(--border);margin:14px 0;"><div>${escH(previewBody).replace(/\n/g,'<br>')}</div>${g.requisites?.executorName || g.requisites?.executorPhone ? `<div style="font-style:italic;font-size:12px;margin-top:18px;">Ijrochi: ${escH(g.requisites?.executorName || '')}<br>Tel: ${escH(g.requisites?.executorPhone || '')}</div>` : ''}
     <div class="actions-row" style="margin-top:16px;"><button class="btn btn-primary" onclick="downloadGeneratedDocument('${g.id}')">Word yuklash</button></div>`;
 }
 
