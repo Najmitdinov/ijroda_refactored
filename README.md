@@ -26,7 +26,7 @@ Eng oson yo'l:
 start_ijroda.bat
 ```
 
-Shu faylni ikki marta bosing. U lokal serverni yoqadi va saytni brauzerda ochadi.
+Shu faylni ikki marta bosing. U lokal serverni yoqadi va saytni brauzerda ochadi. Agar Python ishlamasa, launcher avtomatik Node static serverga o'tadi.
 
 Qo'lda ishga tushirish:
 
@@ -37,6 +37,8 @@ python -m http.server 5177
 Keyin brauzerda `http://127.0.0.1:5177` ni oching.
 
 Muhim: `index.html`ni to'g'ridan-to'g'ri ikki marta bosib `file://` orqali ochmang. Komponentlar `fetch()` orqali yuklanadi, shuning uchun lokal server kerak.
+
+`localhost:8080` frontend manzili emas. 8080 backend API porti bo'lib, backend alohida ishga tushirilgandan keyingina ochiladi.
 
 Ajratilgan panel soni: 19.
 
