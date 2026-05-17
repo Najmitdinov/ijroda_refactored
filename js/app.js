@@ -2990,8 +2990,8 @@ window.renderIntegrationsPanel = () => {
   el.innerHTML = `
     <div class="module-grid">
       <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
-      <div class="module-card"><h3>DeepSeek AI</h3><p>Javob xati va matnli AI vazifalar uchun asosiy provider.</p><span class="badge ${hasDeepSeek?'badge-done':'badge-fail'}">${hasDeepSeek?'Kalit bor':'Kalit yo‘q'}</span></div>
-      <div class="module-card"><h3>Gemini / Groq / OpenRouter</h3><p>Fallback zanjiri: DeepSeek → Gemini → Groq → OpenRouter. PDF/rasm uchun Gemini ishlatiladi.</p><span class="badge ${(hasGemini||hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGemini||hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
+      <div class="module-card"><h3>Gemini AI</h3><p>PDF/rasm va javob xati uchun asosiy multimodal provider.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
+      <div class="module-card"><h3>DeepSeek / Groq / OpenRouter</h3><p>AI fallback zanjiri: Gemini → DeepSeek → Groq → OpenRouter.</p><span class="badge ${(hasDeepSeek||hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasDeepSeek||hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
       <div class="module-card"><h3>PDF / Excel</h3><p>Excel import/export, Word yuklash va hujjat tahlili faol.</p><span class="badge badge-done">Faol</span></div>
     </div>
 
@@ -3345,7 +3345,7 @@ function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // ===== PROFESSIONAL SAAS CORE =====
 const SAAS_VERSION = '3.0.0-premium-saas';
 const SAAS_COLLECTIONS = ['users','chats','messages','analytics','logs','subscriptions','reports','settings','aiUsage','aiLogs','documents','fishkalar'];
-const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['DeepSeek','Gemini','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
+const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Gemini','DeepSeek','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
 let appSettingsCache = { ...DEFAULT_FEATURES };
 let adminUsersCache = [];
 
@@ -4142,20 +4142,6 @@ FAQAT JSON qaytar:
 html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
 
   let lastError = '';
-  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
-  if(deepSeekKey && !templatePart?.base64 && !taskPart?.base64) {
-    try {
-      const model = deepSeekModel();
-      const text = await callDeepSeekChat(prompt, { temperature:0.14, maxTokens:6200, jsonMode:true });
-      await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars:prompt.length, model });
-      return parseAIJson(text);
-    } catch(e) {
-      lastError = e.message;
-      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars:prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
-      console.warn('DeepSeek legal template fallback:', e.message);
-    }
-  }
-
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     try {
@@ -4179,6 +4165,21 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
       lastError = e.message;
       await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model:'gemini-2.5-flash', error:e.message }).catch(()=>{});
       console.warn('Gemini legal template fallback:', e.message);
+    }
+  }
+
+  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(deepSeekKey) {
+    try {
+      if(templatePart?.base64 || taskPart?.base64) throw new Error('DeepSeek fallback faqat matn uchun. Fayl/PDF shablon uchun Gemini kerak.');
+      const model = deepSeekModel();
+      const text = await callDeepSeekChat(prompt, { temperature:0.14, maxTokens:6200, jsonMode:true });
+      await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars:prompt.length, model });
+      return parseAIJson(text);
+    } catch(e) {
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars:prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
+      console.warn('DeepSeek legal template fallback:', e.message);
     }
   }
 
@@ -4793,22 +4794,6 @@ ${input.question || 'Hujjatni toliq tahlil qiling.'}
 Matn:
 ${(input.rawText || '').slice(0, 14000)}`;
 
-  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
-  if(deepSeekKey && input.rawText && !legalAiState.filePart?.base64) {
-    try {
-      const model = deepSeekModel();
-      const text = await callDeepSeekChat(prompt, { temperature:0.12, maxTokens:5200, jsonMode:true });
-      const parsed = parseAIJson(text);
-      if(parsed) {
-        await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars: prompt.length, model });
-        return { ...parsed, _provider:'DeepSeek' };
-      }
-    } catch(e) {
-      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars: prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
-      console.warn('DeepSeek legal fallback:', e.message);
-    }
-  }
-
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-flash','gemini-2.0-flash'];
@@ -4842,6 +4827,22 @@ ${(input.rawText || '').slice(0, 14000)}`;
       }
     }
     throw new Error(lastError || 'Gemini javobi o qilmadi');
+  }
+
+  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(deepSeekKey && input.rawText) {
+    try {
+      const model = deepSeekModel();
+      const text = await callDeepSeekChat(prompt, { temperature:0.12, maxTokens:5200, jsonMode:true });
+      const parsed = parseAIJson(text);
+      if(parsed) {
+        await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars: prompt.length, model });
+        return { ...parsed, _provider:'DeepSeek' };
+      }
+    } catch(e) {
+      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars: prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
+      console.warn('DeepSeek legal fallback:', e.message);
+    }
   }
 
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
@@ -6241,30 +6242,7 @@ async function aiDocExtractText(file) {
   if(!file) return '';
   if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 50000);
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return (await readAsText(file)).slice(0, 50000);
-  if(/\.pdf$/i.test(file.name) || file.type === 'application/pdf') return (await readPdfTextWithPdfJs(file)).slice(0, 50000);
   return '';
-}
-
-async function readPdfTextWithPdfJs(file) {
-  const pdfjs = window.pdfjsLib;
-  if(!pdfjs) return '';
-  try {
-    pdfjs.GlobalWorkerOptions.workerSrc = pdfjs.GlobalWorkerOptions.workerSrc || 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    const data = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data }).promise;
-    const pages = [];
-    const maxPages = Math.min(pdf.numPages || 0, 40);
-    for(let pageNo = 1; pageNo <= maxPages; pageNo++) {
-      const page = await pdf.getPage(pageNo);
-      const content = await page.getTextContent();
-      const line = (content.items || []).map(item => item.str || '').join(' ').replace(/\s+/g, ' ').trim();
-      if(line) pages.push(line);
-    }
-    return pages.join('\n\n');
-  } catch(e) {
-    console.warn('PDF text extract failed:', e.message);
-    return '';
-  }
 }
 
 function withTimeout(promise, ms, message='Amal bajarish vaqti tugadi') {
@@ -6373,20 +6351,6 @@ async function callDeepSeekChat(prompt, { temperature=0.2, maxTokens=6200, jsonM
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
   let lastError = '';
   const generationTemperature = jsonMode ? 0.22 : 0.28;
-  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
-  if(deepSeekKey && !filePart?.base64) {
-    try {
-      const model = deepSeekModel();
-      const text = await callDeepSeekChat(prompt, { temperature:generationTemperature, maxTokens: jsonMode ? 7000 : 7600, jsonMode });
-      await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars:prompt.length, model });
-      return text;
-    } catch(e) {
-      lastError = e.message;
-      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars:prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
-      console.warn('DeepSeek template fallback:', e.message);
-    }
-  }
-
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -6415,6 +6379,20 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
         await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model, error:e.message }).catch(()=>{});
         console.warn('Gemini template fallback:', model, e.message);
       }
+    }
+  }
+  const deepSeekKey = localStorage.getItem('DEEPSEEK_API_KEY') || '';
+  if(deepSeekKey) {
+    try {
+      if(filePart?.base64) throw new Error('DeepSeek fallback faqat matn uchun. Fayl/PDF tahlili uchun Gemini kerak.');
+      const model = deepSeekModel();
+      const text = await callDeepSeekChat(prompt, { temperature:generationTemperature, maxTokens: jsonMode ? 7000 : 7600, jsonMode });
+      await writeAIRequestLog({ provider:'DeepSeek', ok:true, chars:prompt.length, model });
+      return text;
+    } catch(e) {
+      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
+      await writeAIRequestLog({ provider:'DeepSeek', ok:false, chars:prompt.length, model:deepSeekModel(), error:e.message }).catch(()=>{});
+      console.warn('DeepSeek template fallback:', e.message);
     }
   }
   const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
@@ -8338,18 +8316,6 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
 
   const analyzeProviders = [
     {
-      name: 'DeepSeek',
-      getKey: () => localStorage.getItem('DEEPSEEK_API_KEY') || '',
-      call: async () => {
-        if(type === 'file' && filePart?.base64) {
-          throw new Error('DeepSeek fallback faqat matn uchun. PDF/screenshot uchun Gemini kalit kerak.');
-        }
-        const text = await callDeepSeekChat(userContent, { temperature:0.2, maxTokens:1800, jsonMode:true });
-        if (!text) throw new Error('Bo\'sh javob');
-        return text;
-      }
-    },
-    {
       name: 'Gemini',
       getKey: () => localStorage.getItem('GEMINI_API_KEY') || '',
       call: async (key) => {
@@ -8395,6 +8361,18 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
           return text;
         }
         throw new Error(lastGeminiError || 'Gemini model topilmadi');
+      }
+    },
+    {
+      name: 'DeepSeek',
+      getKey: () => localStorage.getItem('DEEPSEEK_API_KEY') || '',
+      call: async () => {
+        if(type === 'file' && filePart?.base64) {
+          throw new Error('DeepSeek fallback faqat matn uchun. PDF/screenshot uchun Gemini kalit kerak.');
+        }
+        const text = await callDeepSeekChat(userContent, { temperature:0.2, maxTokens:1800, jsonMode:true });
+        if (!text) throw new Error('Bo\'sh javob');
+        return text;
       }
     },
     {
@@ -8815,7 +8793,7 @@ document.addEventListener('click', (e) => {
 // ╚══════════════════════════════════════════════════════════════╝
 
 // AI Provider config — priority order
-// DeepSeek: text primary, Gemini: multimodal fallback
+// Gemini: multimodal primary, DeepSeek/Groq/OpenRouter: text fallback
 const AI_PROVIDERS = [
   {
     name: 'Gemini', icon: '🟦', streaming: false, model: 'gemini-2.5-flash',
@@ -8852,7 +8830,6 @@ const AI_PROVIDERS = [
 ].sort((a,b)=> providerPriorityIndex(a.name) - providerPriorityIndex(b.name));
 
 function providerPriorityIndex(name) {
-  if(name === 'DeepSeek') return -1;
   const custom = appSettingsCache.providerPriority || [];
   const customIdx = custom.indexOf(name);
   if(customIdx >= 0) return customIdx;
