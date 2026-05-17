@@ -54,3 +54,18 @@ Keyingi katta bosqich uchun tavsiya etilgan stack:
 - Supabase Storage
 
 Maqsad: dashboardni oddiy CRUD emas, balki monitoring, analytics, AI insights, automation va reporting system darajasiga olib chiqish.
+
+## Enterprise AI monorepo
+
+Yangi enterprise platforma skeleti mavjud statik app yoniga qo'shildi:
+
+- [Enterprise AI Ijro Platform](./docs/ENTERPRISE_AI_IJRO_PLATFORM.md)
+- `frontend/` - React, Vite, TailwindCSS, Shadcn-style UI, Framer Motion dashboard.
+- `backend/` - Node.js, Express, JWT/RBAC, AI analyzer, edu.ijro parser, task API.
+- `bot/` - Telegraf.js Telegram bot, `/start`, `/tasks`, daily digest.
+- `ai/` - AI JSON schema kontraktlari.
+- `database/` - PostgreSQL migration.
+- `storage/` - file storage layout.
+- `utils/` - umumiy TypeScript kontraktlar.
+
+Backend-only API kalitlar `.env` orqali ishlatiladi. Namuna: `.env.example`.

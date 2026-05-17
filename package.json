@@ -1,0 +1,27 @@
+{
+  "name": "ijro-ai-enterprise-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-powered edu.ijro.uz monitoring, task control and Telegram notification platform.",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "bot",
+    "ai"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:backend dev:bot dev:frontend",
+    "dev:frontend": "npm --workspace frontend run dev",
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:bot": "npm --workspace bot run dev",
+    "build": "npm --workspace ai run build && npm --workspace backend run build && npm --workspace bot run build && npm --workspace frontend run build",
+    "typecheck": "npm --workspace ai run typecheck && npm --workspace backend run typecheck && npm --workspace bot run typecheck && npm --workspace frontend run typecheck"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
