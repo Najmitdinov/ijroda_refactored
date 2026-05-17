@@ -9,9 +9,10 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(24),
   JWT_REFRESH_SECRET: z.string().min(24),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  TELEGRAM_ADMIN_SECRET: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
-  DEEPSEEK_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional()
 });
 

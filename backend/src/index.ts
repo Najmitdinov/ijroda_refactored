@@ -10,6 +10,7 @@ import documentRoutes from './routes/document.routes.js';
 import taskRoutes from './routes/task.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import aiRoutes from './routes/ai.routes.js';
+import telegramRoutes from './routes/telegram.routes.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/telegram', telegramRoutes);
 app.use(errorHandler);
 
 app.listen(env.API_PORT, () => {

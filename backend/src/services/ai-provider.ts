@@ -12,7 +12,6 @@ export async function completeJson(request: AiJsonRequest): Promise<unknown> {
   const providers = [
     callOpenRouter,
     callGemini,
-    callDeepSeek,
     callOpenAi
   ];
 
@@ -59,24 +58,6 @@ async function callGemini({ system, prompt, temperature = 0.2 }: AiJsonRequest) 
     generationConfig: { temperature, responseMimeType: 'application/json' }
   });
   return result.response.text();
-}
-
-async function callDeepSeek({ system, prompt, temperature = 0.2 }: AiJsonRequest) {
-  if (!env.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY_MISSING');
-  const client = new OpenAI({
-    apiKey: env.DEEPSEEK_API_KEY,
-    baseURL: 'https://api.deepseek.com'
-  });
-  const result = await client.chat.completions.create({
-    model: 'deepseek-chat',
-    temperature,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: prompt }
-    ]
-  });
-  return result.choices[0]?.message?.content ?? '{}';
 }
 
 async function callOpenAi({ system, prompt, temperature = 0.2 }: AiJsonRequest) {

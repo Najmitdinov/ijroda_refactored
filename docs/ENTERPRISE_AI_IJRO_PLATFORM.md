@@ -26,8 +26,7 @@ AI-powered edu.ijro monitoring platform.
 
 1. OpenRouter
 2. Gemini
-3. DeepSeek
-4. OpenAI fallback
+3. OpenAI fallback
 
 Every AI response must be strict JSON and validated against schemas before use.
 

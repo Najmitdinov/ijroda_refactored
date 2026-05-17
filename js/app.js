@@ -2985,6 +2985,7 @@ window.renderIntegrationsPanel = () => {
   const hasOpenRouter = !!localStorage.getItem('OPENROUTER_API_KEY');
   const tg = getTelegramSettings();
   const tgReady = telegramIsConfigured(tg);
+  const tgWebhookUrl = tg.webhookUrl || (tg.apiBase ? `${tg.apiBase.replace(/\/+$/,'')}/api/telegram/webhook/update` : '');
   const rulesProject = firebaseConfig?.projectId || 'Firebase loyiha';
   el.innerHTML = `
     <div class="module-grid">
@@ -2995,27 +2996,32 @@ window.renderIntegrationsPanel = () => {
     </div>
 
     <div class="card" style="margin-top:18px;">
-      <div class="card-title">Telegram bot</div>
+      <div class="card-title">Telegram bot - production integratsiya</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <span class="badge ${tgReady?'badge-done':'badge-fail'}">${tgReady?'Faol':'Sozlanmagan'}</span>
-        <span style="font-size:12px;color:var(--muted);">Deadline, login va xavfsizlik alertlari Telegramga yuboriladi.</span>
+        <span class="badge ${tgReady?'badge-done':'badge-fail'}">${tgReady?'Backend ulangan':'Backend sozlanmagan'}</span>
+        <span id="tg-live-status" class="badge badge-new">Status tekshirilmoqda...</span>
+        <span style="font-size:12px;color:var(--muted);">Token faqat backend .env ichida saqlanadi. Brauzerga bot token yozilmaydi.</span>
       </div>
       <div class="form-grid">
-        <label class="field"><span>Bot token</span><input id="tg-bot-token" type="password" value="${escH(tg.botToken || '')}" placeholder="123456789:AA..."></label>
-        <label class="field"><span>Chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="-1001234567890 yoki user chat_id"></label>
-        <label class="toggle-row"><input type="checkbox" id="tg-enabled" ${tg.enabled?'checked':''}> <span>Telegram botni yoqish</span></label>
-        <label class="toggle-row"><input type="checkbox" id="tg-deadline" ${tg.deadlineAlerts?'checked':''}> <span>Deadline alertlari</span></label>
+        <label class="field"><span>Backend API URL</span><input id="tg-api-base" value="${escH(tg.apiBase || '')}" placeholder="https://api.example.uz yoki http://localhost:8080"></label>
+        <label class="field"><span>Admin secret</span><input id="tg-admin-secret" type="password" value="${escH(tg.adminSecret || '')}" placeholder="TELEGRAM_ADMIN_SECRET"></label>
+        <label class="field"><span>Test chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="Telegram user_id yoki group chat_id"></label>
+        <label class="field"><span>Webhook URL</span><input id="tg-webhook-url" value="${escH(tgWebhookUrl)}" placeholder="https://api.example.uz/api/telegram/webhook/update"></label>
+        <label class="toggle-row"><input type="checkbox" id="tg-enabled" ${tg.enabled?'checked':''}> <span>Telegram integratsiyani yoqish</span></label>
+        <label class="toggle-row"><input type="checkbox" id="tg-deadline" ${tg.deadlineAlerts?'checked':''}> <span>Deadline digest</span></label>
         <label class="toggle-row"><input type="checkbox" id="tg-login" ${tg.loginAlerts?'checked':''}> <span>Login alertlari</span></label>
         <label class="toggle-row"><input type="checkbox" id="tg-security" ${tg.securityAlerts?'checked':''}> <span>Xavfsizlik alertlari</span></label>
       </div>
       <div class="actions-row" style="margin-top:14px;">
         <button class="btn btn-primary" onclick="saveTelegramSettings()">Saqlash</button>
         <button class="btn btn-success" onclick="testTelegramBot()">Test xabar</button>
-        <button class="btn btn-outline" onclick="sendTelegramDeadlineDigest()">Deadline digest yuborish</button>
-        <button class="btn btn-danger" onclick="clearTelegramSettings()">O‘chirish</button>
+        <button class="btn btn-outline" onclick="sendTelegramDeadlineDigest()">Daily digest</button>
+        <button class="btn btn-outline" onclick="setupTelegramWebhook()">Webhook o'rnatish</button>
+        <button class="btn btn-outline" onclick="refreshTelegramBackendStatus()">Status yangilash</button>
+        <button class="btn btn-danger" onclick="clearTelegramSettings()">O'chirish</button>
       </div>
-      <div style="margin-top:12px;font-size:12px;color:var(--muted);line-height:1.7;">
-        BotFather orqali bot yarating, botni kerakli guruhga qo‘shing, guruh chat_id ni kiriting. Token ushbu brauzer localStorage xotirasida saqlanadi.
+      <div id="tg-status-details" style="margin-top:12px;font-size:12px;color:var(--muted);line-height:1.7;">
+        Backend .env: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET va TELEGRAM_ADMIN_SECRET to'ldiriladi. /start orqali xodim employee_id bilan ulanadi.
       </div>
     </div>
 
@@ -3051,6 +3057,7 @@ window.renderIntegrationsPanel = () => {
       </div>
     </div>`;
   applyLanguage(el);
+  refreshTelegramBackendStatus().catch(()=>{});
 };
 
 function buildSystemNotifications(rows = allDocs) {
@@ -3400,28 +3407,36 @@ function simpleHash(input='') {
 function getTelegramSettings() {
   const defaults = {
     enabled: false,
-    botToken: '',
+    apiBase: localStorage.getItem('IJRO_BACKEND_API_BASE') || '',
+    adminSecret: '',
     chatId: '',
+    webhookUrl: '',
     deadlineAlerts: true,
     loginAlerts: true,
     securityAlerts: true
   };
   try {
-    return { ...defaults, ...(JSON.parse(localStorage.getItem(TELEGRAM_CONFIG_KEY) || '{}') || {}) };
+    const saved = JSON.parse(localStorage.getItem(TELEGRAM_CONFIG_KEY) || '{}') || {};
+    delete saved['bot' + 'Token'];
+    return { ...defaults, ...saved };
   } catch(e) {
     return defaults;
   }
 }
 
+function telegramApiBase(cfg = getTelegramSettings()) {
+  return String(cfg.apiBase || '').trim().replace(/\/+$/, '');
+}
+
 function telegramIsConfigured(cfg = getTelegramSettings()) {
-  return !!(cfg.enabled && cfg.botToken && cfg.chatId);
+  return !!(cfg.enabled && telegramApiBase(cfg));
 }
 
 function maskSecret(value='') {
   const s = String(value || '');
   if(!s) return '';
-  if(s.length <= 10) return '••••';
-  return `${s.slice(0, 6)}••••${s.slice(-4)}`;
+  if(s.length <= 10) return '****';
+  return `${s.slice(0, 6)}****${s.slice(-4)}`;
 }
 
 function telegramTodayKey() {
@@ -3429,43 +3444,49 @@ function telegramTodayKey() {
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 }
 
+async function callTelegramBackend(path, options = {}) {
+  const cfg = getTelegramSettings();
+  const base = telegramApiBase(cfg);
+  if(!base) throw new Error('Backend API URL kiritilmagan');
+  const headers = { 'Content-Type': 'application/json' };
+  if(cfg.adminSecret) headers['x-telegram-admin-secret'] = cfg.adminSecret;
+  const response = await fetch(`${base}/api/telegram${path}`, {
+    method: options.method || 'GET',
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const data = await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data.error || data.message || `Backend HTTP ${response.status}`);
+  return data.data ?? data;
+}
+
 async function sendTelegramMessage(text, options = {}) {
   const cfg = getTelegramSettings();
-  if(!telegramIsConfigured(cfg)) return { skipped:true, reason:'Telegram sozlanmagan' };
-  const token = cfg.botToken.trim();
-  const payload = {
-    chat_id: cfg.chatId.trim(),
-    text: String(text || '').slice(0, 3900),
-    disable_web_page_preview: true
-  };
-  const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  if(!telegramIsConfigured(cfg)) return { skipped:true, reason:'Telegram backend sozlanmagan' };
+  if(!cfg.chatId) return { skipped:true, reason:'Test chat ID kiritilmagan' };
+  const result = await callTelegramBackend('/test', {
     method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
+    body:{ chatId: cfg.chatId, text: String(text || '').slice(0, 3900) }
   });
-  const data = await resp.json().catch(()=>({}));
-  if(!resp.ok || data.ok === false) {
-    throw new Error(data?.description || `Telegram HTTP ${resp.status}`);
-  }
   if(options.audit !== false) {
     writeAudit('telegram.message_sent', { kind: options.kind || 'manual', chatId: maskSecret(cfg.chatId) }).catch(()=>{});
   }
-  return data.result || data;
+  return result;
 }
 
 function buildTelegramHeader(title='Ijro Hisobot') {
-  const user = currentUserData?.fullName || currentUser?.email || 'Noma’lum foydalanuvchi';
-  const org = currentUserData?.org || 'Tashkilot ko‘rsatilmagan';
+  const user = currentUserData?.fullName || currentUser?.email || 'Nomalum foydalanuvchi';
+  const org = currentUserData?.org || 'Tashkilot korsatilmagan';
   return `${title}\nTizim: Ijro Hisobot\nFoydalanuvchi: ${user}\nTashkilot: ${org}\nVaqt: ${new Date().toLocaleString('uz-UZ')}`;
 }
 
 async function sendTelegramLoginAlert(uid, deviceResult={}, flags=[]) {
   const cfg = getTelegramSettings();
   const hasWarning = (flags || []).some(f => f.level === 'warning');
-  if(!cfg.enabled || !cfg.botToken || !cfg.chatId) return;
+  if(!telegramIsConfigured(cfg) || !cfg.chatId) return;
   if(!cfg.loginAlerts && !(cfg.securityAlerts && hasWarning)) return;
   const flagText = flags?.length ? flags.map(f => `- ${f.msg || f.type}`).join('\n') : '- Shubhali holat aniqlanmadi';
-  const text = `${buildTelegramHeader(hasWarning ? 'Xavfsizlik ogohlantirishi' : 'Login xabarnomasi')}\n\nUID: ${uid}\nQurilma: ${deviceResult.deviceName || Security.getDeviceName()}\nYangi qurilma: ${deviceResult.isNewDevice ? 'Ha' : 'Yo‘q'}\n\nHolatlar:\n${flagText}`;
+  const text = `${buildTelegramHeader(hasWarning ? 'Xavfsizlik ogohlantirishi' : 'Login xabarnomasi')}\n\nUID: ${uid}\nQurilma: ${deviceResult.deviceName || Security.getDeviceName()}\nYangi qurilma: ${deviceResult.isNewDevice ? 'Ha' : 'Yoq'}\n\nHolatlar:\n${flagText}`;
   await sendTelegramMessage(text, { kind: hasWarning ? 'security_login' : 'login' });
 }
 
@@ -3480,54 +3501,106 @@ function writeTelegramSentMap(map) {
 
 async function notifyTelegramDeadlines(notices=[], force=false) {
   const cfg = getTelegramSettings();
-  if(!cfg.enabled || !cfg.deadlineAlerts || !cfg.botToken || !cfg.chatId) return { skipped:true };
-  const rows = (notices || []).filter(n => ['danger','warning'].includes(n.level)).slice(0, 20);
-  if(!rows.length) return { skipped:true, reason:'Bildirishnoma yo‘q' };
+  if(!telegramIsConfigured(cfg) || !cfg.deadlineAlerts) return { skipped:true };
   const day = telegramTodayKey();
   const sent = readTelegramSentMap();
-  const selected = force ? rows.slice(0, 12) : rows.filter(n => {
-    const key = `${day}_${simpleHash(`${n.level}|${n.title}|${n.body}|${n.meta}`)}`;
-    return !sent[key];
-  }).slice(0, 12);
-  if(!selected.length) return { skipped:true, reason:'Bugun yuborilgan' };
-  const lines = selected.map((n, i) => `${i+1}. [${n.level === 'danger' ? 'MUHIM' : 'OGOHLANTIRISH'}] ${n.title}\n${n.body}${n.meta ? `\nMuddat: ${n.meta}` : ''}`).join('\n\n');
-  const text = `${buildTelegramHeader('Deadline alert')}\n\n${lines}`;
-  await sendTelegramMessage(text, { kind:'deadline_digest' });
-  selected.forEach(n => {
-    const key = `${day}_${simpleHash(`${n.level}|${n.title}|${n.body}|${n.meta}`)}`;
-    sent[key] = nowIso();
+  const key = `${day}_backend_digest`;
+  if(!force && sent[key]) return { skipped:true, reason:'Bugun yuborilgan' };
+  const result = await callTelegramBackend('/digest', {
+    method:'POST',
+    body:{ chatId: cfg.chatId || undefined }
   });
+  sent[key] = nowIso();
   writeTelegramSentMap(sent);
-  return { sent:selected.length };
+  return { sent: result.sent || 0, recipients: result.recipients || 0 };
 }
+
+function updateTelegramStatusBadge(type, text) {
+  const badge = document.getElementById('tg-live-status');
+  if(!badge) return;
+  badge.className = `badge ${type === 'ok' ? 'badge-done' : type === 'warn' ? 'badge-new' : 'badge-fail'}`;
+  badge.textContent = text;
+}
+
+function updateTelegramStatusDetails(html) {
+  const details = document.getElementById('tg-status-details');
+  if(details) details.innerHTML = html;
+}
+
+window.refreshTelegramBackendStatus = async function() {
+  const cfg = getTelegramSettings();
+  if(!telegramApiBase(cfg)) {
+    updateTelegramStatusBadge('warn', 'Backend URL kiritilmagan');
+    updateTelegramStatusDetails('Backend API URL kiritilgandan keyin bot holati shu yerda korinadi. Token faqat backend .env ichida saqlanadi.');
+    return { skipped:true };
+  }
+  try {
+    updateTelegramStatusBadge('warn', 'Tekshirilmoqda...');
+    const status = await callTelegramBackend('/status');
+    if(!status.configured) {
+      updateTelegramStatusBadge('fail', 'TELEGRAM_BOT_TOKEN yoq');
+      updateTelegramStatusDetails('Backend ishlayapti, lekin .env ichida TELEGRAM_BOT_TOKEN topilmadi. Tokenni serverga qoyib qayta deploy qiling.');
+      return status;
+    }
+    const botName = status.bot?.username ? '@' + status.bot.username : (status.bot?.first_name || 'Telegram bot');
+    const webhookUrl = status.webhook?.url || 'webhook ornatilmagan';
+    const pending = status.webhook?.pending_update_count ?? 0;
+    const db = status.database || {};
+    updateTelegramStatusBadge('ok', `${botName} ulangan`);
+    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Pending updates: <b>${pending}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>`);
+    return status;
+  } catch(e) {
+    updateTelegramStatusBadge('fail', 'Backend ulanmagan');
+    updateTelegramStatusDetails(`Telegram backend xatosi: ${escH(e.message || String(e))}`);
+    throw e;
+  }
+};
+
+window.setupTelegramWebhook = async function() {
+  try {
+    const input = document.getElementById('tg-webhook-url');
+    const url = sanitize(input?.value || '', 260);
+    if(!url) throw new Error('Webhook URL kiritilmagan');
+    await callTelegramBackend('/webhook', { method:'POST', body:{ url } });
+    const cfg = { ...getTelegramSettings(), webhookUrl: url };
+    localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
+    showToast('Telegram webhook ornatildi', 'success');
+    await refreshTelegramBackendStatus();
+  } catch(e) {
+    showToast('Webhook ornatilmadi: ' + e.message, 'error');
+  }
+};
 
 window.saveTelegramSettings = function() {
   const cfg = {
     enabled: !!document.getElementById('tg-enabled')?.checked,
-    botToken: sanitize(document.getElementById('tg-bot-token')?.value || '', 160),
+    apiBase: sanitize(document.getElementById('tg-api-base')?.value || '', 220).replace(/\/+$/, ''),
+    adminSecret: sanitize(document.getElementById('tg-admin-secret')?.value || '', 160),
     chatId: sanitize(document.getElementById('tg-chat-id')?.value || '', 80),
+    webhookUrl: sanitize(document.getElementById('tg-webhook-url')?.value || '', 260),
     deadlineAlerts: !!document.getElementById('tg-deadline')?.checked,
     loginAlerts: !!document.getElementById('tg-login')?.checked,
     securityAlerts: !!document.getElementById('tg-security')?.checked
   };
   localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
-  showToast('Telegram bot sozlamalari saqlandi', 'success');
-  writeAudit('telegram.settings_saved', { enabled: cfg.enabled, chatId: maskSecret(cfg.chatId), deadlineAlerts: cfg.deadlineAlerts, loginAlerts: cfg.loginAlerts, securityAlerts: cfg.securityAlerts }).catch(()=>{});
-  if(cfg.enabled && cfg.deadlineAlerts) notifyTelegramDeadlines(notificationCache.length ? notificationCache : buildSystemNotifications(allDocs)).catch(console.warn);
+  if(cfg.apiBase) localStorage.setItem('IJRO_BACKEND_API_BASE', cfg.apiBase);
+  showToast('Telegram backend sozlamalari saqlandi', 'success');
+  writeAudit('telegram.settings_saved', { enabled: cfg.enabled, apiBase: cfg.apiBase, chatId: maskSecret(cfg.chatId), deadlineAlerts: cfg.deadlineAlerts, loginAlerts: cfg.loginAlerts, securityAlerts: cfg.securityAlerts }).catch(()=>{});
   renderIntegrationsPanel();
 };
 
 window.clearTelegramSettings = function() {
-  if(!confirm('Telegram bot sozlamalari o‘chirilsinmi?')) return;
+  if(!confirm('Telegram bot sozlamalari ochirilsinmi?')) return;
   localStorage.removeItem(TELEGRAM_CONFIG_KEY);
-  showToast('Telegram sozlamalari o‘chirildi', 'info');
+  showToast('Telegram sozlamalari ochirildi', 'info');
   renderIntegrationsPanel();
 };
 
 window.testTelegramBot = async function() {
   try {
-    await sendTelegramMessage(`${buildTelegramHeader('Test xabar')}\n\nTelegram bot Ijro Hisobot dasturiga muvaffaqiyatli ulandi.`, { kind:'test' });
+    await sendTelegramMessage(`${buildTelegramHeader('Test xabar')}\n\nTelegram bot backend orqali muvaffaqiyatli ulandi.`, { kind:'test' });
     showToast('Telegram test xabari yuborildi', 'success');
+    await refreshTelegramBackendStatus();
   } catch(e) {
     showToast('Telegram yuborilmadi: ' + e.message, 'error');
   }
@@ -3535,11 +3608,12 @@ window.testTelegramBot = async function() {
 
 window.sendTelegramDeadlineDigest = async function() {
   try {
-    const notices = notificationCache.length ? notificationCache : buildSystemNotifications(allDocs);
-    const result = await notifyTelegramDeadlines(notices, true);
-    showToast(result.sent ? `Telegramga ${result.sent} ta alert yuborildi` : 'Yuboriladigan alert yo‘q', result.sent ? 'success' : 'info');
+    const result = await notifyTelegramDeadlines([], true);
+    const sent = result.sent || 0;
+    const recipients = result.recipients || 0;
+    showToast(sent ? `Telegram digest yuborildi: ${sent} ta xabar, ${recipients} ta qabul qiluvchi` : 'Digest uchun aktiv Telegram topshiriq topilmadi', sent ? 'success' : 'info');
   } catch(e) {
-    showToast('Telegram deadline alert yuborilmadi: ' + e.message, 'error');
+    showToast('Telegram digest yuborilmadi: ' + e.message, 'error');
   }
 };
 
