@@ -1,4 +1,4 @@
-const APP_BUILD = '20260517-ai-restore1';
+const APP_BUILD = '20260517-recipient-optional1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

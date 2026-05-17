@@ -7590,16 +7590,27 @@ function isSpecificResponseRecipient(name='') {
 }
 
 function inferResponseRecipientFromText(text='') {
-  const rawLines = String(text || '').split(/\r?\n/).map(x => compactResponseText(x)).filter(Boolean).slice(0, 120);
+  const rawLines = String(text || '').split(/\r?\n/).map(x => compactResponseText(x)).filter(Boolean).slice(0, 140);
   const candidates = [];
-  const ownOrg = /navoiy\s+viloyati\s+qurilish|bosh\s+boshqarmasi|navqurilish/i;
+  const ownOrg = /navoiy\s+viloyati\s+qurilish|navqurilish|zarapetyan|210100/i;
   const orgWords = /(vazirligi|vazirlik|hokimligi|hokimlik|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|qo['‘`ʻ]?mita|agentligi|agentlik|departamenti|departament|markazi|markaz|vazirlar\s+mahkamasi)/i;
   rawLines.forEach((line, idx) => {
-    let c = line;
+    const windowText = [rawLines[idx - 2], rawLines[idx - 1], line, rawLines[idx + 1]]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    let c = orgWords.test(line) ? line : windowText;
     const prev = rawLines[idx - 1] || '';
     if(/^o['‘`ʻ]?zbekiston\s+respublikasi$/i.test(prev) && !/^o['‘`ʻ]?zbekiston/i.test(c)) {
       c = `${prev} ${c}`;
     }
+    c = c
+      .replace(/^(kimga|qabul\s+qiluvchi|adresat|yuborilgan)\s*[:\-]\s*/i, '')
+      .replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b.*$/i, '')
+      .replace(/\b(sonli|raqamli)\b.*$/i, '')
+      .replace(/[.,;:]+$/g, '')
+      .trim();
     if(!orgWords.test(c) || ownOrg.test(c)) return;
     if(c.length < 7 || c.length > 180) return;
     const score =
@@ -7691,12 +7702,7 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
     const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
     const inferredRecipient = inferResponseRecipientFromText(taskText) || inferResponseRecipientFromText(extra);
-    recipientOrg = isSpecificResponseRecipient(recipientOrg) ? responseRecipientToDative(recipientOrg) : inferredRecipient;
-    if(!recipientOrg) {
-      showToast('Qabul qiluvchi tashkilot hujjatdan aniqlanmadi. Xat raqami oynasida tashkilotni kiriting.', 'error');
-      openResponseNumberModal();
-      return;
-    }
+    recipientOrg = recipientOrg ? responseRecipientToDative(recipientOrg) : (inferredRecipient || 'Yuqori turuvchi tashkilotga');
     const recipientHidden = document.getElementById('resp-recipient-org');
     const summary = document.getElementById('resp-number-summary');
     if(recipientHidden) recipientHidden.value = recipientOrg;
