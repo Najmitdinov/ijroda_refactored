@@ -7563,14 +7563,18 @@ function cleanGeneratedResponseBody(text, meta={}) {
 
 function normalizeResponseRecipientName(name='') {
   let s = compactResponseText(name)
-    .replace(/^o['‘`ʻ]?zbekiston\s+respublikasi\s+/i, '')
     .replace(/^(kimdan|yuboruvchi|jo['‘`ʻ]?natuvchi|manba)\s*[:\-]\s*/i, '')
     .replace(/[.,;:]+$/g, '')
     .trim();
   if(!s) return '';
   if(s === s.toUpperCase()) {
-    s = s.toLocaleLowerCase('uz-UZ');
-    s = s.charAt(0).toLocaleUpperCase('uz-UZ') + s.slice(1);
+    const words = s.toLocaleLowerCase('uz-UZ').split(/\s+/);
+    const startsWithRepublic = /^o['‘`ʻ]?zbekiston$/.test(words[0] || '') && /^respublikasi$/.test(words[1] || '');
+    s = words
+      .map((word, idx) => (idx === 0 || (startsWithRepublic && (idx === 1 || idx === 2)))
+        ? word.charAt(0).toLocaleUpperCase('uz-UZ') + word.slice(1)
+        : word)
+      .join(' ');
   }
   return s;
 }
@@ -7589,8 +7593,75 @@ function isSpecificResponseRecipient(name='') {
   return s.length >= 12 && /(vazirligi|vazirlik|hokimligi|hokimlik|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|qo['‘`ʻ]?mita|agentligi|agentlik|departamenti|departament|markazi|markaz|mahkamasi)/i.test(s);
 }
 
+function responseTextLines(text='', limit=160) {
+  return String(text || '').split(/\r?\n/)
+    .map(x => compactResponseText(x))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function isLikelyResponseHeaderOrgLine(line='') {
+  const s = compactResponseText(line);
+  if(!s || s.length < 5 || s.length > 150) return false;
+  if(/ijro\.?gov|hujjat\s+kodi|tasdiqlangan|kmf\d+|tel\.?|e-?mail|www\.|@|ko['‘`ʻ]?chasi|\b\d+[-\s]*uy\b|^\d{4}\s*yil/i.test(s)) return false;
+  return /o['‘`ʻ]?zbekiston\s+respublikasi|vazirligi|vazirlik|hokimligi|hokimlik|bosh\s+boshqarmasi|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|agentligi|departamenti|markazi|mahkamasi/i.test(s);
+}
+
+function inferResponseSenderOrgFromHeader(text='') {
+  const lines = responseTextLines(text, 90);
+  const candidates = [];
+  for(let i = 0; i < lines.length; i++) {
+    if(!isLikelyResponseHeaderOrgLine(lines[i])) continue;
+    const block = [lines[i]];
+    for(let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
+      if(!isLikelyResponseHeaderOrgLine(lines[j])) break;
+      block.push(lines[j]);
+    }
+    const org = block.join(' ').replace(/\s+/g, ' ').trim();
+    if(!/(vazirligi|vazirlik|hokimligi|hokimlik|bosh\s+boshqarmasi|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|agentligi|departamenti|markazi|mahkamasi)/i.test(org)) continue;
+    const score = (/(^|\s)o['‘`ʻ]?zbekiston\s+respublikasi/i.test(org) ? 40 : 0) +
+      (/vazirligi|vazirlik/i.test(org) ? 45 : 0) +
+      (/bosh\s+boshqarmasi|boshqarmasi|boshqarma/i.test(org) ? 30 : 0) +
+      Math.max(0, 80 - i);
+    candidates.push({ org, score });
+  }
+  candidates.sort((a,b) => b.score - a.score);
+  return responseRecipientToDative(candidates[0]?.org || '');
+}
+
+function inferIncomingTaskRequisites(text='') {
+  const lines = responseTextLines(text, 120);
+  const all = lines.join(' ');
+  const datePatterns = [
+    /\b20\d{2}\s*yil[.,\s]*(?:["“”«»])?\s*\d{1,2}\s*(?:["“”«»])?\s*(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)\b/i,
+    /\b\d{1,2}[.\-/]\d{1,2}[.\-/]20\d{2}\b/
+  ];
+  const numberPatterns = [
+    /\b\d{1,3}[-/]\d{1,4}[-/]\d{1,6}\s*[- ]?son\b/i,
+    /\b\d{1,3}[-/]\d{1,4}[-/]\d{1,6}\b/,
+    /№\s*[\w\-/.]+/i
+  ];
+  const date = (datePatterns.map(re => all.match(re)?.[0]).find(Boolean) || '').replace(/\s+/g, ' ').trim();
+  let number = numberPatterns.map(re => all.match(re)?.[0]).find(Boolean) || '';
+  number = number.replace(/^№\s*/i, '').replace(/\s*[- ]?son$/i, '').trim();
+  return { date, number };
+}
+
+function responseOpeningFormula(senderOrg='', req={}) {
+  const org = normalizeResponseRecipientName(senderOrg).replace(/\b(ga|ka|qa)$/i, '');
+  const date = compactResponseText(req.date || '');
+  const number = compactResponseText(req.number || '');
+  if(date && number) return `Sizning ${date}dagi ${number}-sonli topshirig'ingizga asosan`;
+  if(number) return `Sizning ${number}-sonli topshirig'ingizga asosan`;
+  if(date) return `Sizning ${date}dagi topshirig'ingizga asosan`;
+  if(org) return `${org}ning topshirig'iga asosan`;
+  return `Sizning topshirig'ingizga asosan`;
+}
+
 function inferResponseRecipientFromText(text='') {
-  const rawLines = String(text || '').split(/\r?\n/).map(x => compactResponseText(x)).filter(Boolean).slice(0, 140);
+  const headerOrg = inferResponseSenderOrgFromHeader(text);
+  if(headerOrg) return headerOrg;
+  const rawLines = responseTextLines(text, 140);
   const candidates = [];
   const ownOrg = /navoiy\s+viloyati\s+qurilish|navqurilish|zarapetyan|210100/i;
   const orgWords = /(vazirligi|vazirlik|hokimligi|hokimlik|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|qo['‘`ʻ]?mita|agentligi|agentlik|departamenti|departament|markazi|markaz|vazirlar\s+mahkamasi)/i;
@@ -7625,7 +7696,7 @@ function inferResponseRecipientFromText(text='') {
   return responseRecipientToDative(candidates[0]?.text || '');
 }
 
-async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[]) {
+async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='') {
   let lastError = '';
   const retryNotes = [];
   for(let attempt = 0; attempt < 4; attempt++) {
@@ -7638,7 +7709,7 @@ QAT'IY TALAB:
 - Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
-- Body birinchi gapi blankadagi kabi "Sizning ...dagi ...-sonli topshirig'ingizga asosan" yoki "...ning ...dagi ...-sonli xatiga asosan" formulasi bilan boshlansin.
+- Body birinchi gapi aynan shu kirish formulasi bilan boshlansin: "${requiredOpening} ...".
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
 - Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
@@ -7701,8 +7772,15 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
   try {
     const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
+    const incomingReq = inferIncomingTaskRequisites(taskText);
     const inferredRecipient = inferResponseRecipientFromText(taskText) || inferResponseRecipientFromText(extra);
-    recipientOrg = recipientOrg ? responseRecipientToDative(recipientOrg) : (inferredRecipient || 'Yuqori turuvchi tashkilotga');
+    recipientOrg = recipientOrg ? responseRecipientToDative(recipientOrg) : inferredRecipient;
+    if(!recipientOrg) {
+      showToast('Blankadagi tashkilot nomi aniqlanmadi. Xat raqami oynasida tashkilotni kiriting.', 'error');
+      openResponseNumberModal();
+      return;
+    }
+    const requiredOpening = responseOpeningFormula(recipientOrg, incomingReq);
     const recipientHidden = document.getElementById('resp-recipient-org');
     const summary = document.getElementById('resp-number-summary');
     if(recipientHidden) recipientHidden.value = recipientOrg;
@@ -7758,7 +7836,7 @@ MAJBURIY TALABLAR:
 - Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
 - BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
 - BODY faqat asosiy javob xati matni bo'lsin.
-- BODY birinchi gapi blankalardagi kabi boshlansin: "Sizning [kelgan sana]dagi [kelgan raqam]-sonli topshirig'ingizga asosan ..." yoki "[tashkilot]ning [kelgan sana]dagi [kelgan raqam]-sonli xatiga asosan ...". Kelgan sana/raqam topshiriqdan topilmasa, tashkilot nomi va topshiriq mazmuni bilan rasmiy kirish gap yoz.
+- BODY birinchi gapi blankalardagi kabi boshlansin va quyidagi formulani buzmasdan ishlatsin: "${requiredOpening} ...". Kelgan sana va raqam blankadan/topshiriqdan ajratilgan, chiquvchi raqam bilan almashtirma.
 - AUTO_DATE va AUTO_NUMBER body ichida ishlatilmasin; ular faqat tepada rekvizit sifatida chiqadi.
 
 ${LEGAL_RESPONSE_QUALITY_RULES}
@@ -7791,7 +7869,7 @@ SARIQ HUDUD: ijrochi va telefon past chapda italic ko'rinishida yoziladi.
 
 JAVOB YOZISH ALGORITMI:
 1. Topshiriq mazmunini ichki tahlil qil: kim yuborgan, nimani so'ragan, qaysi obyekt/hudud/qaror haqida, qanday natija talab qilingan.
-2. body matnining 1-obzasini blankadagi kirish formulasi bilan boshlat: "Sizning ...dagi ...-sonli topshirig'ingizga asosan" yoki "...ning ...dagi ...-sonli xatiga asosan". Faqat kelgan hujjat raqami/sanasini ko'rsat; chiquvchi AUTO_NUMBER/AUTO_DATE ni body ichida takrorlama.
+2. body matnining 1-obzasini aynan "${requiredOpening}" formulasi bilan boshlat. Faqat kelgan hujjat raqami/sanasini ko'rsat; chiquvchi AUTO_NUMBER/AUTO_DATE ni body ichida takrorlama.
 3. 2-obzasda bosh boshqarma tomonidan amalga oshirilgan yoki amalga oshiriladigan aniq chora-tadbirlarni yoz.
 4. 3-obzasda faqat bazada mavjud huquqiy asoslarni ehtiyotkorlik bilan keltir; bazada yo'q modda/bandni uydirma.
 5. Yakuniy gap topshiriq mazmuniga mos bo'lsin: axborot taqdim etish, amaliy yordam berish, ijro nazoratini ta'minlash, kamchilikni bartaraf etish yoki tegishli mutaxassis biriktirish kabi aniq natija yozilsin.
@@ -7839,6 +7917,9 @@ QAT'IY CHEKLOV: Huquqiy asos sifatida faqat yuqoridagi huquqiy baza kontekstida 
 Chiquvchi xat raqami: ${outNum}
 Sana: ${officialDate}
 Tashkilot nomi: ${recipientOrg}
+Blankadan aniqlangan kelgan topshiriq sanasi: ${incomingReq.date || 'aniqlanmadi'}
+Blankadan aniqlangan kelgan topshiriq raqami: ${incomingReq.number || 'aniqlanmadi'}
+Majburiy kirish formulasi: ${requiredOpening}
 Ijrochi: ${executorName || 'Kiritilmagan'}
 Ijrochi telefon raqami: ${executorPhone || 'Kiritilmagan'}
 Hudud: ${region}
@@ -7847,6 +7928,9 @@ Qo'shimcha ma'lumot: ${extra}
 KIRISH MA'LUMOTLARI JSON:
 {
   "tashkilot": ${JSON.stringify(recipientOrg)},
+  "kelgan_sana": ${JSON.stringify(incomingReq.date || '')},
+  "kelgan_raqam": ${JSON.stringify(incomingReq.number || '')},
+  "majburiy_kirish_formulasi": ${JSON.stringify(requiredOpening)},
   "topshiriq": ${JSON.stringify(taskText || '')},
   "hudud": ${JSON.stringify(region)},
   "user_number": ${JSON.stringify(userNumber)},
@@ -7860,10 +7944,10 @@ FAQAT JSON qaytar:
 {"title":"","recipient":"","out_number":"","date":"","responsible":"","task_analysis":{"what_requested":"","object":"","region":"","required_action":"","answer_strategy":""},"learned_style_used":"","body":"","footer":"","signature_block":"","style_notes":"","confidence_score":0,"quality_self_check":{"legal":true,"grammar":true,"logic":true,"style":true,"not_copied":true},"html":""}
 header/html/footer/signature_block maydonlarini bo'sh qoldirishing mumkin; ular tizim tomonidan alohida chiziladi.
 body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana, №, qabul qiluvchi, MAVZU, imzo, ijrochi va telefon kiritilmasin.
-body birinchi gapi blankadagi kirish formulasi bilan boshlansin va topshiriqdan kelgan sana/raqam bo'lsa shular ishlatilsin.
+body birinchi gapi aynan ushbu formula bilan boshlansin: ${requiredOpening}.
 confidence_score 85 dan past bo'lmasin.`;
     const qualitySeed = `${taskText} ${region} ${extra}`;
-    const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies);
+    const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies, requiredOpening);
     parsed.body = cleanGeneratedResponseBody(parsed.body || parsed.answer_text || parsed.summary || '', {
       recipient: recipientOrg,
       outNumber: outNum,
