@@ -7583,11 +7583,12 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
-function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[]) {
+function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
   let body = String(parsed.body || '').trim();
   if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
   body = cleanGeneratedResponseBody(body);
+  body = enforceRequiredResponseOpening(body, requiredOpening);
   if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
@@ -7706,30 +7707,73 @@ function inferResponseSenderOrgFromHeader(text='') {
 function inferIncomingTaskRequisites(text='') {
   const lines = responseTextLines(text, 120);
   const all = lines.join(' ');
+  const monthNames = 'yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr';
   const datePatterns = [
-    /\b20\d{2}\s*yil[.,\s]*(?:["“”«»])?\s*\d{1,2}\s*(?:["“”«»])?\s*(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)\b/i,
+    new RegExp(`\\b20\\d{2}\\s*(?:-|–)?\\s*y(?:il|\\.)?\\.?\\s*[,\\.\\s]*(?:["“”«»])?\\s*\\d{1,2}\\s*(?:["“”«»])?\\s*(${monthNames})\\b`, 'i'),
+    new RegExp(`\\b\\d{1,2}\\s*(?:["“”«»])?\\s*(${monthNames})\\s*,?\\s*20\\d{2}\\s*(?:-|–)?\\s*y(?:il|\\.)?\\b`, 'i'),
     /\b\d{1,2}[.\-/]\d{1,2}[.\-/]20\d{2}\b/
   ];
   const numberPatterns = [
-    /\b\d{1,3}[-/]\d{1,4}[-/]\d{1,6}\s*[- ]?son\b/i,
-    /\b\d{1,3}[-/]\d{1,4}[-/]\d{1,6}\b/,
-    /№\s*[\w\-/.]+/i
+    /(?:№|N[oº]?|#)?\s*\b\d{1,4}\s*[-–]\s*\d{1,4}\s*\/\s*\d{1,8}\b\s*(?:[-–]?\s*son(?:li)?)?/i,
+    /(?:№|N[oº]?|#)\s*[A-Za-zА-Яа-я0-9][\wА-Яа-я\-/.]{1,30}/i
   ];
-  const date = (datePatterns.map(re => all.match(re)?.[0]).find(Boolean) || '').replace(/\s+/g, ' ').trim();
-  let number = numberPatterns.map(re => all.match(re)?.[0]).find(Boolean) || '';
-  number = number.replace(/^№\s*/i, '').replace(/\s*[- ]?son$/i, '').trim();
+  const date = normalizeIncomingDateText(datePatterns.map(re => all.match(re)?.[0]).find(Boolean) || '');
+  const number = normalizeIncomingNumberText(numberPatterns.map(re => all.match(re)?.[0]).find(Boolean) || '');
   return { date, number };
+}
+
+function normalizeIncomingDateText(value='') {
+  const text = compactResponseText(value);
+  if(!text) return '';
+  const numeric = text.match(/\b(\d{1,2})[.\-/](\d{1,2})[.\-/](20\d{2})\b/);
+  if(numeric) {
+    const monthIdx = Math.max(0, Math.min(11, Number(numeric[2]) - 1));
+    return `${numeric[3]}-yil «${pad2(Number(numeric[1]))}» ${UZ_OFFICIAL_MONTHS[monthIdx]}`;
+  }
+  const monthNames = '(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)';
+  const yearFirst = text.match(new RegExp(`\\b(20\\d{2})\\s*(?:-|–)?\\s*y(?:il|\\.)?\\.?\\s*[,\\.\\s]*(?:["“”«»])?\\s*(\\d{1,2})\\s*(?:["“”«»])?\\s*${monthNames}\\b`, 'i'));
+  if(yearFirst) return `${yearFirst[1]}-yil «${pad2(Number(yearFirst[2]))}» ${yearFirst[3].toLocaleLowerCase('uz-UZ')}`;
+  const dayFirst = text.match(new RegExp(`\\b(\\d{1,2})\\s*(?:["“”«»])?\\s*${monthNames}\\s*,?\\s*(20\\d{2})\\s*(?:-|–)?\\s*y(?:il|\\.)?\\b`, 'i'));
+  if(dayFirst) return `${dayFirst[3]}-yil «${pad2(Number(dayFirst[1]))}» ${dayFirst[2].toLocaleLowerCase('uz-UZ')}`;
+  return text;
+}
+
+function normalizeIncomingNumberText(value='') {
+  return compactResponseText(value)
+    .replace(/^(№|N[oº]?|#)\s*/i, '')
+    .replace(/\s*[-–]?\s*son(?:li)?\s*$/i, '')
+    .replace(/\s*[-–]\s*/g, '-')
+    .replace(/\s*\/\s*/g, '/')
+    .trim();
 }
 
 function responseOpeningFormula(senderOrg='', req={}) {
   const org = normalizeResponseRecipientName(senderOrg).replace(/\b(ga|ka|qa)$/i, '');
   const date = compactResponseText(req.date || '');
   const number = compactResponseText(req.number || '');
-  if(date && number) return `Sizning ${date}dagi ${number}-sonli topshirig'ingizga asosan`;
-  if(number) return `Sizning ${number}-sonli topshirig'ingizga asosan`;
-  if(date) return `Sizning ${date}dagi topshirig'ingizga asosan`;
-  if(org) return `${org}ning topshirig'iga asosan`;
-  return `Sizning topshirig'ingizga asosan`;
+  if(date && number) return `Sizning ${date}dagi ${number}-sonli topshirig'ingiz ijrosini ta'minlash maqsadida`;
+  if(number) return `Sizning ${number}-sonli topshirig'ingiz ijrosini ta'minlash maqsadida`;
+  if(date) return `Sizning ${date}dagi topshirig'ingiz ijrosini ta'minlash maqsadida`;
+  if(org) return `${org}ning topshirig'i ijrosini ta'minlash maqsadida`;
+  return `Sizning topshirig'ingiz ijrosini ta'minlash maqsadida`;
+}
+
+function enforceRequiredResponseOpening(body='', requiredOpening='') {
+  const opening = compactResponseText(requiredOpening || '').replace(/[.。]+$/g, '');
+  let text = String(body || '').replace(/\r/g, '\n').trim();
+  if(!opening || !text) return text;
+  const normalizedBody = normalizeText(text).replace(/\s+/g, ' ').trim();
+  const normalizedOpening = normalizeText(opening).replace(/\s+/g, ' ').trim();
+  if(normalizedBody.startsWith(normalizedOpening)) return text;
+
+  text = text
+    .replace(/^\s*Sizning\s+.{0,260}?(topshirig['‘`ʻ]ingiz|topshiriq|hujjat).{0,140}?(?:[.?!]\s+|\n+|$)/i, '')
+    .replace(/^\s*(Mazkur|Ushbu)\s+(topshiriq|hujjat)\s+(ijrosi\s+)?(yuzasidan|bo['‘`ʻ]?yicha)\s*/i, '')
+    .trim();
+
+  if(!text) return `${opening}.`;
+  const continuation = text.charAt(0).toLocaleLowerCase('uz-UZ') + text.slice(1);
+  return `${opening}, ${continuation}`;
 }
 
 function inferResponseRecipientFromText(text='') {
@@ -7800,7 +7844,7 @@ QAT'IY TALAB:
       lastError = 'AI javobi JSON formatda kelmadi';
       continue;
     }
-    const check = validateAiResponseDocument(parsed, qualitySeed, legalContext, learningContext, previousBodies);
+    const check = validateAiResponseDocument(parsed, qualitySeed, legalContext, learningContext, previousBodies, requiredOpening);
     if(check.ok) {
       parsed.body = check.body;
       parsed.confidence_score = check.confidence;
@@ -8027,6 +8071,7 @@ confidence_score 85 dan past bo'lmasin.`;
       outNumber: outNum,
       date: officialDate
     });
+    parsed.body = enforceRequiredResponseOpening(parsed.body, requiredOpening);
     parsed.header = header;
     parsed.out_number = outNum;
     parsed.date = officialDate;
