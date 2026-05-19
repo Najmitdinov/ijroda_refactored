@@ -7655,9 +7655,20 @@ function normalizeResponseRecipientName(name='') {
 }
 
 function responseRecipientToDative(name='') {
-  let s = normalizeResponseRecipientName(name);
+  const rawLines = String(name || '').split(/\r?\n/)
+    .map(line => normalizeResponseRecipientName(line))
+    .filter(Boolean);
+  if(rawLines.length > 1) {
+    rawLines[rawLines.length - 1] = appendResponseDativeSuffix(rawLines[rawLines.length - 1]);
+    return rawLines.join('\n');
+  }
+  return appendResponseDativeSuffix(normalizeResponseRecipientName(name));
+}
+
+function appendResponseDativeSuffix(value='') {
+  let s = normalizeResponseRecipientName(value);
   if(!s) return '';
-  if(/\b(ga|ka|qa)$/i.test(s)) return s;
+  if(/(ga|ka|qa)$/i.test(s)) return s;
   if(/(vazirligi|hokimligi|boshqarmasi|qo['‘`ʻ]?mitasi|agentligi|departamenti|markazi|muassasasi)$/i.test(s)) return s + 'ga';
   if(/(vazirlik|hokimlik|boshqarma|agentlik|departament|markaz)$/i.test(s)) return s + 'ka';
   return s + 'ga';
@@ -7762,6 +7773,7 @@ function enforceRequiredResponseOpening(body='', requiredOpening='') {
   const opening = compactResponseText(requiredOpening || '').replace(/[.。]+$/g, '');
   let text = String(body || '').replace(/\r/g, '\n').trim();
   if(!opening || !text) return text;
+  if(!/^Sizning\b/i.test(opening) || !/\b20\d{2}\b/.test(opening) || !/-sonli\b/i.test(opening)) return text;
   const normalizedBody = normalizeText(text).replace(/\s+/g, ' ').trim();
   const normalizedOpening = normalizeText(opening).replace(/\s+/g, ' ').trim();
   if(normalizedBody.startsWith(normalizedOpening)) return text;
@@ -7778,28 +7790,42 @@ function enforceRequiredResponseOpening(body='', requiredOpening='') {
 
 function inferResponseRecipientFromText(text='') {
   const headerOrg = inferResponseSenderOrgFromHeader(text);
-  if(headerOrg) return headerOrg;
   const rawLines = responseTextLines(text, 140);
-  const candidates = [];
+  const candidates = headerOrg ? [{ text: headerOrg, score: 45 }] : [];
   const ownOrg = /navoiy\s+viloyati\s+qurilish|navqurilish|zarapetyan|210100/i;
   const orgWords = /(vazirligi|vazirlik|hokimligi|hokimlik|boshqarmasi|boshqarma|qo['‘`ʻ]?mitasi|qo['‘`ʻ]?mita|agentligi|agentlik|departamenti|departament|markazi|markaz|vazirlar\s+mahkamasi)/i;
+  const recipientRoleLine = /(hokim|o['‘`ʻ]?rinbosar|boshliq|rahbar|direktor|mudiri|rais|kotib|maslahatchi|inspektor|prokuror|vazir|departament|boshqarma)/i;
+  const recipientPersonLine = /^[A-ZА-ЯOʻGʻ][.\s-]*[A-ZА-ЯOʻGʻ][A-Za-zА-Яа-я'‘`ʻ-]{2,}(?:ga)?$/;
+  const cleanRecipientLine = (value='') => compactResponseText(value)
+    .replace(/^(kimga|qabul\s+qiluvchi|adresat|yuborilgan)\s*[:\-]\s*/i, '')
+    .replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b.*$/i, '')
+    .replace(/\b(sonli|raqamli)\b.*$/i, '')
+    .replace(/[.,;:]+$/g, '')
+    .trim();
+  const canExtendRecipientBlock = (value='') => {
+    const s = cleanRecipientLine(value);
+    if(!s || s.length < 3 || s.length > 100) return false;
+    if(ownOrg.test(s)) return false;
+    if(/ijro\.?gov|hujjat\s+kodi|tel\.?|e-?mail|www\.|@|ko['‘`ʻ]?chasi|\b\d+[-\s]*uy\b|^\d{4}\s*yil|^№/i.test(s)) return false;
+    return recipientRoleLine.test(s) || recipientPersonLine.test(s);
+  };
   rawLines.forEach((line, idx) => {
-    const windowText = [rawLines[idx - 2], rawLines[idx - 1], line, rawLines[idx + 1]]
+    const continuation = [];
+    for(let j = idx + 1; j < Math.min(rawLines.length, idx + 4); j++) {
+      if(!canExtendRecipientBlock(rawLines[j])) break;
+      continuation.push(cleanRecipientLine(rawLines[j]));
+    }
+    const windowText = [rawLines[idx - 2], rawLines[idx - 1], line, rawLines[idx + 1], rawLines[idx + 2]]
       .filter(Boolean)
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
-    let c = orgWords.test(line) ? line : windowText;
+    let c = orgWords.test(line) ? [line, ...continuation].join('\n') : windowText;
     const prev = rawLines[idx - 1] || '';
     if(/^o['‘`ʻ]?zbekiston\s+respublikasi$/i.test(prev) && !/^o['‘`ʻ]?zbekiston/i.test(c)) {
-      c = `${prev} ${c}`;
+      c = `${prev}\n${c}`;
     }
-    c = c
-      .replace(/^(kimga|qabul\s+qiluvchi|adresat|yuborilgan)\s*[:\-]\s*/i, '')
-      .replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b.*$/i, '')
-      .replace(/\b(sonli|raqamli)\b.*$/i, '')
-      .replace(/[.,;:]+$/g, '')
-      .trim();
+    c = c.split(/\n+/).map(cleanRecipientLine).filter(Boolean).join('\n');
     if(!orgWords.test(c) || ownOrg.test(c)) return;
     if(c.length < 7 || c.length > 180) return;
     const score =
@@ -7807,6 +7833,8 @@ function inferResponseRecipientFromText(text='') {
       (/vazirlar\s+mahkamasi/i.test(c) ? 35 : 0) +
       (/hokimligi|hokimlik/i.test(c) ? 25 : 0) +
       (/boshqarmasi|boshqarma/i.test(c) ? 15 : 0) +
+      (continuation.length ? 35 : 0) +
+      (continuation.some(x => recipientPersonLine.test(x)) ? 25 : 0) +
       Math.max(0, 60 - idx);
     candidates.push({ text:c, score });
   });
