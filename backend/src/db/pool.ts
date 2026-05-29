@@ -34,7 +34,7 @@ export async function checkDatabase() {
   try {
     const result = await pool.query<{ ok: number; now: string }>('select 1 as ok, now()::text as now');
     return {
-      ok: result.rows[0]?.ok === 1,
+      ok: Number(result.rows[0]?.ok) === 1,
       latencyMs: Date.now() - started,
       serverTime: result.rows[0]?.now
     };
