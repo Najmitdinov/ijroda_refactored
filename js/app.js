@@ -3010,7 +3010,7 @@ window.renderIntegrationsPanel = () => {
       </div>
       <div class="form-grid">
         <label class="field"><span>Backend API URL</span><input id="tg-api-base" value="${escH(tg.apiBase || '')}" placeholder="https://api.example.uz yoki http://localhost:8080"></label>
-        <label class="field"><span>Admin secret</span><input id="tg-admin-secret" type="password" value="${escH(tg.adminSecret || '')}" placeholder="TELEGRAM_ADMIN_SECRET"></label>
+        <label class="field"><span>Admin secret</span><input id="tg-admin-secret" type="password" value="${escH(tg.adminSecret || '')}" placeholder="Railway .env dagi haqiqiy TELEGRAM_ADMIN_SECRET"></label>
         <label class="field"><span>Test chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="1165868975"></label>
         <label class="field"><span>Webhook URL</span><input id="tg-webhook-url" value="${escH(tgWebhookUrl)}" placeholder="https://api.example.uz/api/telegram/webhook/update"></label>
         <label class="toggle-row"><input type="checkbox" id="tg-enabled" ${tg.enabled?'checked':''}> <span>Telegram integratsiyani yoqish</span></label>
@@ -3436,6 +3436,28 @@ function telegramApiBase(cfg = getTelegramSettings()) {
   return String(cfg.apiBase || '').trim().replace(/\/+$/, '');
 }
 
+function telegramAdminSecretMissing(value='') {
+  const secret = String(value || '').trim();
+  return !secret || /^TELEGRAM_ADMIN_SECRET$/i.test(secret);
+}
+
+function telegramBackendErrorMessage(code='') {
+  const err = String(code || '').trim();
+  if(err === 'TELEGRAM_ADMIN_FORBIDDEN') {
+    return 'Admin secret noto‘g‘ri. Railway backend .env ichidagi TELEGRAM_ADMIN_SECRET qiymatini Admin secret maydoniga aynan kiriting.';
+  }
+  if(err === 'TELEGRAM_ADMIN_SECRET_NOT_CONFIGURED') {
+    return 'Backendda TELEGRAM_ADMIN_SECRET sozlanmagan. Railway Variables ichiga TELEGRAM_ADMIN_SECRET qo‘shib redeploy qiling.';
+  }
+  if(err === 'TELEGRAM_BOT_TOKEN_MISSING') {
+    return 'Backendda TELEGRAM_BOT_TOKEN sozlanmagan. Railway Variables ichiga bot tokenni qo‘shing.';
+  }
+  if(err === 'TELEGRAM_CHAT_ID_REQUIRED') {
+    return 'Test chat ID kiritilmagan.';
+  }
+  return err || 'Telegram backend xatosi';
+}
+
 function telegramIsConfigured(cfg = getTelegramSettings()) {
   return !!(cfg.enabled && telegramApiBase(cfg));
 }
@@ -3457,14 +3479,17 @@ async function callTelegramBackend(path, options = {}) {
   const base = telegramApiBase(cfg);
   if(!base) throw new Error('Backend API URL kiritilmagan');
   const headers = { 'Content-Type': 'application/json' };
-  if(cfg.adminSecret) headers['x-telegram-admin-secret'] = cfg.adminSecret;
+  if(telegramAdminSecretMissing(cfg.adminSecret)) {
+    throw new Error('Admin secret kiritilmagan. Railway backend .env ichidagi TELEGRAM_ADMIN_SECRET qiymatini Admin secret maydoniga kiriting.');
+  }
+  headers['x-telegram-admin-secret'] = String(cfg.adminSecret || '').trim();
   const response = await fetch(`${base}/api/telegram${path}`, {
     method: options.method || 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   const data = await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(data.error || data.message || `Backend HTTP ${response.status}`);
+  if(!response.ok) throw new Error(telegramBackendErrorMessage(data.error || data.message || `Backend HTTP ${response.status}`));
   return data.data ?? data;
 }
 
@@ -3588,7 +3613,7 @@ window.refreshTelegramBackendStatus = async function() {
   }
 };
 
-window.setupTelegramWebhook = async function() {
+window.setupTelegramWebhook = async function(options = {}) {
   try {
     const input = document.getElementById('tg-webhook-url');
     const url = sanitize(input?.value || '', 260);
@@ -3598,15 +3623,18 @@ window.setupTelegramWebhook = async function() {
     localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
     showToast('Telegram webhook ornatildi', 'success');
     await refreshTelegramBackendStatus();
+    return true;
   } catch(e) {
     showToast('Webhook ornatilmadi: ' + e.message, 'error');
+    if(options.throwOnError) throw e;
+    return false;
   }
 };
 
 window.connectTelegramIntegration = async function() {
   try {
     saveTelegramSettings({ silent:true, forceEnabled:true });
-    await setupTelegramWebhook();
+    await setupTelegramWebhook({ throwOnError:true });
     showToast('Telegram integratsiya ulandi', 'success');
   } catch(e) {
     showToast('Telegram ulanmadi: ' + e.message, 'error');
@@ -3654,9 +3682,15 @@ window.clearTelegramSettings = function() {
 
 window.testTelegramBot = async function() {
   try {
-    await sendTelegramMessage(`${buildTelegramHeader('Test xabar')}\n\nTelegram bot backend orqali muvaffaqiyatli ulandi.`, { kind:'test' });
+    const result = await sendTelegramMessage(`${buildTelegramHeader('Test xabar')}\n\nTelegram bot backend orqali muvaffaqiyatli ulandi.`, { kind:'test' });
+    if(result?.skipped) {
+      showToast(result.reason || 'Telegram backend sozlanmagan', 'info');
+      return;
+    }
     showToast('Telegram test xabari yuborildi', 'success');
-    await refreshTelegramBackendStatus();
+    await refreshTelegramBackendStatus().catch(e => {
+      showToast('Telegram status yangilanmadi: ' + e.message, 'error');
+    });
   } catch(e) {
     showToast('Telegram yuborilmadi: ' + e.message, 'error');
   }
