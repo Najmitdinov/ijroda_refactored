@@ -14,10 +14,35 @@ import telegramRoutes from './routes/telegram.routes.js';
 
 const app = express();
 
+app.set('trust proxy', 1);
 app.use(helmet());
-app.use(cors({ origin: corsOrigins, credentials: true }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    const normalized = origin.replace(/\/+$/, '');
+    if (corsOrigins.includes(normalized)) return callback(null, true);
+    return callback(new Error(`CORS_NOT_ALLOWED:${origin}`));
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '2mb' }));
-app.use(rateLimit({ windowMs: 60_000, limit: 180 }));
+app.use(rateLimit({ windowMs: 60_000, limit: 180, standardHeaders: true, legacyHeaders: false }));
+
+app.use((req, res, next) => {
+  const started = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - started;
+    const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'log';
+    console[level]('[http]', {
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      ms,
+      ip: req.ip
+    });
+  });
+  next();
+});
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'ijro-ai-backend' }));
 app.use('/api/auth', authRoutes);

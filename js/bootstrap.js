@@ -1,4 +1,4 @@
-const APP_BUILD = '20260530-ahb-1jadval-clean1';
+const APP_BUILD = '20260530-telegram-railway1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

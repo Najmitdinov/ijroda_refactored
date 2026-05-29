@@ -1,18 +1,33 @@
 create extension if not exists "uuid-ossp";
 
-create type user_role as enum ('SUPER_ADMIN','RAHBAR','NAZORATCHI','IJROCHI','KUZATUVCHI');
-create type task_priority as enum ('LOW','NORMAL','IMPORTANT','URGENT','CRITICAL');
-create type task_status as enum ('NEW','IN_PROGRESS','DONE','OVERDUE','CANCELLED');
-create type notification_channel as enum ('TELEGRAM','EMAIL','PUSH');
+do $$ begin
+  create type user_role as enum ('SUPER_ADMIN','RAHBAR','NAZORATCHI','IJROCHI','KUZATUVCHI');
+exception when duplicate_object then null;
+end $$;
 
-create table departments (
+do $$ begin
+  create type task_priority as enum ('LOW','NORMAL','IMPORTANT','URGENT','CRITICAL');
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create type task_status as enum ('NEW','IN_PROGRESS','DONE','OVERDUE','CANCELLED');
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  create type notification_channel as enum ('TELEGRAM','EMAIL','PUSH');
+exception when duplicate_object then null;
+end $$;
+
+create table if not exists departments (
   department_id uuid primary key default uuid_generate_v4(),
   name text not null unique,
   parent_department_id uuid references departments(department_id),
   created_at timestamptz not null default now()
 );
 
-create table employees (
+create table if not exists employees (
   employee_id uuid primary key default uuid_generate_v4(),
   ism text not null,
   familiya text not null,
@@ -27,7 +42,7 @@ create table employees (
   updated_at timestamptz not null default now()
 );
 
-create table users (
+create table if not exists users (
   user_id uuid primary key default uuid_generate_v4(),
   employee_id uuid references employees(employee_id),
   email text not null unique,
@@ -39,7 +54,7 @@ create table users (
   updated_at timestamptz not null default now()
 );
 
-create table login_logs (
+create table if not exists login_logs (
   login_log_id uuid primary key default uuid_generate_v4(),
   user_id uuid references users(user_id),
   ip_address inet,
@@ -47,7 +62,7 @@ create table login_logs (
   created_at timestamptz not null default now()
 );
 
-create table documents (
+create table if not exists documents (
   document_id uuid primary key default uuid_generate_v4(),
   document_title text not null,
   source_file_name text,
@@ -60,7 +75,7 @@ create table documents (
   updated_at timestamptz not null default now()
 );
 
-create table tasks (
+create table if not exists tasks (
   task_id uuid primary key default uuid_generate_v4(),
   document_id uuid references documents(document_id) on delete cascade,
   executor_employee_id uuid references employees(employee_id),
@@ -75,7 +90,7 @@ create table tasks (
   updated_at timestamptz not null default now()
 );
 
-create table task_history (
+create table if not exists task_history (
   history_id uuid primary key default uuid_generate_v4(),
   task_id uuid references tasks(task_id) on delete cascade,
   actor_user_id uuid references users(user_id),
@@ -85,7 +100,7 @@ create table task_history (
   created_at timestamptz not null default now()
 );
 
-create table attachments (
+create table if not exists attachments (
   attachment_id uuid primary key default uuid_generate_v4(),
   task_id uuid references tasks(task_id) on delete cascade,
   document_id uuid references documents(document_id) on delete cascade,
@@ -97,7 +112,7 @@ create table attachments (
   created_at timestamptz not null default now()
 );
 
-create table comments (
+create table if not exists comments (
   comment_id uuid primary key default uuid_generate_v4(),
   task_id uuid references tasks(task_id) on delete cascade,
   author_user_id uuid references users(user_id),
@@ -105,7 +120,7 @@ create table comments (
   created_at timestamptz not null default now()
 );
 
-create table notifications (
+create table if not exists notifications (
   notification_id uuid primary key default uuid_generate_v4(),
   user_id uuid references users(user_id),
   employee_id uuid references employees(employee_id),
@@ -118,7 +133,7 @@ create table notifications (
   created_at timestamptz not null default now()
 );
 
-create table logs (
+create table if not exists logs (
   log_id uuid primary key default uuid_generate_v4(),
   actor_user_id uuid references users(user_id),
   action text not null,
@@ -130,7 +145,7 @@ create table logs (
   created_at timestamptz not null default now()
 );
 
-create table analytics (
+create table if not exists analytics (
   analytics_id uuid primary key default uuid_generate_v4(),
   metric_key text not null,
   metric_value numeric not null,
@@ -138,7 +153,7 @@ create table analytics (
   measured_at timestamptz not null default now()
 );
 
-create table telegram_sessions (
+create table if not exists telegram_sessions (
   telegram_id text primary key,
   employee_id uuid references employees(employee_id),
   username text,
@@ -149,9 +164,9 @@ create table telegram_sessions (
   updated_at timestamptz not null default now()
 );
 
-create index idx_tasks_executor_status on tasks(executor_employee_id, status);
-create index idx_tasks_deadline on tasks(deadline);
-create index idx_tasks_priority on tasks(priority);
-create index idx_documents_priority on documents(priority);
-create index idx_logs_actor_created on logs(actor_user_id, created_at desc);
-create index idx_notifications_employee_sent on notifications(employee_id, sent_at);
+create index if not exists idx_tasks_executor_status on tasks(executor_employee_id, status);
+create index if not exists idx_tasks_deadline on tasks(deadline);
+create index if not exists idx_tasks_priority on tasks(priority);
+create index if not exists idx_documents_priority on documents(priority);
+create index if not exists idx_logs_actor_created on logs(actor_user_id, created_at desc);
+create index if not exists idx_notifications_employee_sent on notifications(employee_id, sent_at);

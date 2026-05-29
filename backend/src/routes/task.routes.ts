@@ -10,7 +10,7 @@ router.use(requireAuth);
 
 router.get('/', async (req, res) => {
   const mineOnly = req.query.mine === 'true' && req.user?.employee_id;
-  const result = await query(
+  const result = await query<{ task_id: string }>(
     `select t.*, e.ism, e.familiya, d.document_title
      from tasks t
      left join employees e on e.employee_id = t.executor_employee_id

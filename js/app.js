@@ -3002,10 +3002,16 @@ window.renderIntegrationsPanel = () => {
         <span id="tg-live-status" class="badge badge-new">Status tekshirilmoqda...</span>
         <span style="font-size:12px;color:var(--muted);">Token faqat backend .env ichida saqlanadi. Brauzerga bot token yozilmaydi.</span>
       </div>
+      <div class="module-grid" style="margin-bottom:14px;">
+        <div class="module-card"><h3>Backend API</h3><p id="tg-backend-card">Status tekshirilmoqda</p><span id="tg-backend-badge" class="badge badge-new">...</span></div>
+        <div class="module-card"><h3>Webhook</h3><p id="tg-webhook-card">Webhook holati tekshirilmoqda</p><span id="tg-webhook-badge" class="badge badge-new">...</span></div>
+        <div class="module-card"><h3>Bot</h3><p id="tg-bot-card">@ijro_nazorati_qurilish_bot</p><span id="tg-bot-badge" class="badge badge-new">...</span></div>
+        <div class="module-card"><h3>Realtime queue</h3><p id="tg-realtime-card">Xabar queue holati</p><span id="tg-realtime-badge" class="badge badge-new">...</span></div>
+      </div>
       <div class="form-grid">
         <label class="field"><span>Backend API URL</span><input id="tg-api-base" value="${escH(tg.apiBase || '')}" placeholder="https://api.example.uz yoki http://localhost:8080"></label>
         <label class="field"><span>Admin secret</span><input id="tg-admin-secret" type="password" value="${escH(tg.adminSecret || '')}" placeholder="TELEGRAM_ADMIN_SECRET"></label>
-        <label class="field"><span>Test chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="Telegram user_id yoki group chat_id"></label>
+        <label class="field"><span>Test chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="1165868975"></label>
         <label class="field"><span>Webhook URL</span><input id="tg-webhook-url" value="${escH(tgWebhookUrl)}" placeholder="https://api.example.uz/api/telegram/webhook/update"></label>
         <label class="toggle-row"><input type="checkbox" id="tg-enabled" ${tg.enabled?'checked':''}> <span>Telegram integratsiyani yoqish</span></label>
         <label class="toggle-row"><input type="checkbox" id="tg-deadline" ${tg.deadlineAlerts?'checked':''}> <span>Deadline digest</span></label>
@@ -3014,9 +3020,11 @@ window.renderIntegrationsPanel = () => {
       </div>
       <div class="actions-row" style="margin-top:14px;">
         <button class="btn btn-primary" onclick="saveTelegramSettings()">Saqlash</button>
-        <button class="btn btn-success" onclick="testTelegramBot()">Test xabar</button>
+        <button class="btn btn-success" onclick="connectTelegramIntegration()">Connect Telegram</button>
+        <button class="btn btn-danger" onclick="disconnectTelegramIntegration()">Disconnect Telegram</button>
+        <button class="btn btn-success" onclick="testTelegramBot()">Test Message</button>
         <button class="btn btn-outline" onclick="sendTelegramDeadlineDigest()">Daily digest</button>
-        <button class="btn btn-outline" onclick="setupTelegramWebhook()">Webhook o'rnatish</button>
+        <button class="btn btn-outline" onclick="setupTelegramWebhook()">Setup Webhook</button>
         <button class="btn btn-outline" onclick="refreshTelegramBackendStatus()">Status yangilash</button>
         <button class="btn btn-danger" onclick="clearTelegramSettings()">O'chirish</button>
       </div>
@@ -3409,7 +3417,7 @@ function getTelegramSettings() {
     enabled: false,
     apiBase: localStorage.getItem('IJRO_BACKEND_API_BASE') || '',
     adminSecret: '',
-    chatId: '',
+    chatId: '1165868975',
     webhookUrl: '',
     deadlineAlerts: true,
     loginAlerts: true,
@@ -3466,7 +3474,7 @@ async function sendTelegramMessage(text, options = {}) {
   if(!cfg.chatId) return { skipped:true, reason:'Test chat ID kiritilmagan' };
   const result = await callTelegramBackend('/test', {
     method:'POST',
-    body:{ chatId: cfg.chatId, text: String(text || '').slice(0, 3900) }
+    body:{ chatId: cfg.chatId, message: String(text || '').slice(0, 3900) }
   });
   if(options.audit !== false) {
     writeAudit('telegram.message_sent', { kind: options.kind || 'manual', chatId: maskSecret(cfg.chatId) }).catch(()=>{});
@@ -3527,11 +3535,25 @@ function updateTelegramStatusDetails(html) {
   if(details) details.innerHTML = html;
 }
 
+function setTelegramCard(id, badgeId, ok, text, badgeText) {
+  const card = document.getElementById(id);
+  const badge = document.getElementById(badgeId);
+  if(card) card.innerHTML = text;
+  if(badge) {
+    badge.className = `badge ${ok === true ? 'badge-done' : ok === 'warn' ? 'badge-new' : 'badge-fail'}`;
+    badge.textContent = badgeText;
+  }
+}
+
 window.refreshTelegramBackendStatus = async function() {
   const cfg = getTelegramSettings();
   if(!telegramApiBase(cfg)) {
     updateTelegramStatusBadge('warn', 'Backend URL kiritilmagan');
     updateTelegramStatusDetails('Backend API URL kiritilgandan keyin bot holati shu yerda korinadi. Token faqat backend .env ichida saqlanadi.');
+    setTelegramCard('tg-backend-card','tg-backend-badge', false, 'Backend API URL kiritilmagan', 'URL yoq');
+    setTelegramCard('tg-webhook-card','tg-webhook-badge', 'warn', 'Avval backend URL kiriting', 'kutilmoqda');
+    setTelegramCard('tg-bot-card','tg-bot-badge', 'warn', 'Bot statusi backend orqali tekshiriladi', 'kutilmoqda');
+    setTelegramCard('tg-realtime-card','tg-realtime-badge', 'warn', 'Queue statusi backend orqali tekshiriladi', 'kutilmoqda');
     return { skipped:true };
   }
   try {
@@ -3540,18 +3562,28 @@ window.refreshTelegramBackendStatus = async function() {
     if(!status.configured) {
       updateTelegramStatusBadge('fail', 'TELEGRAM_BOT_TOKEN yoq');
       updateTelegramStatusDetails('Backend ishlayapti, lekin .env ichida TELEGRAM_BOT_TOKEN topilmadi. Tokenni serverga qoyib qayta deploy qiling.');
+      setTelegramCard('tg-backend-card','tg-backend-badge', true, 'Backend API ishlayapti', 'OK');
+      setTelegramCard('tg-bot-card','tg-bot-badge', false, 'TELEGRAM_BOT_TOKEN server env ichida yoq', 'token yoq');
       return status;
     }
     const botName = status.bot?.username ? '@' + status.bot.username : (status.bot?.first_name || 'Telegram bot');
     const webhookUrl = status.webhook?.url || 'webhook ornatilmagan';
     const pending = status.webhook?.pending_update_count ?? 0;
     const db = status.database || {};
+    const dbHealth = status.databaseHealth || {};
+    const queue = status.queue || {};
+    const webhookOk = !!status.webhookActive;
     updateTelegramStatusBadge('ok', `${botName} ulangan`);
-    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Pending updates: <b>${pending}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>`);
+    setTelegramCard('tg-backend-card','tg-backend-badge', dbHealth.ok !== false, `API: <code>${escH(telegramApiBase(cfg))}</code><br>DB latency: <b>${escH(dbHealth.latencyMs ?? '-')} ms</b>`, dbHealth.ok === false ? 'DB xato' : 'OK');
+    setTelegramCard('tg-webhook-card','tg-webhook-badge', webhookOk, `<code>${escH(webhookUrl)}</code><br>Pending updates: <b>${pending}</b>${status.webhook?.last_error_message?`<br>Xato: ${escH(status.webhook.last_error_message)}`:''}`, webhookOk ? 'active' : 'tekshiring');
+    setTelegramCard('tg-bot-card','tg-bot-badge', true, `Bot: <b>${escH(botName)}</b><br>Configured: <b>ha</b>`, 'online');
+    setTelegramCard('tg-realtime-card','tg-realtime-badge', true, `Queue sent: <b>${queue.sent || 0}</b>, failed: <b>${queue.failed || 0}</b><br>Pending notifications: <b>${db.pendingNotifications || 0}</b>`, queue.failed ? 'xato bor' : 'ready');
+    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code><br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>`);
     return status;
   } catch(e) {
     updateTelegramStatusBadge('fail', 'Backend ulanmagan');
     updateTelegramStatusDetails(`Telegram backend xatosi: ${escH(e.message || String(e))}`);
+    setTelegramCard('tg-backend-card','tg-backend-badge', false, `Backend xatosi: ${escH(e.message || String(e))}`, 'xato');
     throw e;
   }
 };
@@ -3561,7 +3593,7 @@ window.setupTelegramWebhook = async function() {
     const input = document.getElementById('tg-webhook-url');
     const url = sanitize(input?.value || '', 260);
     if(!url) throw new Error('Webhook URL kiritilmagan');
-    await callTelegramBackend('/webhook', { method:'POST', body:{ url } });
+    await callTelegramBackend('/webhook/setup', { method:'POST', body:{ url } });
     const cfg = { ...getTelegramSettings(), webhookUrl: url };
     localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
     showToast('Telegram webhook ornatildi', 'success');
@@ -3571,9 +3603,19 @@ window.setupTelegramWebhook = async function() {
   }
 };
 
-window.saveTelegramSettings = function() {
+window.connectTelegramIntegration = async function() {
+  try {
+    saveTelegramSettings({ silent:true, forceEnabled:true });
+    await setupTelegramWebhook();
+    showToast('Telegram integratsiya ulandi', 'success');
+  } catch(e) {
+    showToast('Telegram ulanmadi: ' + e.message, 'error');
+  }
+};
+
+window.saveTelegramSettings = function(options = {}) {
   const cfg = {
-    enabled: !!document.getElementById('tg-enabled')?.checked,
+    enabled: options.forceEnabled ? true : !!document.getElementById('tg-enabled')?.checked,
     apiBase: sanitize(document.getElementById('tg-api-base')?.value || '', 220).replace(/\/+$/, ''),
     adminSecret: sanitize(document.getElementById('tg-admin-secret')?.value || '', 160),
     chatId: sanitize(document.getElementById('tg-chat-id')?.value || '', 80),
@@ -3584,9 +3626,23 @@ window.saveTelegramSettings = function() {
   };
   localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
   if(cfg.apiBase) localStorage.setItem('IJRO_BACKEND_API_BASE', cfg.apiBase);
-  showToast('Telegram backend sozlamalari saqlandi', 'success');
+  if(!options.silent) showToast('Telegram backend sozlamalari saqlandi', 'success');
   writeAudit('telegram.settings_saved', { enabled: cfg.enabled, apiBase: cfg.apiBase, chatId: maskSecret(cfg.chatId), deadlineAlerts: cfg.deadlineAlerts, loginAlerts: cfg.loginAlerts, securityAlerts: cfg.securityAlerts }).catch(()=>{});
-  renderIntegrationsPanel();
+  if(!options.silent) renderIntegrationsPanel();
+};
+
+window.disconnectTelegramIntegration = async function() {
+  try {
+    const cfg = { ...getTelegramSettings(), enabled:false };
+    if(telegramApiBase(cfg)) {
+      await callTelegramBackend('/webhook', { method:'DELETE' });
+    }
+    localStorage.setItem(TELEGRAM_CONFIG_KEY, JSON.stringify(cfg));
+    showToast('Telegram webhook ochirildi va integratsiya toxtatildi', 'success');
+    renderIntegrationsPanel();
+  } catch(e) {
+    showToast('Telegram disconnect xatosi: ' + e.message, 'error');
+  }
 };
 
 window.clearTelegramSettings = function() {
