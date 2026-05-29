@@ -9949,15 +9949,16 @@ function ahbGroupTitle(doc={}) {
   if(normalized) return normalized;
   if(doc.source === 'VM') return AHB_OFFICIAL_GROUPS[4];
   if(doc.source === 'PF') return AHB_OFFICIAL_GROUPS[2];
-  return 'Boshqa hujjatlar';
+  return '';
 }
 
 function findAhbRequestedMatch(title='', requestedGroups=[]) {
   const titleCanon = normalizeText(normalizeAhbOfficialGroupName(title) || title);
+  if(!titleCanon) return '';
   return (requestedGroups||[]).find(group => {
     const groupCanon = normalizeText(normalizeAhbOfficialGroupName(group) || group);
     return groupCanon && (groupCanon === titleCanon || groupCanon.includes(titleCanon) || titleCanon.includes(groupCanon));
-  }) || title;
+  }) || '';
 }
 
 function getAhbRequestedGroupTitles(selectedOrgs=[], docs=[], contextText='') {
@@ -10000,10 +10001,9 @@ function getAhbRequestedGroupTitles(selectedOrgs=[], docs=[], contextText='') {
   if(!titles.length) {
     const docGroups = [...new Set((docs||[]).map(ahbGroupTitle).filter(Boolean))];
     AHB_OFFICIAL_GROUPS.forEach(group => { if(docGroups.includes(group)) add(group); });
-    docGroups.filter(group => !AHB_OFFICIAL_GROUPS.includes(group)).forEach(add);
   }
 
-  return titles.length ? titles : [...AHB_OFFICIAL_GROUPS];
+  return titles;
 }
 
 function buildAhbOfficialRows(docs=[], options={}) {
@@ -10016,7 +10016,8 @@ function buildAhbOfficialRows(docs=[], options={}) {
 
   docs.forEach(doc => {
     const rawTitle = selectedOrgs.length ? getAhbOrgGroupTitle(doc, selectedOrgs) : ahbGroupTitle(doc);
-    const title = findAhbRequestedMatch(rawTitle, requestedGroups);
+    const title = requestedGroups.length ? findAhbRequestedMatch(rawTitle, requestedGroups) : rawTitle;
+    if(!title) return;
     if(!groups.has(title)) groups.set(title, []);
     groups.get(title).push(doc);
   });
@@ -10047,7 +10048,6 @@ function ahbOfficialStyles() {
       .official-report{background:#fff;color:#111;border-collapse:collapse;width:100%;font-family:"Times New Roman",serif;font-size:9px;table-layout:fixed;}
       .official-report th,.official-report td{border:1px solid #111;padding:4px 3px;vertical-align:middle;text-align:center;white-space:pre-line;line-height:1.18;word-break:break-word;}
       .official-report th{font-weight:700;background:#fff;color:#111;}
-      .official-report .request-row td{border:3px solid #e11d48;font-weight:700;font-size:10px;line-height:1.2;text-align:center;}
       .official-report .group-row td{background:#fff;color:#111;font-weight:700;text-align:center;font-size:10px;}
       .official-report .empty-row td{color:#374151;font-style:italic;}
       .official-report .num{width:30px;}
@@ -10063,9 +10063,6 @@ function buildAhbOfficialTableHtml(docs=[], options={}) {
   const includeStyles = options.includeStyles !== false;
   const showTitle = options.showTitle !== false;
   const ourOrg = String(options.ourOrg || options.ourOrgName || getOurOrgName()).replace(/\s+/g, ' ').trim();
-  const requestText = data.requestedGroups.length
-    ? `Yuqorida turuvchi tashkilotlar (topshiriq yuborganlar): ${data.requestedGroups.join(', ')}. Har bir tashkilot bo'yicha hisobot alohida shakllantirildi.`
-    : `Yuqorida turuvchi tashkilotlar (topshiriq yuborganlar) bo'yicha ma'lumot.`;
   const header = `
     <thead>
       <tr>
@@ -10073,16 +10070,14 @@ function buildAhbOfficialTableHtml(docs=[], options={}) {
         ${AHB_OFFICIAL_COLS.map((col, i)=>`<th class="${i===0?'doc-name':''}">${escH(col.label)}</th>`).join('')}
       </tr>
     </thead>`;
-  const body = `
-    <tr class="request-row"><td colspan="${AHB_OFFICIAL_COLS.length + 1}">${escH(requestText)}</td></tr>
-    ${data.groups.map(group => `
+  const body = data.groups.map(group => `
       <tr class="group-row"><td colspan="${AHB_OFFICIAL_COLS.length + 1}">${escH(group.title)}</td></tr>
       ${group.rows.map(row => `
         <tr class="${row.isEmpty?'empty-row':''}">
           <td class="num">${row.n}</td>
           ${row.values.map(v=>`<td>${escH(v)}</td>`).join('')}
         </tr>`).join('')}
-    `).join('')}`;
+    `).join('');
 
   return `
     ${includeStyles ? ahbOfficialStyles() : ''}
