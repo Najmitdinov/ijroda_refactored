@@ -7673,7 +7673,7 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
-function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='') {
+function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
   let body = String(parsed.body || '').trim();
   if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
@@ -7681,6 +7681,7 @@ function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', lea
   body = enforceRequiredResponseOpening(body, requiredOpening);
   if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
+  if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
   if(responseLooksCopiedFromMemory(body, learningContext)) return { ok:false, reason:'body learning blankadan copy-paste qilinganga o‘xshaydi', body, confidence:0 };
   if(responseTooSimilarToPrevious(body, previousBodies)) return { ok:false, reason:'body oldingi yaratilgan javoblarga juda o‘xshash', body, confidence:0 };
@@ -7932,7 +7933,7 @@ function inferResponseRecipientFromText(text='') {
   return responseRecipientToDative(candidates[0]?.text || '');
 }
 
-async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='') {
+async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   let lastError = '';
   const retryNotes = [];
   for(let attempt = 0; attempt < 4; attempt++) {
@@ -7946,6 +7947,7 @@ QAT'IY TALAB:
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
 - Body birinchi gapi aynan shu kirish formulasi bilan boshlansin: "${requiredOpening} ...".
+- ${compactResponseText(requiredExtra) ? `Qo'shimcha ma'lumotdagi quyidagi faktlar body ichida aniq aks etsin: ${compactResponseText(requiredExtra).slice(0, 700)}` : `Qo'shimcha ma'lumot kiritilmagan; javobni faqat topshiriq hujjati va blanka uslubidan kelib chiqib shakllantir.`}
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
 - Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
@@ -7962,7 +7964,7 @@ QAT'IY TALAB:
       lastError = 'AI javobi JSON formatda kelmadi';
       continue;
     }
-    const check = validateAiResponseDocument(parsed, qualitySeed, legalContext, learningContext, previousBodies, requiredOpening);
+    const check = validateAiResponseDocument(parsed, qualitySeed, legalContext, learningContext, previousBodies, requiredOpening, requiredExtra);
     if(check.ok) {
       parsed.body = check.body;
       parsed.confidence_score = check.confidence;
@@ -8034,6 +8036,9 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
       tpl.analysis = DEFAULT_RESPONSE_TEMPLATE.analysis;
     }
     const header = officialResponseHeader(officialDate, outNum);
+    const extraPriorityInstruction = extra
+      ? `FOYDALANUVCHI QO'SHIMCHA MA'LUMOT KIRITGAN. Bu ma'lumot javob xatining mazmuniy asosidir. Body matnida aynan shu dalillar, izohlar yoki ijro holati keraksiz kengaytirilmasdan aks etsin. Qo'shimcha ma'lumotdan tashqarida taxmin, yangi fakt yoki mavzudan chetga chiqadigan gap yozma.\nQO'SHIMCHA MA'LUMOT MATNI:\n${extra}`
+      : `FOYDALANUVCHI QO'SHIMCHA MA'LUMOT KIRITMAGAN. Javob mazmunini topshiriq hujjati, huquqiy baza va blanka skeletonidan kelib chiqib mustaqil shakllantir. Keraksiz taxmin va umumiy gaplar yozma.`;
     const prompt = `Siz O'zbekiston Respublikasi davlat tashkilotlari uchun ishlovchi professional AI yuridik assistentsiz. Sizning asosiy vazifangiz yuqori turuvchi tashkilotlardan kelgan topshiriq, farmoyish, qaror, ko'rsatma yoki so'rovlarga avtomatik ravishda professional rasmiy javob xati yaratishdir.
 
 TIZIM LOGIKASI:
@@ -8070,12 +8075,17 @@ MAJBURIY TALABLAR:
 - Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, mas'ul xodim, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
 - Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
 - Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
+- Keraksiz ma'lumot, topshiriqda yoki qo'shimcha ma'lumotda ko'rsatilmagan fakt, umumiy bayon va mavzudan tashqari gaplar yozilmasin.
+- Qo'shimcha ma'lumot kiritilgan bo'lsa, body matni shu ma'lumotga tayanib tuzilsin; kiritilmagan bo'lsa, AI topshiriq hujjatidan mazmunni o'zi aniqlasin.
 - BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
 - BODY faqat asosiy javob xati matni bo'lsin.
 - BODY birinchi gapi blankalardagi kabi boshlansin va quyidagi formulani buzmasdan ishlatsin: "${requiredOpening} ...". Kelgan sana va raqam blankadan/topshiriqdan ajratilgan, chiquvchi raqam bilan almashtirma.
 - AUTO_DATE va AUTO_NUMBER body ichida ishlatilmasin; ular faqat tepada rekvizit sifatida chiqadi.
 
 ${LEGAL_RESPONSE_QUALITY_RULES}
+
+QO'SHIMCHA MA'LUMOT USTUVORLIGI:
+${extraPriorityInstruction}
 
 HUJJAT STRUCTURE:
 ${header}
@@ -8130,13 +8140,16 @@ LEARNING QOIDASI:
 - Hech qachon eski xatni copy-paste qilma.
 - Bir xil universal matn yozma.
 - Yangi javob aynan joriy topshiriq mazmuniga mos, unikallashgan va huquqiy jihatdan ehtiyotkor bo'lsin.
+- Blanka skeletoni majburiy: kirish formulasi, asosiy javob obzaslari, yakuniy natija/xulosa va rasmiy ohang shablondagi real xatlar mantiqiga mos bo'lsin.
+- Javobni qanday boshlash, qanday obzaslash va qanday yakunlashni learning blankadagi opening/body/closing patternsdan o'rgan, lekin matnni aynan ko'chirma.
 
 BLANKA LEARNING AMALGA OSHIRISH KETMA-KETLIGI:
 1. Avval learning blankalardagi javob xati qanday qurilganini ichki tahlil qil: kirish predmeti, ijro holati, aniq chora, yakuniy so'rov/xulosa.
 2. Joriy topshiriq profilini alohida tahlil qil.
-3. Blankadan faqat skelet va professional ohangni ol; jumlani aynan ko'chirma.
-4. Joriy topshiriq bo'yicha yangi, individual va faktlarga mos javob yoz.
-5. Yakuniy JSON ichida confidence_score kamida 85 bo'lsin. Agar 85% ishonch bilan yozolmasang, past confidence qaytar va body'ni bo'sh qoldir.
+3. Qo'shimcha ma'lumot kiritilgan bo'lsa, uni body mazmunining asosiy yo'nalishi qilib ol.
+4. Blankadan faqat skelet, boshlanish formulasi, obzaslash va professional ohangni ol; jumlani aynan ko'chirma.
+5. Joriy topshiriq bo'yicha yangi, individual va faktlarga mos javob yoz.
+6. Yakuniy JSON ichida confidence_score kamida 85 bo'lsin. Agar 85% ishonch bilan yozolmasang, past confidence qaytar va body'ni bo'sh qoldir.
 
 TOPSHIRIQ SEMANTIK PROFILI:
 ${responseTaskProfileText(taskProfile)}
@@ -8159,7 +8172,7 @@ Majburiy kirish formulasi: ${requiredOpening}
 Ijrochi: ${executorName || 'Kiritilmagan'}
 Ijrochi telefon raqami: ${executorPhone || 'Kiritilmagan'}
 Hudud: ${region}
-Qo'shimcha ma'lumot: ${extra}
+Qo'shimcha ma'lumot: ${extra || 'kiritilmagan'}
 
 KIRISH MA'LUMOTLARI JSON:
 {
@@ -8181,15 +8194,19 @@ FAQAT JSON qaytar:
 header/html/footer/signature_block maydonlarini bo'sh qoldirishing mumkin; ular tizim tomonidan alohida chiziladi.
 body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana, №, qabul qiluvchi, MAVZU, imzo, ijrochi va telefon kiritilmasin.
 body birinchi gapi aynan ushbu formula bilan boshlansin: ${requiredOpening}.
+${extra ? `body matnida qo'shimcha ma'lumotdagi asosiy dalillar aks etsin: ${extra.slice(0, 900)}` : `qo'shimcha ma'lumot kiritilmagan; body faqat topshiriq matni va blanka skeletoniga tayanib yozilsin.`}
 confidence_score 85 dan past bo'lmasin.`;
-    const qualitySeed = `${taskText} ${region} ${extra}`;
-    const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies, requiredOpening);
+    const qualitySeed = extra ? `${extra}\n${taskText} ${region}` : `${taskText} ${region}`;
+    const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies, requiredOpening, extra);
     parsed.body = cleanGeneratedResponseBody(parsed.body || parsed.answer_text || parsed.summary || '', {
       recipient: recipientOrg,
       outNumber: outNum,
       date: officialDate
     });
     parsed.body = enforceRequiredResponseOpening(parsed.body, requiredOpening);
+    if(responseMissesRequiredExtra(parsed.body, extra)) {
+      throw new Error('AI qo‘shimcha ma’lumotdagi asosiy dalillarni javob xatiga kiritmadi. Tafsilotni aniqroq yozib qayta urinib ko‘ring.');
+    }
     parsed.header = header;
     parsed.out_number = outNum;
     parsed.date = officialDate;
@@ -8254,6 +8271,20 @@ function splitTaskSentences(text='') {
     .split(/[\n.!?;]+/)
     .map(compactResponseText)
     .filter(s => s.length > 18);
+}
+
+function responseMissesRequiredExtra(body='', extra='') {
+  const extraText = compactResponseText(extra);
+  if(extraText.length < 12) return false;
+  const normBody = normalizeText(body);
+  const keyWords = taskMeaningfulWords(extraText, 18);
+  const numbers = [...new Set((extraText.match(/\b\d{1,4}(?:[.\-/]\d{1,4}){0,3}\b/g) || []).filter(x => x.length > 1))].slice(0, 8);
+  if(numbers.length && !numbers.some(n => String(body || '').includes(n))) return true;
+  if(keyWords.length >= 3) {
+    const overlap = keyWords.filter(w => normBody.includes(w)).length;
+    if(overlap < Math.min(3, Math.ceil(keyWords.length * 0.35))) return true;
+  }
+  return false;
 }
 
 function responseBodyLooksGeneric(body='', taskText='') {
