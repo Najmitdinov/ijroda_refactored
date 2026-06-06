@@ -1,4 +1,4 @@
-const APP_BUILD = '20260606-response-rules2';
+const APP_BUILD = '20260606-ai-provider-fallback3';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

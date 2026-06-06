@@ -19,6 +19,8 @@ const names = [
   'simpleHash',
   'stripNonWordChars',
   'compactResponseText',
+  'aiProviderErrorMessage',
+  'openRouterModelCandidates',
   'taskMeaningfulWords',
   'splitTaskSentences',
   'responseTaskProfile',
@@ -124,4 +126,50 @@ assert.match(source, /Mutaxassis.*faqat topshiriq yoki qo'shimcha ma'lumotda/i);
 assert.match(source, /Oddiy yoki qisqa topshiriqda 3 ta aniq gap yetarli/);
 assert.doesNotMatch(source, /if\(clean\.length < 220\) return true/);
 
-console.log('Response letter rules: 12 checks passed.');
+const quotaMessage = runtime.aiProviderErrorMessage(
+  'Gemini',
+  429,
+  'You exceeded your current quota. Quota exceeded for metric generate_content_free_tier_requests, limit: 0'
+);
+assert.match(quotaMessage, /Gemini kvotasi tugagan/);
+assert.doesNotMatch(quotaMessage, /https?:\/\//);
+
+const modelCandidates = runtime.openRouterModelCandidates([
+  {
+    id:'deepseek/deepseek-r1:free',
+    architecture:{ output_modalities:['text'] },
+    pricing:{ prompt:'0', completion:'0' },
+    context_length:200000,
+    expiration_date:null
+  },
+  {
+    id:'qwen/qwen3-coder:free',
+    architecture:{ output_modalities:['text'] },
+    pricing:{ prompt:'0', completion:'0' },
+    context_length:1000000,
+    expiration_date:null
+  },
+  {
+    id:'google/gemma-instruct:free',
+    architecture:{ output_modalities:['text'] },
+    pricing:{ prompt:'0', completion:'0' },
+    context_length:260000,
+    expiration_date:null
+  }
+], 'mistralai/mistral-7b-instruct');
+assert.deepEqual(modelCandidates, ['google/gemma-instruct:free', 'qwen/qwen3-coder:free']);
+assert.equal(modelCandidates.some(x => /deepseek/i.test(x)), false);
+
+assert.match(source, /resolveOpenRouterModels/);
+assert.doesNotMatch(
+  source.slice(source.indexOf('async function callTemplateAi'), source.indexOf('function localTemplateAnalysis')),
+  /mistralai\/mistral-7b-instruct/
+);
+assert.match(source, /let templateAiLastProof = null/);
+assert.match(source, /AI provayder tasdig‘i olinmadi\. Sun’iy yoki lokal javob ishlatilmaydi/);
+assert.match(source, /parsed\.ai_provider = aiProof\.provider/);
+assert.match(source, /if\(!parsed\.ai_provider \|\| !parsed\.ai_model\)/);
+assert.match(source, /aiOnly:true,\s*provider:parsed\.ai_provider,\s*model:parsed\.ai_model/s);
+assert.match(source, /Javob xati faqat AI orqali yaratildi/);
+
+console.log('Response letter and AI provider rules: 24 checks passed.');

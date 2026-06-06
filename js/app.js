@@ -6451,8 +6451,75 @@ async function getDefaultLearningBlankaText() {
   return defaultLearningBlankaText;
 }
 
+function aiProviderErrorMessage(provider='', status=0, message='') {
+  const clean = compactResponseText(message);
+  const norm = normalizeText(clean);
+  if(provider === 'Gemini' && (status === 429 || /quota exceeded|resource_exhausted|rate limit|limit:\s*0/i.test(norm))) {
+    return 'Gemini kvotasi tugagan yoki loyiha uchun API limiti 0. OpenRouter yoki Groq orqali davom ettiriladi.';
+  }
+  if(provider === 'OpenRouter' && status === 404) {
+    return 'OpenRouter modeli mavjud emas. Dastur boshqa mavjud modelni avtomatik tanlaydi.';
+  }
+  if(status === 401 || status === 403) return `${provider} API kaliti yaroqsiz yoki ruxsat berilmagan.`;
+  if(status === 402) return `${provider} hisobida kredit yetarli emas.`;
+  if(status === 429) return `${provider} so'rov limiti vaqtincha tugagan.`;
+  return clean ? `${provider}: ${clean.slice(0, 260)}` : `${provider} HTTP ${status || 'xato'}`;
+}
+
+function openRouterModelCandidates(models=[], configured='') {
+  const available = Array.isArray(models) ? models : [];
+  const textModels = available.filter(model => {
+    const id = String(model?.id || '');
+    const outputs = model?.architecture?.output_modalities || [];
+    const expired = model?.expiration_date && new Date(model.expiration_date).getTime() <= Date.now();
+    return id && !/deepseek/i.test(id) && !expired && (!outputs.length || outputs.includes('text'));
+  });
+  const ids = new Set(textModels.map(model => model.id));
+  const selected = [];
+  if(configured && ids.has(configured) && !/deepseek/i.test(configured)) selected.push(configured);
+  const rankedFree = textModels
+    .filter(model => Number(model?.pricing?.prompt || 0) === 0 && Number(model?.pricing?.completion || 0) === 0)
+    .sort((a, b) => {
+      const writingScore = id => {
+        let score = 0;
+        if(/instruct|chat/i.test(id)) score += 10;
+        if(/gemma|nemotron|llama|mistral|kimi|qwen|gpt-oss/i.test(id)) score += 6;
+        if(/coder|code|image|audio|lyria|vision/i.test(id)) score -= 12;
+        return score;
+      };
+      return writingScore(b.id) - writingScore(a.id) || Number(b.context_length || 0) - Number(a.context_length || 0);
+    })
+    .map(model => model.id);
+  rankedFree.forEach(id => {
+    if(selected.length < 4 && !selected.includes(id)) selected.push(id);
+  });
+  return selected;
+}
+
+async function resolveOpenRouterModels(apiKey='') {
+  const configured = localStorage.getItem('OPENROUTER_MODEL') || '';
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/models?output_modalities=text', {
+      headers: apiKey ? { 'Authorization':'Bearer '+apiKey } : {}
+    });
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const candidates = openRouterModelCandidates(data?.data || [], configured);
+    if(configured && !candidates.includes(configured)) localStorage.removeItem('OPENROUTER_MODEL');
+    if(candidates.length) return candidates;
+  } catch(e) {
+    console.warn('OpenRouter model list:', e.message);
+  }
+  return configured && !/deepseek|mistral-7b-instruct/i.test(configured)
+    ? [configured]
+    : ['qwen/qwen3-next-80b-a3b-instruct:free'];
+}
+
+let templateAiLastProof = null;
+
 async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
-  let lastError = '';
+  templateAiLastProof = null;
+  const providerErrors = [];
   const generationTemperature = jsonMode ? 0.22 : 0.28;
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
@@ -6471,16 +6538,24 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
         });
         if(!resp.ok) {
           const errData = await resp.json().catch(()=>({}));
-          throw new Error(errData?.error?.message || `Gemini HTTP ${resp.status}`);
+          const rawMessage = errData?.error?.message || `Gemini HTTP ${resp.status}`;
+          const friendly = aiProviderErrorMessage('Gemini', resp.status, rawMessage);
+          const err = new Error(friendly);
+          err.status = resp.status;
+          err.quotaTerminal = resp.status === 429 || /quota exceeded|resource_exhausted|limit:\s*0/i.test(rawMessage);
+          throw err;
         }
         const data = await resp.json();
         const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+        if(!text) throw new Error('Gemini bo‘sh javob qaytardi.');
+        templateAiLastProof = { provider:'Gemini', model, requestId:data?.responseId || '', at:nowIso() };
         await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model });
         return text;
       } catch(e) {
-        lastError = e.message;
+        if(!providerErrors.includes(e.message)) providerErrors.push(e.message);
         await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model, error:e.message }).catch(()=>{});
         console.warn('Gemini template fallback:', model, e.message);
+        if(e.quotaTerminal) break;
       }
     }
   }
@@ -6498,33 +6573,58 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
         throw new Error(errData?.error?.message || `Groq HTTP ${resp.status}`);
       }
       const data = await resp.json();
+      const text = data?.choices?.[0]?.message?.content || '';
+      if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
+      templateAiLastProof = { provider:'Groq', model, requestId:data?.id || '', at:nowIso() };
       await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model });
-      return data?.choices?.[0]?.message?.content || '';
+      return text;
     } catch(e) {
-      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
-      await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:e.message }).catch(()=>{});
-      console.warn('Groq template fallback:', e.message);
+      const friendly = aiProviderErrorMessage('Groq', e.status || 0, e.message);
+      if(!providerErrors.includes(friendly)) providerErrors.push(friendly);
+      await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:friendly }).catch(()=>{});
+      console.warn('Groq template fallback:', friendly);
     }
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
-    try {
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method:'POST',
-        headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:5200 })
-      });
-      if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
-      const data = await resp.json();
-      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
-      return data?.choices?.[0]?.message?.content || '';
-    } catch(e) {
-      lastError = lastError ? `${lastError}; ${e.message}` : e.message;
-      await writeAIRequestLog({ provider:'OpenRouter', ok:false, chars:prompt.length, model:'openrouter', error:e.message }).catch(()=>{});
-      console.warn('OpenRouter template fallback:', e.message);
+    const models = await resolveOpenRouterModels(openRouterKey);
+    for(const model of models) {
+      try {
+        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method:'POST',
+          headers:{
+            'Authorization':'Bearer '+openRouterKey,
+            'Content-Type':'application/json',
+            'HTTP-Referer':location.origin,
+            'X-Title':'Ijro Hisobot'
+          },
+          body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:5200 })
+        });
+        const data = await resp.json().catch(()=>({}));
+        if(!resp.ok) {
+          const rawMessage = data?.error?.message || `OpenRouter HTTP ${resp.status}`;
+          const err = new Error(aiProviderErrorMessage('OpenRouter', resp.status, rawMessage));
+          err.status = resp.status;
+          throw err;
+        }
+        const text = data?.choices?.[0]?.message?.content || '';
+        if(!text) throw new Error('OpenRouter bo‘sh javob qaytardi.');
+        localStorage.setItem('OPENROUTER_MODEL', model);
+        templateAiLastProof = { provider:'OpenRouter', model:data?.model || model, requestId:data?.id || '', at:nowIso() };
+        await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model });
+        return text;
+      } catch(e) {
+        if(!providerErrors.includes(e.message)) providerErrors.push(e.message);
+        await writeAIRequestLog({ provider:'OpenRouter', ok:false, chars:prompt.length, model, error:e.message }).catch(()=>{});
+        console.warn('OpenRouter template fallback:', model, e.message);
+        if(e.status === 401 || e.status === 403 || e.status === 402) break;
+      }
     }
   }
-  throw new Error(lastError || 'AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini yoki OpenRouter kalitini kiriting.');
+  if(!geminiKey && !groqKey && !openRouterKey) {
+    throw new Error("AI API kaliti topilmadi. AI Sozlamalar bo'limidan Gemini, Groq yoki OpenRouter kalitini kiriting.");
+  }
+  throw new Error(providerErrors.join(' ') || 'AI provayderlaridan javob olinmadi.');
 }
 
 function localTemplateAnalysis(file, text='') {
@@ -8055,11 +8155,17 @@ QAT'IY TALAB:
 - confidence_score ni javobning real aniqligi va qamroviga qarab bahola; qisqa javobni faqat uzunligi sabab rad etma.
 - FAQAT JSON qaytar.`;
     let parsed = null;
+    let aiProof = null;
     try {
       parsed = parseAIJson(await callTemplateAi(strictPrompt, filePart, true));
+      aiProof = templateAiLastProof ? { ...templateAiLastProof } : null;
     } catch(e) {
       lastError = e.message;
       break;
+    }
+    if(!aiProof?.provider || !aiProof?.model) {
+      lastError = 'AI provayder tasdig‘i olinmadi. Sun’iy yoki lokal javob ishlatilmaydi';
+      continue;
     }
     if(!parsed) {
       lastError = 'AI javobi JSON formatda kelmadi';
@@ -8070,12 +8176,16 @@ QAT'IY TALAB:
       parsed.body = check.body;
       parsed.confidence_score = check.confidence;
       parsed.quality_gate = 'passed';
+      parsed.ai_provider = aiProof.provider;
+      parsed.ai_model = aiProof.model;
+      parsed.ai_request_id = aiProof.requestId || '';
+      parsed.ai_generated_at = aiProof.at || nowIso();
       return parsed;
     }
     retryNotes.push(check.reason);
     lastError = check.reason || 'AI topshiriqqa mos individual javob matni qaytarmadi';
   }
-  throw new Error(`AI individual javob xati yaratmadi: ${lastError || 'noma’lum xatolik'}. Hujjat yaratilmaydi.`);
+  throw new Error(`AI individual javob xati yaratmadi: ${lastError || 'noma’lum xatolik'}. Lokal yoki sun’iy javob yaratilmaydi.`);
 }
 
 window.generateResponseDocument = async function(numberConfirmed=false) {
@@ -8332,6 +8442,9 @@ confidence_score javobning real aniqligi va topshiriqni qamrab olishiga qarab ba
     parsed.executor_phone = parsed.executor_phone || executorPhone;
     parsed.ai_validated = true;
     parsed.ai_only = true;
+    if(!parsed.ai_provider || !parsed.ai_model) {
+      throw new Error('AI provayder va model tasdig‘i yo‘q. Hujjat yaratilmaydi.');
+    }
     const generated = {
       org: aiDocOrgScope(), userId:currentUser.uid, templateId:tpl.id, templateName:tpl.name,
       sourceFileName:file?.name || '', outNumber:outNum, date, officialDate, responsible,
@@ -8339,6 +8452,9 @@ confidence_score javobning real aniqligi va topshiriqni qamrab olishiga qarab ba
       aiValidated:true,
       validation:{
         aiOnly:true,
+        provider:parsed.ai_provider,
+        model:parsed.ai_model,
+        requestId:parsed.ai_request_id || '',
         confidenceScore:Number(parsed.confidence_score || 0),
         taskFingerprint:taskProfile.fingerprint,
         learningContextUsed:!!learningRagContext && !/topilmadi/i.test(learningRagContext),
@@ -8361,7 +8477,13 @@ confidence_score javobning real aniqligi va topshiriqni qamrab olishiga qarab ba
     await saveGeneratedAnswerToLearningMemory(lastGeneratedDocument, qualitySeed).catch(e => console.warn('learning memory save:', e.message));
     renderGeneratedPreview(lastGeneratedDocument);
     await loadGeneratedAiDocs().catch(()=>{});
-    if(status) { status.className='template-ai-status ok'; status.textContent=generated.saveError ? `Javob xati yaratildi (${parsed.confidence_score || 0}% ishonchlilik). Bazaga yozish ruxsati cheklangan, lekin Word yuklash ishlaydi.` : `Javob xati yaratildi va bazaga saqlandi. Ishonchlilik: ${parsed.confidence_score || 0}%.`; }
+    if(status) {
+      status.className='template-ai-status ok';
+      const aiLabel = `${parsed.ai_provider} / ${parsed.ai_model}`;
+      status.textContent = generated.saveError
+        ? `Javob xati faqat AI orqali yaratildi: ${aiLabel}. Ishonchlilik: ${parsed.confidence_score || 0}%. Bazaga yozish ruxsati cheklangan, lekin Word yuklash ishlaydi.`
+        : `Javob xati faqat AI orqali yaratildi va bazaga saqlandi: ${aiLabel}. Ishonchlilik: ${parsed.confidence_score || 0}%.`;
+    }
   } catch(e) {
     if(status) { status.className='template-ai-status err'; status.textContent=e.message; }
   }
