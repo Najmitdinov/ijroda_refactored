@@ -32,6 +32,8 @@ const names = [
   'responseMissesRequiredExtra',
   'responseBodyLooksGeneric',
   'responseUsesUnsupportedSpecialist',
+  'responseClaimsUnsupportedAction',
+  'normalizeAiConfidence',
   'responseBodyFailsLegalQuality'
 ];
 
@@ -113,6 +115,24 @@ assert.equal(
   false
 );
 
+assert.equal(runtime.normalizeAiConfidence(0.8), 80);
+assert.equal(runtime.normalizeAiConfidence('0,92'), 92);
+assert.equal(runtime.normalizeAiConfidence(87), 87);
+assert.equal(
+  runtime.responseClaimsUnsupportedAction(
+    "Mazkur xat ma'lumot uchun qabul qilindi. Topshiriq ijrosi yuzasidan zarur choralar ko'rilmoqda.",
+    "Mazkur hujjat ma'lumot uchun yuborildi."
+  ),
+  true
+);
+assert.equal(
+  runtime.responseClaimsUnsupportedAction(
+    "Obyektda texnik ko'rik o'tkazildi va dalolatnoma tuzildi.",
+    "Obyektda texnik ko'rik o'tkazilgani hamda dalolatnoma tuzilgani ma'lum qilindi."
+  ),
+  false
+);
+
 const extraWithPhone = "Ijrochi telefoni 79-220-50-11. Nurota obyektidagi kamchiliklarni bartaraf etish ishlari boshlandi.";
 assert.equal(
   runtime.responseMissesRequiredExtra(
@@ -178,6 +198,12 @@ assert.deepEqual(modelCandidates, ['google/gemma-instruct:free', 'qwen/qwen3-cod
 assert.equal(modelCandidates.some(x => /deepseek/i.test(x)), false);
 
 assert.match(source, /resolveOpenRouterModels/);
+assert.match(source, /async function readPdfAsText/);
+assert.match(source, /window\.pdfjsLib/);
+assert.match(source, /pdfLib\.getDocument/);
+assert.match(source, /if\(\/\\\.pdf\$\/i\.test\(file\.name\)\) return \(await readPdfAsText\(file\)\)/);
+assert.match(source, /body oddiy matn satri emas/);
+assert.match(source, /PDF yoki rasmda matn qatlami topilmadi/);
 const templateProviderSource = source.slice(
   source.indexOf('async function callTemplateAi'),
   source.indexOf('function localTemplateAnalysis')
@@ -202,4 +228,4 @@ assert.match(source, /if\(!parsed\.ai_provider \|\| !parsed\.ai_model\)/);
 assert.match(source, /aiOnly:true,\s*provider:parsed\.ai_provider,\s*model:parsed\.ai_model/s);
 assert.match(source, /Javob xati faqat AI orqali yaratildi/);
 
-console.log('Response letter and AI provider rules: 33 checks passed.');
+console.log('Response letter and AI provider rules: 46 checks passed.');

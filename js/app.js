@@ -4267,6 +4267,12 @@ window.handleLegalTaskLetterFile = function(file) {
 async function readLegalAiFileSmart(file) {
   if(!file) return { text:'', filePart:null };
   if(/\.docx$/i.test(file.name)) return { text: await readDocxAsText(file), filePart:null };
+  if(/\.pdf$/i.test(file.name)) {
+    const text = await readPdfAsText(file).catch(() => '');
+    return text
+      ? { text, filePart:null }
+      : { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/pdf' } };
+  }
   if(/\.(xls|xlsx)$/i.test(file.name)) return { text: await readExcelAsText(file), filePart:null };
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return { text: await readAsText(file), filePart:null };
   return { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } };
@@ -6285,6 +6291,44 @@ function readAsText(file) {
   });
 }
 
+async function readPdfAsText(file) {
+  if(!file || !/\.pdf$/i.test(file.name || '')) return '';
+  const pdfLib = window.pdfjsLib;
+  if(!pdfLib) throw new Error('PDF matnini o‘qish kutubxonasi yuklanmadi');
+  pdfLib.GlobalWorkerOptions.workerSrc = './assets/vendor/pdfjs/pdf.worker.min.js?v=20260607-pdf-text2';
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfLib.getDocument({ data }).promise;
+  const pages = [];
+  const pageLimit = Math.min(pdf.numPages, 80);
+
+  for(let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    let line = '';
+    let lastY = null;
+    const lines = [];
+    for(const item of content.items || []) {
+      const text = String(item?.str || '').trim();
+      if(!text) continue;
+      const y = Number(item?.transform?.[5]);
+      if(lastY !== null && Number.isFinite(y) && Math.abs(y - lastY) > 2 && line.trim()) {
+        lines.push(line.trim());
+        line = '';
+      }
+      line += `${line ? ' ' : ''}${text}`;
+      if(item?.hasEOL && line.trim()) {
+        lines.push(line.trim());
+        line = '';
+      }
+      if(Number.isFinite(y)) lastY = y;
+    }
+    if(line.trim()) lines.push(line.trim());
+    const pageText = lines.join('\n').trim();
+    if(pageText) pages.push(pageText);
+  }
+  return pages.join('\n\n').replace(/[ \t]+\n/g, '\n').slice(0, 50000);
+}
+
 function parseAIJson(text) {
   if(!text) return null;
   const variants = [];
@@ -6413,6 +6457,7 @@ function aiDocFileKind(file) {
 async function aiDocExtractText(file) {
   if(!file) return '';
   if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 50000);
+  if(/\.pdf$/i.test(file.name)) return (await readPdfAsText(file)).slice(0, 50000);
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return (await readAsText(file)).slice(0, 50000);
   return '';
 }
@@ -6690,6 +6735,12 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
         if(e.quotaTerminal) break;
       }
     }
+  }
+  if(filePart?.base64) {
+    throw new Error(
+      providerErrors.join(' ') ||
+      'PDF yoki rasmda matn qatlami topilmadi. Skaner hujjatni o‘qish uchun Gemini API kalitini kiriting yoki matn qatlamli PDF/DOCX yuklang.'
+    );
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
@@ -7916,6 +7967,9 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 
 function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
+  if(parsed.body !== undefined && typeof parsed.body !== 'string') {
+    return { ok:false, reason:'body oddiy matn satri emas', body:'', confidence:0 };
+  }
   let body = String(parsed.body || '').trim();
   if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
   body = cleanGeneratedResponseBody(body);
@@ -7924,10 +7978,11 @@ function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', lea
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
   if(responseUsesUnsupportedSpecialist(body, qualitySeed)) return { ok:false, reason:'body topshiriqda bo‘lmagan mutaxassis yoki mas’ul xodimni asossiz qo‘shdi', body, confidence:0 };
+  if(responseClaimsUnsupportedAction(body, qualitySeed)) return { ok:false, reason:'body topshiriqda berilmagan bajarilgan yoki rejalashtirilgan ishni asossiz qo‘shdi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
   if(responseLooksCopiedFromMemory(body, learningContext)) return { ok:false, reason:'body learning blankadan copy-paste qilinganga o‘xshaydi', body, confidence:0 };
   if(responseTooSimilarToPrevious(body, previousBodies)) return { ok:false, reason:'body oldingi yaratilgan javoblarga juda o‘xshash', body, confidence:0 };
-  const explicitConfidence = Number(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
+  const explicitConfidence = normalizeAiConfidence(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
   const estimatedConfidence = estimateResponseConfidence(body, qualitySeed, legalContext, learningContext);
   if(explicitConfidence && explicitConfidence < 65) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
   const confidence = explicitConfidence ? Math.min(99, Math.max(explicitConfidence, estimatedConfidence)) : estimatedConfidence;
@@ -8117,6 +8172,12 @@ function responseOpeningFormula(senderOrg='', req={}) {
   return `Sizning topshirig'ingiz ijrosini ta'minlash maqsadida`;
 }
 
+function normalizeAiConfidence(value=0) {
+  const parsed = Number(String(value ?? '').replace(',', '.'));
+  if(!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(Math.min(100, parsed <= 1 ? parsed * 100 : parsed));
+}
+
 function responseOpeningPlan(profile={}, senderOrg='', req={}) {
   const referenced = responseOpeningFormula(senderOrg, req);
   const hasExactReference = !!(compactResponseText(req.date || '') && compactResponseText(req.number || ''));
@@ -8250,6 +8311,7 @@ QAT'IY TALAB:
 - Lokal yoki shablon javob yozma.
 - Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
+- JSON ichidagi body qiymati obyekt, ro'yxat yoki maydonlar to'plami emas, kamida 2 ta tugallangan rasmiy gapdan iborat BITTA ODDIY MATN SATRI bo'lsin.
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
 - ${requiredOpening ? `Body birinchi gapi shu rekvizitli ibora bilan boshlansin: "${requiredOpening} ...".` : `Body kirishi topshiriq turiga mos bo'lsin; oldingi universal kirishni takrorlama.`}
 - ${compactResponseText(requiredExtra) ? `Qo'shimcha ma'lumotdagi quyidagi faktlar body ichida aniq aks etsin: ${compactResponseText(requiredExtra).slice(0, 700)}` : `Qo'shimcha ma'lumot kiritilmagan; javobni faqat topshiriq hujjati va blanka uslubidan kelib chiqib shakllantir.`}
@@ -8665,6 +8727,34 @@ function responseUsesUnsupportedSpecialist(body='', taskText='') {
   const bodyAssignsPerson = /(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil).{0,80}(biriktir|tayinla|jalb\s+et)|(?:biriktir|tayinla|jalb\s+et).{0,80}(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil)/i.test(normBody);
   if(!bodyAssignsPerson) return false;
   return !/(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil|biriktir|tayinla|nomzod)/i.test(normTask);
+}
+
+function responseClaimsUnsupportedAction(body='', taskText='') {
+  const normBody = normalizeText(body);
+  const normTask = normalizeText(taskText);
+  const claims = [
+    {
+      body: /(choralar\s+ko['‘’`ʼ]?rilmoqda|chora(?:-tadbir)?lar\s+amalga\s+oshiril(?:adi|moqda)|amalga\s+oshiriladi)/i,
+      task: /(chora|amalga\s+oshir|bajar|ijro\s+et|rejalashtir)/i
+    },
+    {
+      body: /(nazoratga\s+olindi|nazorat\s+qilinmoqda|nazorat\s+o['‘’`ʼ]?rnatildi)/i,
+      task: /(nazorat|monitoring)/i
+    },
+    {
+      body: /(kamchilik(?:lar)?\s+bartaraf\s+etildi|bartaraf\s+etish\s+ishlari\s+boshlandi)/i,
+      task: /(kamchilik|bartaraf)/i
+    },
+    {
+      body: /(dalolatnoma\s+tuzildi|smeta(?:\s+hisob-kitobi)?\s+tayyorlanmoqda|texnik\s+ko['‘’`ʼ]?rik\s+o['‘’`ʼ]?tkazildi)/i,
+      task: /(dalolatnoma|smeta|texnik\s+ko['‘’`ʼ]?rik)/i
+    },
+    {
+      body: /(tegishli\s+tarkibiy\s+bo['‘’`ʼ]?linmalarga\s+yetkazildi|mas['‘’`ʼ]?ullarga\s+yetkazildi)/i,
+      task: /(tarkibiy\s+bo['‘’`ʼ]?linma|mas['‘’`ʼ]?ul|yetkaz)/i
+    }
+  ];
+  return claims.some(claim => claim.body.test(normBody) && !claim.task.test(normTask));
 }
 
 function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {

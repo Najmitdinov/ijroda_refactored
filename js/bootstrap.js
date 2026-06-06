@@ -1,4 +1,4 @@
-const APP_BUILD = '20260607-groq-primary1';
+const APP_BUILD = '20260607-pdf-text2';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
