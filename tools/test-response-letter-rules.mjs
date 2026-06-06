@@ -20,6 +20,7 @@ const names = [
   'stripNonWordChars',
   'compactResponseText',
   'aiProviderErrorMessage',
+  'groqModelCandidates',
   'openRouterModelCandidates',
   'taskMeaningfulWords',
   'splitTaskSentences',
@@ -134,6 +135,22 @@ const quotaMessage = runtime.aiProviderErrorMessage(
 assert.match(quotaMessage, /Gemini kvotasi tugagan/);
 assert.doesNotMatch(quotaMessage, /https?:\/\//);
 
+const groqLimitMessage = runtime.aiProviderErrorMessage(
+  'Groq',
+  429,
+  'Rate limit reached for model on tokens per minute (TPM)'
+);
+assert.match(groqLimitMessage, /boshqa Groq modeli yoki Gemini/);
+assert.doesNotMatch(groqLimitMessage, /https?:\/\//);
+
+const groqModels = runtime.groqModelCandidates('llama-3.1-70b-versatile');
+assert.deepEqual(groqModels, [
+  'llama-3.3-70b-versatile',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3-32b'
+]);
+assert.equal(groqModels.some(x => /llama-3\.1-70b-versatile/i.test(x)), false);
+
 const modelCandidates = runtime.openRouterModelCandidates([
   {
     id:'deepseek/deepseek-r1:free',
@@ -161,10 +178,23 @@ assert.deepEqual(modelCandidates, ['google/gemma-instruct:free', 'qwen/qwen3-cod
 assert.equal(modelCandidates.some(x => /deepseek/i.test(x)), false);
 
 assert.match(source, /resolveOpenRouterModels/);
+const templateProviderSource = source.slice(
+  source.indexOf('async function callTemplateAi'),
+  source.indexOf('function localTemplateAnalysis')
+);
+assert.ok(
+  templateProviderSource.indexOf("localStorage.getItem('GROQ_API_KEY')") <
+  templateProviderSource.indexOf("localStorage.getItem('GEMINI_API_KEY')"),
+  'Groq javob xati uchun Gemini oldidan ishlashi kerak'
+);
 assert.doesNotMatch(
-  source.slice(source.indexOf('async function callTemplateAi'), source.indexOf('function localTemplateAnalysis')),
+  templateProviderSource,
   /mistralai\/mistral-7b-instruct/
 );
+assert.match(templateProviderSource, /requestGroqText/);
+assert.match(source, /providerPriority:\['Groq','Gemini','OpenRouter'\]/);
+assert.match(source, /name: 'Groq'.*model: 'llama-3\.3-70b-versatile'/s);
+assert.match(source, /Groq → Gemini → OpenRouter/);
 assert.match(source, /let templateAiLastProof = null/);
 assert.match(source, /AI provayder tasdig‘i olinmadi\. Sun’iy yoki lokal javob ishlatilmaydi/);
 assert.match(source, /parsed\.ai_provider = aiProof\.provider/);
@@ -172,4 +202,4 @@ assert.match(source, /if\(!parsed\.ai_provider \|\| !parsed\.ai_model\)/);
 assert.match(source, /aiOnly:true,\s*provider:parsed\.ai_provider,\s*model:parsed\.ai_model/s);
 assert.match(source, /Javob xati faqat AI orqali yaratildi/);
 
-console.log('Response letter and AI provider rules: 24 checks passed.');
+console.log('Response letter and AI provider rules: 33 checks passed.');

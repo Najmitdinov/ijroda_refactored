@@ -10,8 +10,9 @@ export interface AiJsonRequest {
 
 export async function completeJson(request: AiJsonRequest): Promise<unknown> {
   const providers = [
-    callOpenRouter,
+    callGroq,
     callGemini,
+    callOpenRouter,
     callOpenAi
   ];
 
@@ -26,6 +27,43 @@ export async function completeJson(request: AiJsonRequest): Promise<unknown> {
     }
   }
   throw lastError ?? new Error('AI_PROVIDER_UNAVAILABLE');
+}
+
+async function callGroq({ system, prompt, temperature = 0.12 }: AiJsonRequest) {
+  if (!env.GROQ_API_KEY) throw new Error('GROQ_API_KEY_MISSING');
+  const client = new OpenAI({
+    apiKey: env.GROQ_API_KEY,
+    baseURL: 'https://api.groq.com/openai/v1'
+  });
+  const models = [
+    env.GROQ_MODEL,
+    'llama-3.3-70b-versatile',
+    'openai/gpt-oss-120b',
+    'qwen/qwen3-32b'
+  ].filter((model, index, all): model is string =>
+    Boolean(model) &&
+    model !== 'llama-3.1-70b-versatile' &&
+    all.indexOf(model) === index
+  );
+
+  let lastError: unknown;
+  for (const model of models) {
+    try {
+      const result = await client.chat.completions.create({
+        model,
+        temperature,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt }
+        ]
+      });
+      return result.choices[0]?.message?.content ?? '{}';
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error('GROQ_PROVIDER_UNAVAILABLE');
 }
 
 async function callOpenRouter({ system, prompt, temperature = 0.2 }: AiJsonRequest) {

@@ -2990,8 +2990,8 @@ window.renderIntegrationsPanel = () => {
   el.innerHTML = `
     <div class="module-grid">
       <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
-      <div class="module-card"><h3>Gemini AI</h3><p>Javob xati, Excel saralash va AI tahlil uchun asosiy provider.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
-      <div class="module-card"><h3>Groq / OpenRouter</h3><p>AI fallback zanjiri: Gemini → Groq → OpenRouter.</p><span class="badge ${(hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
+      <div class="module-card"><h3>Groq AI</h3><p>Javob xati va matnli AI tahlil uchun asosiy provider.</p><span class="badge ${hasGroq?'badge-done':'badge-fail'}">${hasGroq?'Kalit bor':'Kalit yo‘q'}</span></div>
+      <div class="module-card"><h3>Gemini / OpenRouter</h3><p>AI fallback zanjiri: Groq → Gemini → OpenRouter.</p><span class="badge ${(hasGemini||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGemini||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
       <div class="module-card"><h3>PDF / Excel</h3><p>Excel import/export, Word yuklash va hujjat tahlili faol.</p><span class="badge badge-done">Faol</span></div>
     </div>
 
@@ -3359,7 +3359,7 @@ function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // ===== PROFESSIONAL SAAS CORE =====
 const SAAS_VERSION = '3.0.0-premium-saas';
 const SAAS_COLLECTIONS = ['users','chats','messages','analytics','logs','subscriptions','reports','settings','aiUsage','aiLogs','documents','fishkalar'];
-const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Gemini','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
+const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Groq','Gemini','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
 let appSettingsCache = { ...DEFAULT_FEATURES };
 let adminUsersCache = [];
 
@@ -4066,7 +4066,7 @@ function legalStatusLabel(status='') {
 function buildLegalAiShell() {
   const docOptions = LEGAL_AI_DOC_TYPES.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
   const sectorOptions = LEGAL_AI_SECTORS.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
-  const providerReady = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
+  const providerReady = localStorage.getItem('GROQ_API_KEY') || localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
   const providerClass = providerReady ? 'ready' : 'local';
   return `
     <div class="legal-ai-shell">
@@ -4305,6 +4305,25 @@ FAQAT JSON qaytar:
 html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
 
   let lastError = '';
+  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
+  if(groqKey && taskText) {
+    try {
+      const result = await requestGroqText(prompt, { jsonMode:true, temperature:0.1, maxTokens:6500 });
+      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:result.model });
+      return parseAIJson(result.text);
+    } catch(e) {
+      lastError = e.message;
+      await writeAIRequestLog({
+        provider:'Groq',
+        ok:false,
+        chars:prompt.length,
+        model:localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile',
+        error:e.message
+      }).catch(()=>{});
+      console.warn('Groq legal template fallback:', e.message);
+    }
+  }
+
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     try {
@@ -4337,7 +4356,7 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',
         headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
+        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
       });
       if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
       const data = await resp.json();
@@ -4350,7 +4369,7 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
     }
   }
   if(lastError) throw new Error(`AI javob yaratmadi: ${lastError}`);
-  throw new Error('AI kaliti sozlanmagan. Gemini yoki OpenRouter API kalitini kiriting.');
+  throw new Error('AI kaliti sozlanmagan. Asosiy Groq yoki fallback Gemini/OpenRouter API kalitini kiriting.');
 }
 
 window.generateLegalTemplateAnswer = async function() {
@@ -4942,6 +4961,27 @@ ${input.question || 'Hujjatni toliq tahlil qiling.'}
 Matn:
 ${(input.rawText || '').slice(0, 14000)}`;
 
+  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
+  if(groqKey && input.rawText) {
+    try {
+      const result = await requestGroqText(prompt, { jsonMode:true, temperature:0.1, maxTokens:5200 });
+      const parsed = parseAIJson(result.text);
+      if(parsed) {
+        await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:result.model });
+        return { ...parsed, _provider:'Groq' };
+      }
+    } catch(e) {
+      await writeAIRequestLog({
+        provider:'Groq',
+        ok:false,
+        chars:prompt.length,
+        model:localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile',
+        error:e.message
+      }).catch(()=>{});
+      console.warn('Groq legal analysis fallback:', e.message);
+    }
+  }
+
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-flash','gemini-2.0-flash'];
@@ -4982,13 +5022,13 @@ ${(input.rawText || '').slice(0, 14000)}`;
     const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method:'POST',
       headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-      body: JSON.stringify({ model:'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.12, max_tokens:4800 })
+      body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free', messages:[{role:'user',content:prompt}], temperature:0.12, max_tokens:4800 })
     });
     if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
     const data = await resp.json();
     const parsed = parseAIJson(data?.choices?.[0]?.message?.content || '');
     if(parsed) {
-      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars: prompt.length, model:'mistralai/mistral-7b-instruct' });
+      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars: prompt.length, model:localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free' });
       return { ...parsed, _provider:'OpenRouter' };
     }
   }
@@ -6455,7 +6495,10 @@ function aiProviderErrorMessage(provider='', status=0, message='') {
   const clean = compactResponseText(message);
   const norm = normalizeText(clean);
   if(provider === 'Gemini' && (status === 429 || /quota exceeded|resource_exhausted|rate limit|limit:\s*0/i.test(norm))) {
-    return 'Gemini kvotasi tugagan yoki loyiha uchun API limiti 0. OpenRouter yoki Groq orqali davom ettiriladi.';
+    return 'Gemini kvotasi tugagan yoki loyiha uchun API limiti 0. OpenRouter orqali davom ettiriladi.';
+  }
+  if(provider === 'Groq' && (status === 429 || /rate limit|tokens per minute|requests per minute|tpm|rpm/i.test(norm))) {
+    return 'Groq limiti vaqtincha tugagan. Dastur boshqa Groq modeli yoki Gemini orqali davom ettiriladi.';
   }
   if(provider === 'OpenRouter' && status === 404) {
     return 'OpenRouter modeli mavjud emas. Dastur boshqa mavjud modelni avtomatik tanlaydi.';
@@ -6464,6 +6507,69 @@ function aiProviderErrorMessage(provider='', status=0, message='') {
   if(status === 402) return `${provider} hisobida kredit yetarli emas.`;
   if(status === 429) return `${provider} so'rov limiti vaqtincha tugagan.`;
   return clean ? `${provider}: ${clean.slice(0, 260)}` : `${provider} HTTP ${status || 'xato'}`;
+}
+
+function groqModelCandidates(configured='') {
+  const selected = [];
+  const add = model => {
+    const id = String(model || '').trim();
+    if(!id || /llama-3\.1-70b-versatile/i.test(id) || selected.includes(id)) return;
+    selected.push(id);
+  };
+  add(configured);
+  add('llama-3.3-70b-versatile');
+  add('openai/gpt-oss-120b');
+  add('qwen/qwen3-32b');
+  return selected;
+}
+
+async function requestGroqText(prompt, options={}) {
+  const apiKey = localStorage.getItem('GROQ_API_KEY') || '';
+  if(!apiKey) throw new Error('GROQ_API_KEY_MISSING');
+  const jsonMode = !!options.jsonMode;
+  const temperature = Number.isFinite(options.temperature) ? options.temperature : (jsonMode ? 0.12 : 0.2);
+  const maxTokens = Number(options.maxTokens || (jsonMode ? 7000 : 6200));
+  const models = groqModelCandidates(localStorage.getItem('GROQ_MODEL') || '');
+  const errors = [];
+
+  for(const model of models) {
+    try {
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+apiKey,'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model,
+          messages:[
+            {
+              role:'system',
+              content: jsonMode
+                ? "Siz O'zbekiston davlat tashkiloti uchun professional yuridik assistentsiz. Faqat so'ralgan JSON obyektni qaytaring. Promptdagi JSON sxema va maydon turlarini o'zgartirmang: body va boshqa matn maydonlari ichki obyekt yoki massiv emas, oddiy matn satri bo'lsin. Berilmagan fakt, qonun yoki natijani uydirmang."
+                : "Siz O'zbekiston davlat tashkiloti uchun professional yuridik assistentsiz. Rasmiy, aniq va topshiriq mazmuniga mos javob bering."
+            },
+            { role:'user', content:prompt }
+          ],
+          temperature,
+          max_completion_tokens:maxTokens,
+          ...(jsonMode ? { response_format:{ type:'json_object' } } : {})
+        })
+      });
+      const data = await resp.json().catch(()=>({}));
+      if(!resp.ok) {
+        const rawMessage = data?.error?.message || `Groq HTTP ${resp.status}`;
+        const err = new Error(aiProviderErrorMessage('Groq', resp.status, rawMessage));
+        err.status = resp.status;
+        throw err;
+      }
+      const text = String(data?.choices?.[0]?.message?.content || '').trim();
+      if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
+      localStorage.setItem('GROQ_MODEL', data?.model || model);
+      return { text, model:data?.model || model, requestId:data?.id || '' };
+    } catch(e) {
+      errors.push(e.message);
+      if(e.status === 401 || e.status === 403 || e.status === 402) break;
+    }
+  }
+  throw new Error([...new Set(errors)].join(' ') || 'Groq javob bermadi.');
 }
 
 function openRouterModelCandidates(models=[], configured='') {
@@ -6521,6 +6627,32 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
   templateAiLastProof = null;
   const providerErrors = [];
   const generationTemperature = jsonMode ? 0.22 : 0.28;
+  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
+  if(groqKey && !filePart?.base64) {
+    try {
+      const result = await requestGroqText(prompt, {
+        jsonMode,
+        temperature:jsonMode ? 0.12 : generationTemperature,
+        maxTokens:jsonMode ? 7000 : 6200
+      });
+      templateAiLastProof = { provider:'Groq', model:result.model, requestId:result.requestId, at:nowIso() };
+      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:result.model });
+      return result.text;
+    } catch(e) {
+      if(!providerErrors.includes(e.message)) providerErrors.push(e.message);
+      await writeAIRequestLog({
+        provider:'Groq',
+        ok:false,
+        chars:prompt.length,
+        model:localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile',
+        error:e.message
+      }).catch(()=>{});
+      console.warn('Groq template fallback:', e.message);
+    }
+  } else if(groqKey && filePart?.base64) {
+    providerErrors.push('Groq matn olinmagan skaner faylni bevosita o‘qimaydi. Gemini orqali davom ettiriladi.');
+  }
+
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -6557,32 +6689,6 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
         console.warn('Gemini template fallback:', model, e.message);
         if(e.quotaTerminal) break;
       }
-    }
-  }
-  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
-  if(groqKey) {
-    try {
-      const model = localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile';
-      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method:'POST',
-        headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:6200 })
-      });
-      if(!resp.ok) {
-        const errData = await resp.json().catch(()=>({}));
-        throw new Error(errData?.error?.message || `Groq HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
-      const text = data?.choices?.[0]?.message?.content || '';
-      if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
-      templateAiLastProof = { provider:'Groq', model, requestId:data?.id || '', at:nowIso() };
-      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model });
-      return text;
-    } catch(e) {
-      const friendly = aiProviderErrorMessage('Groq', e.status || 0, e.message);
-      if(!providerErrors.includes(friendly)) providerErrors.push(friendly);
-      await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:friendly }).catch(()=>{});
-      console.warn('Groq template fallback:', friendly);
     }
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
@@ -6622,7 +6728,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
     }
   }
   if(!geminiKey && !groqKey && !openRouterKey) {
-    throw new Error("AI API kaliti topilmadi. AI Sozlamalar bo'limidan Gemini, Groq yoki OpenRouter kalitini kiriting.");
+    throw new Error("AI API kaliti topilmadi. AI Sozlamalar bo'limidan asosiy Groq yoki fallback Gemini/OpenRouter kalitini kiriting.");
   }
   throw new Error(providerErrors.join(' ') || 'AI provayderlaridan javob olinmadi.');
 }
@@ -8903,7 +9009,7 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
         }
         const url = 'https://openrouter.ai/api/v1/chat/completions';
         const body = {
-          model: 'mistralai/mistral-7b-instruct',
+          model: localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free',
           messages: [{ role: 'user', content: userContent }],
           max_tokens: 1800,
           temperature: 0.2
@@ -9307,34 +9413,33 @@ document.addEventListener('click', (e) => {
 // ║   AI CHAT — Streaming + Provider Fallback + Rate Limit      ║
 // ╚══════════════════════════════════════════════════════════════╝
 
-// AI Provider config — priority order
-// Gemini: non-streaming (generateContent), OpenRouter: streaming fallback
+// AI Provider config - Groq primary, Gemini and OpenRouter fallback.
 const AI_PROVIDERS = [
+  {
+    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.3-70b-versatile',
+    getUrl: () => 'https://api.groq.com/openai/v1/chat/completions',
+    getKey: () => localStorage.getItem('GROQ_API_KEY') || '',
+    buildBody: (messages) => ({ model: groqModelCandidates(localStorage.getItem('GROQ_MODEL') || '')[0], messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_completion_tokens: 2048, temperature: 0.5 }),
+    parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
+    headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
+  },
   {
     name: 'Gemini', icon: '🟦', streaming: false, model: 'gemini-2.5-flash',
     getUrl: (key) => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
     getKey: () => localStorage.getItem('GEMINI_API_KEY') || '',
-    buildBody: (messages) => ({ contents: messages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: 2048, temperature: 0.7 } }),
+    buildBody: (messages) => ({ contents: messages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: 2048, temperature: 0.5 } }),
     parseResponse: (data) => (data?.candidates?.[0]?.content?.parts || []).map(p=>p.text||'').join('\n'),
     headers: () => ({ 'Content-Type': 'application/json' })
   },
   {
-    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.1-70b-versatile',
-    getUrl: () => 'https://api.groq.com/openai/v1/chat/completions',
-    getKey: () => localStorage.getItem('GROQ_API_KEY') || '',
-    buildBody: (messages) => ({ model: localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048, temperature: 0.7 }),
-    parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
-    headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
-  },
-  {
-    name: 'OpenRouter', icon: '🔀', streaming: true, model: 'mistralai/mistral-7b-instruct',
+    name: 'OpenRouter', icon: '🔀', streaming: true, model: 'qwen/qwen3-next-80b-a3b-instruct:free',
     getUrl: () => 'https://openrouter.ai/api/v1/chat/completions',
     getKey: () => localStorage.getItem('OPENROUTER_API_KEY') || '',
-    buildBody: (messages) => ({ model: localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048 }),
+    buildBody: (messages) => ({ model: localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048 }),
     parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
     headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
   }
-].sort((a,b)=> (appSettingsCache.providerPriority||DEFAULT_FEATURES.providerPriority).indexOf(a.name) - (appSettingsCache.providerPriority||DEFAULT_FEATURES.providerPriority).indexOf(b.name));
+];
 
 // Rate limiter — max 20 messages per hour per user
 const RATE_LIMIT = { max: 20, windowMs: 3600000 };
@@ -9623,6 +9728,9 @@ window.setProviderKey = (provider) => {
   // Validate
   if (provider === 'GEMINI' && !trimmed.startsWith('AIza')) {
     showToast('❌ Gemini kalit "AIza" bilan boshlanishi kerak!', 'error'); return;
+  }
+  if (provider === 'GROQ' && !trimmed.startsWith('gsk_')) {
+    showToast('Groq kaliti "gsk_" bilan boshlanishi kerak!', 'error'); return;
   }
   localStorage.setItem(provider + '_API_KEY', trimmed);
   showToast(`✅ ${provider} API kalit saqlandi`, 'success');
