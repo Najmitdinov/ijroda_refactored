@@ -23,8 +23,6 @@ const envSchema = z.object({
   TELEGRAM_WEBHOOK_URL: z.string().optional(),
   PUBLIC_BACKEND_URL: z.string().optional(),
   RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
-  GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional()

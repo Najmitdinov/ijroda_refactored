@@ -1,4 +1,4 @@
-const APP_BUILD = '20260608-ai-body2';
+const APP_BUILD = '20260606-ai-provider-fallback3';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

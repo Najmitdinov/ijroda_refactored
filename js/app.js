@@ -2990,8 +2990,8 @@ window.renderIntegrationsPanel = () => {
   el.innerHTML = `
     <div class="module-grid">
       <div class="module-card"><h3>Firebase</h3><p>Auth, Firestore, session va audit log ishlatilmoqda.</p><span class="badge badge-done">Ulangan</span></div>
-      <div class="module-card"><h3>Groq AI</h3><p>Javob xati va matnli AI tahlil uchun asosiy provider.</p><span class="badge ${hasGroq?'badge-done':'badge-fail'}">${hasGroq?'Kalit bor':'Kalit yo‘q'}</span></div>
-      <div class="module-card"><h3>Gemini / OpenRouter</h3><p>AI fallback zanjiri: Groq → Gemini → OpenRouter.</p><span class="badge ${(hasGemini||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGemini||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
+      <div class="module-card"><h3>Gemini AI</h3><p>Javob xati, Excel saralash va AI tahlil uchun asosiy provider.</p><span class="badge ${hasGemini?'badge-done':'badge-fail'}">${hasGemini?'Kalit bor':'Kalit yo‘q'}</span></div>
+      <div class="module-card"><h3>Groq / OpenRouter</h3><p>AI fallback zanjiri: Gemini → Groq → OpenRouter.</p><span class="badge ${(hasGroq||hasOpenRouter)?'badge-done':'badge-fail'}">${hasGroq||hasOpenRouter?'Fallback bor':'Fallback yo‘q'}</span></div>
       <div class="module-card"><h3>PDF / Excel</h3><p>Excel import/export, Word yuklash va hujjat tahlili faol.</p><span class="badge badge-done">Faol</span></div>
     </div>
 
@@ -3359,7 +3359,7 @@ function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // ===== PROFESSIONAL SAAS CORE =====
 const SAAS_VERSION = '3.0.0-premium-saas';
 const SAAS_COLLECTIONS = ['users','chats','messages','analytics','logs','subscriptions','reports','settings','aiUsage','aiLogs','documents','fishkalar'];
-const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Groq','Gemini','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
+const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Gemini','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
 let appSettingsCache = { ...DEFAULT_FEATURES };
 let adminUsersCache = [];
 
@@ -4066,7 +4066,7 @@ function legalStatusLabel(status='') {
 function buildLegalAiShell() {
   const docOptions = LEGAL_AI_DOC_TYPES.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
   const sectorOptions = LEGAL_AI_SECTORS.map(([value,label]) => `<option value="${value}">${escH(label)}</option>`).join('');
-  const providerReady = localStorage.getItem('GROQ_API_KEY') || localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
+  const providerReady = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('OPENROUTER_API_KEY');
   const providerClass = providerReady ? 'ready' : 'local';
   return `
     <div class="legal-ai-shell">
@@ -4218,18 +4218,12 @@ window.handleLegalAiFile = async function(file) {
       legalAiState.rawText = await readDocxAsText(file);
     } else if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) {
       legalAiState.rawText = await readAsText(file);
-    } else if(/\.(pdf|png|jpe?g|webp)$/i.test(file.name)) {
-      legalSetStatus('Hujjat matni o‘qilmoqda...', 'warn', true);
-      legalAiState.rawText = await aiDocExtractText(file, {
-        onProgress: message => legalSetStatus(message, 'warn', true)
-      });
     } else {
       legalAiState.filePart = { base64: await readFileAsBase64(file), mimeType: file.type || 'application/octet-stream' };
       legalAiState.rawText = '';
     }
     const textArea = document.getElementById('legal-ai-text');
     if(textArea && legalAiState.rawText) textArea.value = legalAiState.rawText.slice(0, 16000);
-    legalSetStatus('Hujjat tahlilga tayyor', 'ok');
     showToast('Hujjat tahlilga tayyor', 'success');
   } catch(e) {
     showToast('Faylni o qishda xatolik: ' + e.message, 'error');
@@ -4270,15 +4264,9 @@ window.handleLegalTaskLetterFile = function(file) {
   showToast('Topshiriq xati tanlandi', 'success');
 };
 
-async function readLegalAiFileSmart(file, options={}) {
+async function readLegalAiFileSmart(file) {
   if(!file) return { text:'', filePart:null };
   if(/\.docx$/i.test(file.name)) return { text: await readDocxAsText(file), filePart:null };
-  if(/\.(pdf|png|jpe?g|webp)$/i.test(file.name)) {
-    const text = await aiDocExtractText(file, options);
-    return text
-      ? { text, filePart:null }
-      : { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } };
-  }
   if(/\.(xls|xlsx)$/i.test(file.name)) return { text: await readExcelAsText(file), filePart:null };
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return { text: await readAsText(file), filePart:null };
   return { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } };
@@ -4317,25 +4305,6 @@ FAQAT JSON qaytar:
 html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.`;
 
   let lastError = '';
-  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
-  if(groqKey && taskText) {
-    try {
-      const result = await requestGroqText(prompt, { jsonMode:true, temperature:0.1, maxTokens:6500 });
-      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:result.model });
-      return parseAIJson(result.text);
-    } catch(e) {
-      lastError = e.message;
-      await writeAIRequestLog({
-        provider:'Groq',
-        ok:false,
-        chars:prompt.length,
-        model:localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile',
-        error:e.message
-      }).catch(()=>{});
-      console.warn('Groq legal template fallback:', e.message);
-    }
-  }
-
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     try {
@@ -4368,7 +4337,7 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',
         headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
+        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.14, max_tokens:5200 })
       });
       if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
       const data = await resp.json();
@@ -4381,7 +4350,7 @@ html maydonida .doc formatga mos inline CSS bilan to'liq rasmiy hujjat HTML ber.
     }
   }
   if(lastError) throw new Error(`AI javob yaratmadi: ${lastError}`);
-  throw new Error('AI kaliti sozlanmagan. Asosiy Groq yoki fallback Gemini/OpenRouter API kalitini kiriting.');
+  throw new Error('AI kaliti sozlanmagan. Gemini yoki OpenRouter API kalitini kiriting.');
 }
 
 window.generateLegalTemplateAnswer = async function() {
@@ -4409,11 +4378,7 @@ window.generateLegalTemplateAnswer = async function() {
   try {
     const [templateData, taskData] = await Promise.all([
       readLegalAiFileSmart(templateFile),
-      readLegalAiFileSmart(taskFile, {
-        onProgress: message => {
-          if(status) status.textContent = message;
-        }
-      })
+      readLegalAiFileSmart(taskFile)
     ]);
     if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
     const rag = legalBaseContext(`${taskData.text || taskFile.name} ${document.getElementById('legal-ai-question')?.value?.trim() || ''}`);
@@ -4977,27 +4942,6 @@ ${input.question || 'Hujjatni toliq tahlil qiling.'}
 Matn:
 ${(input.rawText || '').slice(0, 14000)}`;
 
-  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
-  if(groqKey && input.rawText) {
-    try {
-      const result = await requestGroqText(prompt, { jsonMode:true, temperature:0.1, maxTokens:5200 });
-      const parsed = parseAIJson(result.text);
-      if(parsed) {
-        await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:result.model });
-        return { ...parsed, _provider:'Groq' };
-      }
-    } catch(e) {
-      await writeAIRequestLog({
-        provider:'Groq',
-        ok:false,
-        chars:prompt.length,
-        model:localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile',
-        error:e.message
-      }).catch(()=>{});
-      console.warn('Groq legal analysis fallback:', e.message);
-    }
-  }
-
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-flash','gemini-2.0-flash'];
@@ -5038,13 +4982,13 @@ ${(input.rawText || '').slice(0, 14000)}`;
     const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method:'POST',
       headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-      body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free', messages:[{role:'user',content:prompt}], temperature:0.12, max_tokens:4800 })
+      body: JSON.stringify({ model:'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:0.12, max_tokens:4800 })
     });
     if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
     const data = await resp.json();
     const parsed = parseAIJson(data?.choices?.[0]?.message?.content || '');
     if(parsed) {
-      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars: prompt.length, model:localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free' });
+      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars: prompt.length, model:'mistralai/mistral-7b-instruct' });
       return { ...parsed, _provider:'OpenRouter' };
     }
   }
@@ -6301,210 +6245,6 @@ function readAsText(file) {
   });
 }
 
-const LOCAL_OCR_BUILD = '20260608-ai-body2';
-const LOCAL_OCR_LANGUAGES = ['uzb', 'rus', 'eng'];
-const LOCAL_OCR_MAX_PAGES = 20;
-let localOcrWorkerPromise = null;
-let localOcrProgressListener = null;
-let localOcrQueue = Promise.resolve();
-
-function notifyLocalOcr(options={}, message='') {
-  if(typeof options.onProgress === 'function' && message) options.onProgress(message);
-}
-
-function normalizeOcrText(text='') {
-  return String(text || '')
-    .replace(/\r/g, '\n')
-    .replace(/\b0(?=['’‘ʻ`]?RQ-\d)/gi, 'O')
-    .replace(/\b0\.([A-ZА-ЯO‘ʻ'`])/g, 'O.$1')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/ +([,.;:!?])/g, '$1')
-    .replace(/\n[ \t]+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-async function getLocalOcrWorker(options={}) {
-  const TesseractApi = window.Tesseract;
-  if(!TesseractApi?.createWorker) throw new Error('Lokal OCR moduli yuklanmadi');
-  localOcrProgressListener = options.onProgress || localOcrProgressListener;
-  if(!localOcrWorkerPromise) {
-    notifyLocalOcr(options, 'Skaner hujjat uchun lokal OCR ishga tushirilmoqda...');
-    const ocrAssetBase = new URL('./assets/vendor/tesseract/', location.href).href;
-    localOcrWorkerPromise = TesseractApi.createWorker(
-      LOCAL_OCR_LANGUAGES,
-      TesseractApi.OEM?.LSTM_ONLY ?? 1,
-      {
-        workerPath:`${ocrAssetBase}worker.min.js?v=${LOCAL_OCR_BUILD}`,
-        corePath:`${ocrAssetBase}core`,
-        langPath:`${ocrAssetBase}lang`,
-        gzip:true,
-        cacheMethod:'write',
-        logger: info => {
-          if(typeof localOcrProgressListener !== 'function') return;
-          const progress = Math.round(Number(info?.progress || 0) * 100);
-          if(info?.status === 'recognizing text') {
-            localOcrProgressListener(`Skaner hujjat OCR qilinmoqda: ${progress}%`);
-          } else if(info?.status === 'loading language traineddata') {
-            localOcrProgressListener(`OCR til modeli yuklanmoqda: ${progress}%`);
-          } else if(info?.status === 'loading tesseract core') {
-            localOcrProgressListener(`OCR mexanizmi yuklanmoqda: ${progress}%`);
-          }
-        }
-      }
-    ).then(async worker => {
-      await worker.setParameters({
-        preserve_interword_spaces:'1',
-        user_defined_dpi:'300',
-        tessedit_pageseg_mode:TesseractApi.PSM?.AUTO ?? 3
-      });
-      return worker;
-    }).catch(error => {
-      localOcrWorkerPromise = null;
-      throw error;
-    });
-  }
-  const worker = await withTimeout(localOcrWorkerPromise, 120000, 'Lokal OCR modulini ishga tushirish vaqti tugadi');
-  localOcrProgressListener = options.onProgress || localOcrProgressListener;
-  return worker;
-}
-
-function runLocalOcrJob(task) {
-  const run = localOcrQueue.catch(() => {}).then(task);
-  localOcrQueue = run.catch(() => {});
-  return run;
-}
-
-async function recognizeCanvasText(canvas, options={}) {
-  return runLocalOcrJob(async() => {
-    const worker = await getLocalOcrWorker(options);
-    const result = await withTimeout(worker.recognize(canvas), 180000, 'Skaner sahifani OCR qilish vaqti tugadi');
-    return {
-      text:normalizeOcrText(result?.data?.text || ''),
-      confidence:Number(result?.data?.confidence || 0)
-    };
-  });
-}
-
-async function renderPdfPageForOcr(page) {
-  const original = page.getViewport({ scale:1 });
-  const scale = Math.max(1.5, Math.min(2.4, 2400 / Math.max(1, original.width)));
-  const viewport = page.getViewport({ scale });
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil(viewport.width);
-  canvas.height = Math.ceil(viewport.height);
-  const context = canvas.getContext('2d', { alpha:false, willReadFrequently:true });
-  context.fillStyle = '#fff';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvasContext:context, viewport, background:'#fff' }).promise;
-  return canvas;
-}
-
-async function readPdfOcrText(file, options={}) {
-  const pdfLib = window.pdfjsLib;
-  if(!pdfLib) throw new Error('PDF matnini o‘qish kutubxonasi yuklanmadi');
-  notifyLocalOcr(options, 'PDF matn qatlami topilmadi. Lokal OCR boshlandi...');
-  pdfLib.GlobalWorkerOptions.workerSrc = `./assets/vendor/pdfjs/pdf.worker.min.js?v=${LOCAL_OCR_BUILD}`;
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfLib.getDocument({ data }).promise;
-  const pageLimit = Math.min(pdf.numPages, LOCAL_OCR_MAX_PAGES);
-  const pages = [];
-  let confidenceTotal = 0;
-
-  for(let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
-    notifyLocalOcr(options, `PDF ${pageNumber}/${pageLimit}-sahifasi OCR uchun tayyorlanmoqda...`);
-    const page = await pdf.getPage(pageNumber);
-    const canvas = await renderPdfPageForOcr(page);
-    const result = await recognizeCanvasText(canvas, {
-      onProgress: message => notifyLocalOcr(options, `PDF ${pageNumber}/${pageLimit}: ${message}`)
-    });
-    canvas.width = 1;
-    canvas.height = 1;
-    if(result.text) pages.push(result.text);
-    confidenceTotal += result.confidence;
-  }
-
-  const text = normalizeOcrText(pages.join('\n\n')).slice(0, 50000);
-  const averageConfidence = pageLimit ? confidenceTotal / pageLimit : 0;
-  if(text.length < 40 || averageConfidence < 25) {
-    throw new Error('Skaner PDF matni OCR orqali yetarli aniqlikda o‘qilmadi. Hujjat tasvirini tiniqroq skanerlab qayta yuklang.');
-  }
-  notifyLocalOcr(options, `OCR yakunlandi: ${pageLimit} sahifa, aniqlik ${Math.round(averageConfidence)}%.`);
-  return text;
-}
-
-async function imageFileToCanvas(file) {
-  const bitmap = await createImageBitmap(file);
-  const maxSide = 2600;
-  const scale = Math.min(2, maxSide / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext('2d', { alpha:false, willReadFrequently:true });
-  context.fillStyle = '#fff';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close?.();
-  return canvas;
-}
-
-async function readImageOcrText(file, options={}) {
-  notifyLocalOcr(options, 'Skaner rasm lokal OCR orqali o‘qilmoqda...');
-  const canvas = await imageFileToCanvas(file);
-  const result = await recognizeCanvasText(canvas, options);
-  canvas.width = 1;
-  canvas.height = 1;
-  if(result.text.length < 40 || result.confidence < 25) {
-    throw new Error('Rasmdagi matn OCR orqali yetarli aniqlikda o‘qilmadi. Tiniqroq rasm yuklang.');
-  }
-  notifyLocalOcr(options, `OCR yakunlandi: aniqlik ${Math.round(result.confidence)}%.`);
-  return result.text.slice(0, 50000);
-}
-
-async function readPdfTextLayer(file) {
-  if(!file || !/\.pdf$/i.test(file.name || '')) return '';
-  const pdfLib = window.pdfjsLib;
-  if(!pdfLib) throw new Error('PDF matnini o‘qish kutubxonasi yuklanmadi');
-  pdfLib.GlobalWorkerOptions.workerSrc = `./assets/vendor/pdfjs/pdf.worker.min.js?v=${LOCAL_OCR_BUILD}`;
-  const data = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfLib.getDocument({ data }).promise;
-  const pages = [];
-  const pageLimit = Math.min(pdf.numPages, 80);
-
-  for(let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    let line = '';
-    let lastY = null;
-    const lines = [];
-    for(const item of content.items || []) {
-      const text = String(item?.str || '').trim();
-      if(!text) continue;
-      const y = Number(item?.transform?.[5]);
-      if(lastY !== null && Number.isFinite(y) && Math.abs(y - lastY) > 2 && line.trim()) {
-        lines.push(line.trim());
-        line = '';
-      }
-      line += `${line ? ' ' : ''}${text}`;
-      if(item?.hasEOL && line.trim()) {
-        lines.push(line.trim());
-        line = '';
-      }
-      if(Number.isFinite(y)) lastY = y;
-    }
-    if(line.trim()) lines.push(line.trim());
-    const pageText = lines.join('\n').trim();
-    if(pageText) pages.push(pageText);
-  }
-  return pages.join('\n\n').replace(/[ \t]+\n/g, '\n').slice(0, 50000);
-}
-
-async function readPdfAsText(file, options={}) {
-  const text = normalizeOcrText(await readPdfTextLayer(file));
-  if(text.length >= 80) return text;
-  return readPdfOcrText(file, options);
-}
-
 function parseAIJson(text) {
   if(!text) return null;
   const variants = [];
@@ -6630,11 +6370,9 @@ function aiDocFileKind(file) {
   return 'file';
 }
 
-async function aiDocExtractText(file, options={}) {
+async function aiDocExtractText(file) {
   if(!file) return '';
   if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 50000);
-  if(/\.pdf$/i.test(file.name)) return (await readPdfAsText(file, options)).slice(0, 50000);
-  if(/\.(png|jpe?g|webp)$/i.test(file.name)) return (await readImageOcrText(file, options)).slice(0, 50000);
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return (await readAsText(file)).slice(0, 50000);
   return '';
 }
@@ -6717,10 +6455,7 @@ function aiProviderErrorMessage(provider='', status=0, message='') {
   const clean = compactResponseText(message);
   const norm = normalizeText(clean);
   if(provider === 'Gemini' && (status === 429 || /quota exceeded|resource_exhausted|rate limit|limit:\s*0/i.test(norm))) {
-    return 'Gemini kvotasi tugagan yoki loyiha uchun API limiti 0. OpenRouter orqali davom ettiriladi.';
-  }
-  if(provider === 'Groq' && (status === 429 || /rate limit|tokens per minute|requests per minute|tpm|rpm/i.test(norm))) {
-    return 'Groq limiti vaqtincha tugagan. Dastur boshqa Groq modeli yoki Gemini orqali davom ettiriladi.';
+    return 'Gemini kvotasi tugagan yoki loyiha uchun API limiti 0. OpenRouter yoki Groq orqali davom ettiriladi.';
   }
   if(provider === 'OpenRouter' && status === 404) {
     return 'OpenRouter modeli mavjud emas. Dastur boshqa mavjud modelni avtomatik tanlaydi.';
@@ -6729,69 +6464,6 @@ function aiProviderErrorMessage(provider='', status=0, message='') {
   if(status === 402) return `${provider} hisobida kredit yetarli emas.`;
   if(status === 429) return `${provider} so'rov limiti vaqtincha tugagan.`;
   return clean ? `${provider}: ${clean.slice(0, 260)}` : `${provider} HTTP ${status || 'xato'}`;
-}
-
-function groqModelCandidates(configured='') {
-  const selected = [];
-  const add = model => {
-    const id = String(model || '').trim();
-    if(!id || /llama-3\.1-70b-versatile/i.test(id) || selected.includes(id)) return;
-    selected.push(id);
-  };
-  add(configured);
-  add('llama-3.3-70b-versatile');
-  add('openai/gpt-oss-120b');
-  add('qwen/qwen3-32b');
-  return selected;
-}
-
-async function requestGroqText(prompt, options={}) {
-  const apiKey = localStorage.getItem('GROQ_API_KEY') || '';
-  if(!apiKey) throw new Error('GROQ_API_KEY_MISSING');
-  const jsonMode = !!options.jsonMode;
-  const temperature = Number.isFinite(options.temperature) ? options.temperature : (jsonMode ? 0.12 : 0.2);
-  const maxTokens = Number(options.maxTokens || (jsonMode ? 7000 : 6200));
-  const models = groqModelCandidates(localStorage.getItem('GROQ_MODEL') || '');
-  const errors = [];
-
-  for(const model of models) {
-    try {
-      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method:'POST',
-        headers:{'Authorization':'Bearer '+apiKey,'Content-Type':'application/json'},
-        body: JSON.stringify({
-          model,
-          messages:[
-            {
-              role:'system',
-              content: jsonMode
-                ? "Siz O'zbekiston davlat tashkiloti uchun professional yuridik assistentsiz. Faqat so'ralgan JSON obyektni qaytaring. Promptdagi JSON sxema va maydon turlarini o'zgartirmang: body va boshqa matn maydonlari ichki obyekt yoki massiv emas, oddiy matn satri bo'lsin. Berilmagan fakt, qonun yoki natijani uydirmang."
-                : "Siz O'zbekiston davlat tashkiloti uchun professional yuridik assistentsiz. Rasmiy, aniq va topshiriq mazmuniga mos javob bering."
-            },
-            { role:'user', content:prompt }
-          ],
-          temperature,
-          max_completion_tokens:maxTokens,
-          ...(jsonMode ? { response_format:{ type:'json_object' } } : {})
-        })
-      });
-      const data = await resp.json().catch(()=>({}));
-      if(!resp.ok) {
-        const rawMessage = data?.error?.message || `Groq HTTP ${resp.status}`;
-        const err = new Error(aiProviderErrorMessage('Groq', resp.status, rawMessage));
-        err.status = resp.status;
-        throw err;
-      }
-      const text = String(data?.choices?.[0]?.message?.content || '').trim();
-      if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
-      localStorage.setItem('GROQ_MODEL', data?.model || model);
-      return { text, model:data?.model || model, requestId:data?.id || '' };
-    } catch(e) {
-      errors.push(e.message);
-      if(e.status === 401 || e.status === 403 || e.status === 402) break;
-    }
-  }
-  throw new Error([...new Set(errors)].join(' ') || 'Groq javob bermadi.');
 }
 
 function openRouterModelCandidates(models=[], configured='') {
@@ -6849,32 +6521,6 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
   templateAiLastProof = null;
   const providerErrors = [];
   const generationTemperature = jsonMode ? 0.22 : 0.28;
-  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
-  if(groqKey && !filePart?.base64) {
-    try {
-      const result = await requestGroqText(prompt, {
-        jsonMode,
-        temperature:jsonMode ? 0.12 : generationTemperature,
-        maxTokens:jsonMode ? 7000 : 6200
-      });
-      templateAiLastProof = { provider:'Groq', model:result.model, requestId:result.requestId, at:nowIso() };
-      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:result.model });
-      return result.text;
-    } catch(e) {
-      if(!providerErrors.includes(e.message)) providerErrors.push(e.message);
-      await writeAIRequestLog({
-        provider:'Groq',
-        ok:false,
-        chars:prompt.length,
-        model:localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile',
-        error:e.message
-      }).catch(()=>{});
-      console.warn('Groq template fallback:', e.message);
-    }
-  } else if(groqKey && filePart?.base64) {
-    providerErrors.push('Groq matn olinmagan skaner faylni bevosita o‘qimaydi. Gemini orqali davom ettiriladi.');
-  }
-
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
   if(geminiKey) {
     const models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -6913,11 +6559,31 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
       }
     }
   }
-  if(filePart?.base64) {
-    throw new Error(
-      providerErrors.join(' ') ||
-      'PDF yoki rasmda matn qatlami topilmadi. Skaner hujjatni o‘qish uchun Gemini API kalitini kiriting yoki matn qatlamli PDF/DOCX yuklang.'
-    );
+  const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
+  if(groqKey) {
+    try {
+      const model = localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile';
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method:'POST',
+        headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
+        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:6200 })
+      });
+      if(!resp.ok) {
+        const errData = await resp.json().catch(()=>({}));
+        throw new Error(errData?.error?.message || `Groq HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      const text = data?.choices?.[0]?.message?.content || '';
+      if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
+      templateAiLastProof = { provider:'Groq', model, requestId:data?.id || '', at:nowIso() };
+      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model });
+      return text;
+    } catch(e) {
+      const friendly = aiProviderErrorMessage('Groq', e.status || 0, e.message);
+      if(!providerErrors.includes(friendly)) providerErrors.push(friendly);
+      await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:friendly }).catch(()=>{});
+      console.warn('Groq template fallback:', friendly);
+    }
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
@@ -6956,7 +6622,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
     }
   }
   if(!geminiKey && !groqKey && !openRouterKey) {
-    throw new Error("AI API kaliti topilmadi. AI Sozlamalar bo'limidan asosiy Groq yoki fallback Gemini/OpenRouter kalitini kiriting.");
+    throw new Error("AI API kaliti topilmadi. AI Sozlamalar bo'limidan Gemini, Groq yoki OpenRouter kalitini kiriting.");
   }
   throw new Error(providerErrors.join(' ') || 'AI provayderlaridan javob olinmadi.');
 }
@@ -8142,55 +7808,20 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
-function aiResponseTextValue(value, depth=0) {
-  if(depth > 4 || value === null || value === undefined) return '';
-  if(typeof value === 'string' || typeof value === 'number') return String(value).trim();
-  if(Array.isArray(value)) {
-    return value.map(item => aiResponseTextValue(item, depth + 1)).filter(Boolean).join('\n\n').trim();
-  }
-  if(typeof value !== 'object') return '';
-  const preferredKeys = ['text', 'content', 'value', 'body', 'paragraphs', 'sections', 'answer', 'response', 'javob_matni'];
-  for(const key of preferredKeys) {
-    const text = aiResponseTextValue(value[key], depth + 1);
-    if(text) return text;
-  }
-  return '';
-}
-
-function extractAiResponseBody(parsed) {
-  if(!parsed || typeof parsed !== 'object') return '';
-  const candidates = [
-    parsed.body,
-    parsed.answer_text,
-    parsed.response_body,
-    parsed.javob_matni,
-    parsed.answer,
-    parsed.content,
-    parsed.text,
-    parsed.summary
-  ];
-  for(const candidate of candidates) {
-    const text = aiResponseTextValue(candidate);
-    if(text) return text;
-  }
-  return '';
-}
-
 function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
-  let body = extractAiResponseBody(parsed);
-  if(!body) return { ok:false, reason:'AI javobida asosiy body matni topilmadi', body:'', confidence:0 };
+  let body = String(parsed.body || '').trim();
+  if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
   body = cleanGeneratedResponseBody(body);
   body = enforceRequiredResponseOpening(body, requiredOpening);
-  if(body.length < 40) return { ok:false, reason:`body matni juda qisqa (${body.length} belgi)`, body, confidence:0 };
+  if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
   if(responseUsesUnsupportedSpecialist(body, qualitySeed)) return { ok:false, reason:'body topshiriqda bo‘lmagan mutaxassis yoki mas’ul xodimni asossiz qo‘shdi', body, confidence:0 };
-  if(responseClaimsUnsupportedAction(body, qualitySeed)) return { ok:false, reason:'body topshiriqda berilmagan bajarilgan yoki rejalashtirilgan ishni asossiz qo‘shdi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
   if(responseLooksCopiedFromMemory(body, learningContext)) return { ok:false, reason:'body learning blankadan copy-paste qilinganga o‘xshaydi', body, confidence:0 };
   if(responseTooSimilarToPrevious(body, previousBodies)) return { ok:false, reason:'body oldingi yaratilgan javoblarga juda o‘xshash', body, confidence:0 };
-  const explicitConfidence = normalizeAiConfidence(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
+  const explicitConfidence = Number(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
   const estimatedConfidence = estimateResponseConfidence(body, qualitySeed, legalContext, learningContext);
   if(explicitConfidence && explicitConfidence < 65) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
   const confidence = explicitConfidence ? Math.min(99, Math.max(explicitConfidence, estimatedConfidence)) : estimatedConfidence;
@@ -8207,23 +7838,14 @@ function cleanGeneratedResponseBody(text, meta={}) {
   let s = String(text || '').replace(/\r/g, '\n').replace(/\u00a0/g, ' ').trim();
   if(!s) return '';
   const firstOpening = s.search(/\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i);
-  const definiteHeaderPrefix = /O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|210100|Zarapetyan|navqurilish@|(?:^|\n)\s*(?:MAVZU|Tel|Faks|E-?mail|Sayt)\s*:/i;
-  if(firstOpening > 0 && definiteHeaderPrefix.test(s.slice(0, firstOpening))) {
+  const firstHeaderNoise = s.search(/O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|MAVZU\s*:/i);
+  if(firstOpening > 0 && (firstHeaderNoise < 0 || firstHeaderNoise < firstOpening)) {
     s = s.slice(firstOpening).trim();
   }
   const recipientNorm = normalizeText(meta.recipient || meta.recipientOrg || '');
   const outNumber = String(meta.outNumber || '').trim();
   const dateText = String(meta.date || meta.officialDate || '').trim();
-  const isStandaloneHeaderNoise = (value='') => {
-    const line = compactResponseText(value);
-    if(!line || line.length > 190) return false;
-    if(/^(?:210100\b|Tel\s*:|Faks\s*:|E-?mail\s*:|Sayt\s*:|MAVZU\s*:)/i.test(line)) return true;
-    if(/Zarapetyan|navqurilish@|navqurilish\.uz/i.test(line)) return true;
-    if(/^O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI$/i.test(line)) return true;
-    if(/^QURILISH\s+VA\s+UY-JOY\s+KOMMUNAL\s+XO['‘`ʻ]?JALIGI\s+VAZIRLIGI$/i.test(line)) return true;
-    if(/^NAVOIY\s+VILOYATI\s+QURILISH\s+VA\s+UY-JOY\s+KOMMUNAL\s+XO['‘`ʻ]?JALIGI\s+BOSH\s+BOSHQARMASI$/i.test(line)) return true;
-    return false;
-  };
+  const noiseLine = /O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|XO['‘`ʻ]?JALIGI|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|Tel\s*:|Faks\s*:|E-?mail\s*:|Sayt\s*:|MAVZU\s*:/i;
   const dateLine = /^\s*20\d{2}\s*[- ]?y\.?.{0,35}(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)\s*$/i;
   const numberLine = /^\s*(№|N[oº]?|#)\s*[0-9A-Za-zА-Яа-я\/.-]+\s*$/i;
   const answerOpening = /\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i;
@@ -8235,7 +7857,7 @@ function cleanGeneratedResponseBody(text, meta={}) {
     if(!isAnswerOpening && outNumber && line.includes(outNumber) && line.length < 100) return false;
     if(!isAnswerOpening && dateText && line.includes(dateText) && line.length < 100) return false;
     if(!isAnswerOpening && recipientNorm && (n === recipientNorm || (n.includes(recipientNorm) && line.length < 140))) return false;
-    if(!isAnswerOpening && isStandaloneHeaderNoise(line)) return false;
+    if(!isAnswerOpening && noiseLine.test(line)) return false;
     return true;
   });
   return cleanedLines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -8389,12 +8011,6 @@ function responseOpeningFormula(senderOrg='', req={}) {
   return `Sizning topshirig'ingiz ijrosini ta'minlash maqsadida`;
 }
 
-function normalizeAiConfidence(value=0) {
-  const parsed = Number(String(value ?? '').replace(',', '.'));
-  if(!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return Math.round(Math.min(100, parsed <= 1 ? parsed * 100 : parsed));
-}
-
 function responseOpeningPlan(profile={}, senderOrg='', req={}) {
   const referenced = responseOpeningFormula(senderOrg, req);
   const hasExactReference = !!(compactResponseText(req.date || '') && compactResponseText(req.number || ''));
@@ -8528,7 +8144,6 @@ QAT'IY TALAB:
 - Lokal yoki shablon javob yozma.
 - Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
-- JSON ichidagi body qiymati obyekt, ro'yxat yoki maydonlar to'plami emas, kamida 2 ta tugallangan rasmiy gapdan iborat BITTA ODDIY MATN SATRI bo'lsin.
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
 - ${requiredOpening ? `Body birinchi gapi shu rekvizitli ibora bilan boshlansin: "${requiredOpening} ...".` : `Body kirishi topshiriq turiga mos bo'lsin; oldingi universal kirishni takrorlama.`}
 - ${compactResponseText(requiredExtra) ? `Qo'shimcha ma'lumotdagi quyidagi faktlar body ichida aniq aks etsin: ${compactResponseText(requiredExtra).slice(0, 700)}` : `Qo'shimcha ma'lumot kiritilmagan; javobni faqat topshiriq hujjati va blanka uslubidan kelib chiqib shakllantir.`}
@@ -8604,14 +8219,7 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
   if(!file) { showToast('Yuqori tashkilotdan kelgan topshiriq hujjatini yuklang', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
-    const taskText = file ? await aiDocExtractText(file, {
-      onProgress: message => {
-        if(status) status.textContent = message;
-      }
-    }) : '';
-    if(!taskText.trim() && /\.(pdf|png|jpe?g|webp)$/i.test(file?.name || '')) {
-      throw new Error('Topshiriq hujjatidan matn ajratilmadi. Tiniqroq skaner fayl yuklang.');
-    }
+    const taskText = file ? await aiDocExtractText(file) : '';
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
     const incomingReq = inferIncomingTaskRequisites(taskText);
     const inferredRecipient = inferResponseRecipientFromText(taskText) || inferResponseRecipientFromText(extra);
@@ -8951,34 +8559,6 @@ function responseUsesUnsupportedSpecialist(body='', taskText='') {
   const bodyAssignsPerson = /(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil).{0,80}(biriktir|tayinla|jalb\s+et)|(?:biriktir|tayinla|jalb\s+et).{0,80}(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil)/i.test(normBody);
   if(!bodyAssignsPerson) return false;
   return !/(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil|biriktir|tayinla|nomzod)/i.test(normTask);
-}
-
-function responseClaimsUnsupportedAction(body='', taskText='') {
-  const normBody = normalizeText(body);
-  const normTask = normalizeText(taskText);
-  const claims = [
-    {
-      body: /(choralar\s+ko['‘’`ʼ]?rilmoqda|chora(?:-tadbir)?lar\s+amalga\s+oshiril(?:adi|moqda)|amalga\s+oshiriladi)/i,
-      task: /(chora|amalga\s+oshir|bajar|ijro\s+et|rejalashtir)/i
-    },
-    {
-      body: /(nazoratga\s+olindi|nazorat\s+qilinmoqda|nazorat\s+o['‘’`ʼ]?rnatildi)/i,
-      task: /(nazorat|monitoring)/i
-    },
-    {
-      body: /(kamchilik(?:lar)?\s+bartaraf\s+etildi|bartaraf\s+etish\s+ishlari\s+boshlandi)/i,
-      task: /(kamchilik|bartaraf)/i
-    },
-    {
-      body: /(dalolatnoma\s+tuzildi|smeta(?:\s+hisob-kitobi)?\s+tayyorlanmoqda|texnik\s+ko['‘’`ʼ]?rik\s+o['‘’`ʼ]?tkazildi)/i,
-      task: /(dalolatnoma|smeta|texnik\s+ko['‘’`ʼ]?rik)/i
-    },
-    {
-      body: /(tegishli\s+tarkibiy\s+bo['‘’`ʼ]?linmalarga\s+yetkazildi|mas['‘’`ʼ]?ullarga\s+yetkazildi)/i,
-      task: /(tarkibiy\s+bo['‘’`ʼ]?linma|mas['‘’`ʼ]?ul|yetkaz)/i
-    }
-  ];
-  return claims.some(claim => claim.body.test(normBody) && !claim.task.test(normTask));
 }
 
 function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {
@@ -9323,7 +8903,7 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
         }
         const url = 'https://openrouter.ai/api/v1/chat/completions';
         const body = {
-          model: localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free',
+          model: 'mistralai/mistral-7b-instruct',
           messages: [{ role: 'user', content: userContent }],
           max_tokens: 1800,
           temperature: 0.2
@@ -9727,33 +9307,34 @@ document.addEventListener('click', (e) => {
 // ║   AI CHAT — Streaming + Provider Fallback + Rate Limit      ║
 // ╚══════════════════════════════════════════════════════════════╝
 
-// AI Provider config - Groq primary, Gemini and OpenRouter fallback.
+// AI Provider config — priority order
+// Gemini: non-streaming (generateContent), OpenRouter: streaming fallback
 const AI_PROVIDERS = [
-  {
-    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.3-70b-versatile',
-    getUrl: () => 'https://api.groq.com/openai/v1/chat/completions',
-    getKey: () => localStorage.getItem('GROQ_API_KEY') || '',
-    buildBody: (messages) => ({ model: groqModelCandidates(localStorage.getItem('GROQ_MODEL') || '')[0], messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_completion_tokens: 2048, temperature: 0.5 }),
-    parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
-    headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
-  },
   {
     name: 'Gemini', icon: '🟦', streaming: false, model: 'gemini-2.5-flash',
     getUrl: (key) => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
     getKey: () => localStorage.getItem('GEMINI_API_KEY') || '',
-    buildBody: (messages) => ({ contents: messages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: 2048, temperature: 0.5 } }),
+    buildBody: (messages) => ({ contents: messages.map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: 2048, temperature: 0.7 } }),
     parseResponse: (data) => (data?.candidates?.[0]?.content?.parts || []).map(p=>p.text||'').join('\n'),
     headers: () => ({ 'Content-Type': 'application/json' })
   },
   {
-    name: 'OpenRouter', icon: '🔀', streaming: true, model: 'qwen/qwen3-next-80b-a3b-instruct:free',
+    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.1-70b-versatile',
+    getUrl: () => 'https://api.groq.com/openai/v1/chat/completions',
+    getKey: () => localStorage.getItem('GROQ_API_KEY') || '',
+    buildBody: (messages) => ({ model: localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048, temperature: 0.7 }),
+    parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
+    headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
+  },
+  {
+    name: 'OpenRouter', icon: '🔀', streaming: true, model: 'mistralai/mistral-7b-instruct',
     getUrl: () => 'https://openrouter.ai/api/v1/chat/completions',
     getKey: () => localStorage.getItem('OPENROUTER_API_KEY') || '',
-    buildBody: (messages) => ({ model: localStorage.getItem('OPENROUTER_MODEL') || 'qwen/qwen3-next-80b-a3b-instruct:free', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048 }),
+    buildBody: (messages) => ({ model: localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048 }),
     parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
     headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
   }
-];
+].sort((a,b)=> (appSettingsCache.providerPriority||DEFAULT_FEATURES.providerPriority).indexOf(a.name) - (appSettingsCache.providerPriority||DEFAULT_FEATURES.providerPriority).indexOf(b.name));
 
 // Rate limiter — max 20 messages per hour per user
 const RATE_LIMIT = { max: 20, windowMs: 3600000 };
@@ -10042,9 +9623,6 @@ window.setProviderKey = (provider) => {
   // Validate
   if (provider === 'GEMINI' && !trimmed.startsWith('AIza')) {
     showToast('❌ Gemini kalit "AIza" bilan boshlanishi kerak!', 'error'); return;
-  }
-  if (provider === 'GROQ' && !trimmed.startsWith('gsk_')) {
-    showToast('Groq kaliti "gsk_" bilan boshlanishi kerak!', 'error'); return;
   }
   localStorage.setItem(provider + '_API_KEY', trimmed);
   showToast(`✅ ${provider} API kalit saqlandi`, 'success');
