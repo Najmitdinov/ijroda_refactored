@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 
@@ -15,11 +15,13 @@ function extractFunction(name) {
 }
 
 const names = [
+  'parseAIJson',
   'normalizeText',
   'simpleHash',
   'stripNonWordChars',
   'compactResponseText',
   'aiProviderErrorMessage',
+  'groqModelCandidates',
   'openRouterModelCandidates',
   'taskMeaningfulWords',
   'splitTaskSentences',
@@ -30,6 +32,11 @@ const names = [
   'responseOpeningPlan',
   'aiResponseTextValue',
   'extractAiResponseBody',
+  'stripAiResponseWrapper',
+  'decodeAiQuotedValue',
+  'extractAiBodyFromLabeledText',
+  'isLikelyAiResponseBody',
+  'parseAiResponsePayload',
   'normalizeAiConfidence',
   'cleanGeneratedResponseBody',
   'responseBodySimilarity',
@@ -82,6 +89,37 @@ assert.equal(
 );
 assert.equal(runtime.normalizeAiConfidence(0.91), 91);
 assert.equal(runtime.normalizeAiConfidence('0,88'), 88);
+assert.equal(runtime.parseAIJson("Mazkur topshiriq bo'yicha rasmiy javob matni."), null);
+
+const parserTask = "Nurota tumanidagi obyektning loyiha-smeta hujjatlari o'rganilib, aniqlangan kamchiliklar bo'yicha ma'lumot berilsin.";
+const parserBody = "Nurota tumanidagi obyektning loyiha-smeta hujjatlari o'rganib chiqildi. Aniqlangan kamchiliklar bo'yicha asoslantirilgan ma'lumot belgilangan tartibda taqdim etiladi.";
+const providerFormats = [
+  JSON.stringify({ body:parserBody, confidence_score:91 }),
+  JSON.stringify({ result:{ document:{ main_text:parserBody } }, confidence:0.91 }),
+  JSON.stringify({ output:{ response_letter:{ paragraphs:[
+    "Nurota tumanidagi obyektning loyiha-smeta hujjatlari o'rganib chiqildi.",
+    "Aniqlangan kamchiliklar bo'yicha asoslantirilgan ma'lumot belgilangan tartibda taqdim etiladi."
+  ] } }, confidence_score:'91' }),
+  JSON.stringify({ choices:[{ message:{ content:JSON.stringify({ javob_matni:parserBody, confidence_score:92 }) } }] }),
+  JSON.stringify({ payload:{ hujjat_natijasi:{ asosiy_matn:parserBody } }, confidence_score:90 }),
+  JSON.stringify({ html:`<p>${parserBody}</p>`, confidence_score:90 }),
+  JSON.stringify({ body:{ opening:"Nurota tumanidagi obyekt bo'yicha topshiriq ko'rib chiqildi.", main:"Loyiha-smeta hujjatlari o'rganib chiqildi.", closing:"Aniqlangan kamchiliklar yuzasidan asoslantirilgan ma'lumot taqdim etiladi." }, confidence_score:90 }),
+  `body: "${parserBody.replace(/"/g, '\\"')}"\nconfidence_score: 90`,
+  `JAVOB_MATNI:\n${parserBody}`,
+  parserBody,
+  `\`\`\`json\n${JSON.stringify({ response_body:parserBody, confidence_score:90 })}\n\`\`\``
+];
+for(const [index, raw] of providerFormats.entries()) {
+  const payload = runtime.parseAiResponsePayload(raw);
+  assert.ok(payload, `provider formati ${index + 1} parse qilinmadi`);
+  assert.match(runtime.extractAiResponseBody(payload), /Nurota tumanidagi obyekt/);
+  const checked = runtime.validateAiResponseDocument(payload, parserTask, '', '', []);
+  assert.equal(checked.ok, true, `provider formati ${index + 1}: ${checked.reason}`);
+}
+assert.equal(
+  runtime.extractAiResponseBody(runtime.parseAiResponsePayload('{"title":"Javob xati","confidence_score":90}')),
+  ''
+);
 
 const validatedStructuredResponse = runtime.validateAiResponseDocument(
   {
@@ -196,6 +234,12 @@ const quotaMessage = runtime.aiProviderErrorMessage(
 assert.match(quotaMessage, /Gemini kvotasi tugagan/);
 assert.doesNotMatch(quotaMessage, /https?:\/\//);
 
+assert.deepEqual(runtime.groqModelCandidates('llama-3.1-70b-versatile'), [
+  'llama-3.3-70b-versatile',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3-32b'
+]);
+
 const modelCandidates = runtime.openRouterModelCandidates([
   {
     id:'deepseek/deepseek-r1:free',
@@ -233,7 +277,28 @@ assert.match(source, /parsed\.ai_provider = aiProof\.provider/);
 assert.match(source, /if\(!parsed\.ai_provider \|\| !parsed\.ai_model\)/);
 assert.match(source, /aiOnly:true,\s*provider:parsed\.ai_provider,\s*model:parsed\.ai_model/s);
 assert.match(source, /Javob xati faqat AI orqali yaratildi/);
+assert.match(source, /name: 'Groq'.*model: 'llama-3\.3-70b-versatile'/s);
 assert.match(source, /AI javobida asosiy body matni topilmadi/);
 assert.doesNotMatch(source, /const noiseLine = .*QURILISH\\s\+VA\\s\+UY-JOY/);
+assert.match(source, /parsed = parseAiResponsePayload\(rawAiResponse\)/);
+assert.doesNotMatch(source, /parsed = parseAIJson\(await callTemplateAi\(strictPrompt/);
 
-console.log('Response letter and AI provider rules: 34 checks passed.');
+const realProviderResponseFile = process.env.IJRODA_REAL_AI_RESPONSE_FILE || '';
+if(realProviderResponseFile) {
+  assert.equal(existsSync(realProviderResponseFile), true, 'Real AI javob fayli topilmadi');
+  const realRaw = readFileSync(realProviderResponseFile, 'utf8');
+  const realPayload = runtime.parseAiResponsePayload(realRaw);
+  assert.ok(realPayload, 'Real AI javobi parse qilinmadi');
+  const realCheck = runtime.validateAiResponseDocument(
+    realPayload,
+    "Nurota tumanidagi qurilish obyektining loyiha-smeta hujjatlarini o'rganish va kamchiliklar bo'yicha ma'lumot berish topshirildi.",
+    '',
+    '',
+    []
+  );
+  assert.equal(realCheck.ok, true, `Real AI javobi validatsiyadan o'tmadi: ${realCheck.reason}`);
+  assert.ok(realCheck.body.length >= 80, 'Real AI body yetarli matn bermadi');
+  console.log(`Real AI response pipeline passed: ${realCheck.body.length} body chars.`);
+}
+
+console.log('Response letter and AI provider rules: all checks passed.');

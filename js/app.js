@@ -6286,7 +6286,9 @@ function parseAIJson(text) {
     kimdan: pick(['kimdan','from','tashkilot']),
     ishonch: Number(pick(['ishonch','confidence'])) || 60
   };
-  return Object.values(recovered).some(Boolean) ? recovered : null;
+  const hasRecoveredField = Object.entries(recovered)
+    .some(([key, value]) => key !== 'ishonch' && Boolean(value));
+  return hasRecoveredField ? recovered : null;
 }
 
 // ===== AI TEMPLATE DOCUMENT BUILDER =====
@@ -6457,6 +6459,9 @@ function aiProviderErrorMessage(provider='', status=0, message='') {
   if(provider === 'Gemini' && (status === 429 || /quota exceeded|resource_exhausted|rate limit|limit:\s*0/i.test(norm))) {
     return 'Gemini kvotasi tugagan yoki loyiha uchun API limiti 0. OpenRouter yoki Groq orqali davom ettiriladi.';
   }
+  if(provider === 'Groq' && (status === 429 || /rate limit|tokens per minute|requests per minute|tpm|rpm/i.test(norm))) {
+    return 'Groq limiti vaqtincha tugagan. Dastur boshqa Groq modelini yoki OpenRouter fallbackini tekshiradi.';
+  }
   if(provider === 'OpenRouter' && status === 404) {
     return 'OpenRouter modeli mavjud emas. Dastur boshqa mavjud modelni avtomatik tanlaydi.';
   }
@@ -6464,6 +6469,20 @@ function aiProviderErrorMessage(provider='', status=0, message='') {
   if(status === 402) return `${provider} hisobida kredit yetarli emas.`;
   if(status === 429) return `${provider} so'rov limiti vaqtincha tugagan.`;
   return clean ? `${provider}: ${clean.slice(0, 260)}` : `${provider} HTTP ${status || 'xato'}`;
+}
+
+function groqModelCandidates(configured='') {
+  const selected = [];
+  const add = model => {
+    const id = String(model || '').trim();
+    if(!id || /llama-3\.1-70b-versatile/i.test(id) || selected.includes(id)) return;
+    selected.push(id);
+  };
+  add(configured);
+  add('llama-3.3-70b-versatile');
+  add('openai/gpt-oss-120b');
+  add('qwen/qwen3-32b');
+  return selected;
 }
 
 function openRouterModelCandidates(models=[], configured='') {
@@ -6560,30 +6579,51 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
     }
   }
   const groqKey = localStorage.getItem('GROQ_API_KEY') || '';
-  if(groqKey) {
-    try {
-      const model = localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile';
-      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method:'POST',
-        headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:6200 })
-      });
-      if(!resp.ok) {
-        const errData = await resp.json().catch(()=>({}));
-        throw new Error(errData?.error?.message || `Groq HTTP ${resp.status}`);
+  if(groqKey && !filePart?.base64) {
+    for(const model of groqModelCandidates(localStorage.getItem('GROQ_MODEL') || '')) {
+      try {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method:'POST',
+          headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
+          body: JSON.stringify({
+            model,
+            messages:[
+              {
+                role:'system',
+                content:jsonMode
+                  ? "Faqat so'ralgan JSON obyektni qaytaring. body asosiy javob xati matni bo'lsin."
+                  : "O'zbekiston davlat tashkiloti uslubida aniq va rasmiy javob bering."
+              },
+              { role:'user', content:prompt }
+            ],
+            temperature:generationTemperature,
+            max_completion_tokens:jsonMode ? 7000 : 6200,
+            ...(jsonMode ? { response_format:{ type:'json_object' } } : {})
+          })
+        });
+        const data = await resp.json().catch(()=>({}));
+        if(!resp.ok) {
+          const rawMessage = data?.error?.message || `Groq HTTP ${resp.status}`;
+          const err = new Error(aiProviderErrorMessage('Groq', resp.status, rawMessage));
+          err.status = resp.status;
+          throw err;
+        }
+        const text = String(data?.choices?.[0]?.message?.content || '').trim();
+        if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
+        localStorage.setItem('GROQ_MODEL', data?.model || model);
+        templateAiLastProof = { provider:'Groq', model:data?.model || model, requestId:data?.id || '', at:nowIso() };
+        await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model:data?.model || model });
+        return text;
+      } catch(e) {
+        const friendly = e.message || 'Groq javob bermadi.';
+        if(!providerErrors.includes(friendly)) providerErrors.push(friendly);
+        await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model, error:friendly }).catch(()=>{});
+        console.warn('Groq template fallback:', model, friendly);
+        if(e.status === 401 || e.status === 403 || e.status === 402) break;
       }
-      const data = await resp.json();
-      const text = data?.choices?.[0]?.message?.content || '';
-      if(!text) throw new Error('Groq bo‘sh javob qaytardi.');
-      templateAiLastProof = { provider:'Groq', model, requestId:data?.id || '', at:nowIso() };
-      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model });
-      return text;
-    } catch(e) {
-      const friendly = aiProviderErrorMessage('Groq', e.status || 0, e.message);
-      if(!providerErrors.includes(friendly)) providerErrors.push(friendly);
-      await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:friendly }).catch(()=>{});
-      console.warn('Groq template fallback:', friendly);
     }
+  } else if(groqKey && filePart?.base64) {
+    providerErrors.push('Groq skaner faylni bevosita o‘qimaydi; Gemini yoki matn ajratish talab qilinadi.');
   }
   const openRouterKey = localStorage.getItem('OPENROUTER_API_KEY') || '';
   if(openRouterKey) {
@@ -7809,30 +7849,104 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
 function aiResponseTextValue(value, depth=0) {
-  if(depth > 4 || value === null || value === undefined) return '';
-  if(typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if(depth > 6 || value === null || value === undefined) return '';
+  if(typeof value === 'string') {
+    let text = value.trim();
+    if(/^[{[]/.test(text)) {
+      try {
+        const nested = JSON.parse(text);
+        const nestedText = aiResponseTextValue(nested, depth + 1);
+        if(nestedText) return nestedText;
+      } catch(e) {}
+    }
+    if(/<\/?(?:p|div|br|li|section|article|h[1-6])\b/i.test(text)) {
+      text = text
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(?:p|div|li|section|article|h[1-6])>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+    return text;
+  }
+  if(typeof value === 'number') return String(value);
   if(Array.isArray(value)) {
     return value.map(item => aiResponseTextValue(item, depth + 1)).filter(Boolean).join('\n\n').trim();
   }
   if(typeof value !== 'object') return '';
-  const preferredKeys = ['text', 'content', 'value', 'body', 'paragraphs', 'sections', 'answer', 'response', 'javob_matni'];
+  const segmentedText = ['opening', 'introduction', 'main', 'body', 'closing', 'conclusion']
+    .map(key => aiResponseTextValue(value[key], depth + 1))
+    .filter(Boolean);
+  if(segmentedText.length >= 2) return [...new Set(segmentedText)].join('\n\n').trim();
+  const preferredKeys = [
+    'body', 'main_body', 'letter_body', 'answer_text', 'response_body', 'javob_matni',
+    'javob_xati_matni', 'xat_matni', 'asosiy_matn', 'matn', 'javob_xati', 'javob',
+    'main_text', 'generated_text', 'response_text', 'letter_text', 'official_response',
+    'opening', 'introduction', 'main', 'closing', 'conclusion',
+    'paragraphs', 'sections', 'answer', 'response', 'final', 'output', 'result',
+    'document', 'letter', 'generated_document', 'response_letter', 'message',
+    'document_content', 'content', 'text', 'value', 'data', 'payload', 'choices', 'html'
+  ];
   for(const key of preferredKeys) {
     const text = aiResponseTextValue(value[key], depth + 1);
     if(text) return text;
   }
+  const ignoredKeys = /^(title|recipient|out_number|date|responsible|task_analysis|learned_style_used|footer|signature_block|style_notes|confidence|confidence_score|ishonch|quality_self_check|legal|grammar|logic|style|not_copied)$/i;
+  const fallbackTexts = Object.entries(value)
+    .filter(([key]) => !ignoredKeys.test(key))
+    .map(([, item]) => aiResponseTextValue(item, depth + 1))
+    .filter(text => compactResponseText(text).length >= 40)
+    .sort((a, b) => {
+      const aScore = isLikelyAiResponseBody(a) ? 1000 : 0;
+      const bScore = isLikelyAiResponseBody(b) ? 1000 : 0;
+      return (bScore + b.length) - (aScore + a.length);
+    });
+  if(fallbackTexts.length) return fallbackTexts[0];
   return '';
 }
 
 function extractAiResponseBody(parsed) {
-  if(!parsed || typeof parsed !== 'object') return '';
+  if(!parsed) return '';
+  if(typeof parsed === 'string' || Array.isArray(parsed)) return aiResponseTextValue(parsed);
+  if(typeof parsed !== 'object') return '';
   const candidates = [
     parsed.body,
     parsed.answer_text,
     parsed.response_body,
     parsed.javob_matni,
+    parsed.javob_xati_matni,
+    parsed.xat_matni,
+    parsed.asosiy_matn,
+    parsed.matn,
+    parsed.javob_xati,
+    parsed.javob,
+    parsed.main_body,
+    parsed.letter_body,
+    parsed.main_text,
+    parsed.generated_text,
+    parsed.response_text,
+    parsed.letter_text,
+    parsed.official_response,
     parsed.answer,
+    parsed.final,
+    parsed.output,
+    parsed.result,
+    parsed.document,
+    parsed.letter,
+    parsed.generated_document,
+    parsed.response_letter,
+    parsed.message,
     parsed.content,
     parsed.text,
+    parsed.data,
+    parsed.payload,
+    parsed.choices,
+    parsed.html,
     parsed.summary
   ];
   for(const candidate of candidates) {
@@ -7840,6 +7954,78 @@ function extractAiResponseBody(parsed) {
     if(text) return text;
   }
   return '';
+}
+
+function stripAiResponseWrapper(text='') {
+  return String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/^\s*```(?:json|javascript|js|text|markdown)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+}
+
+function decodeAiQuotedValue(value='') {
+  const token = String(value || '').trim();
+  if(!token) return '';
+  if(token.startsWith('"')) {
+    try { return String(JSON.parse(token)).trim(); } catch(e) {}
+  }
+  if(token.startsWith("'") && token.endsWith("'")) {
+    return token.slice(1, -1)
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .trim();
+  }
+  return token;
+}
+
+function extractAiBodyFromLabeledText(text='') {
+  const source = stripAiResponseWrapper(text);
+  if(!source) return '';
+  const keys = 'body|answer_text|response_body|javob_matni|javob_xati|javob|main_text|generated_text|response_text|letter_text|official_response|final_answer';
+  const quoted = source.match(new RegExp(`["']?(?:${keys})["']?\\s*[:：]\\s*("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')`, 'i'));
+  if(quoted?.[1]) {
+    const decoded = decodeAiQuotedValue(quoted[1]);
+    if(decoded) return decoded;
+  }
+  const labeled = source.match(new RegExp(`(?:^|\\n)\\s*["']?(?:${keys})["']?\\s*[:：-]\\s*([\\s\\S]+)$`, 'i'));
+  if(!labeled?.[1]) return '';
+  return labeled[1]
+    .replace(/\n\s*["']?(?:confidence_score|confidence|quality_self_check|style_notes|footer|signature_block|html)["']?\s*[:：][\s\S]*$/i, '')
+    .replace(/^[\s"']+|[\s"',}]+$/g, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .trim();
+}
+
+function isLikelyAiResponseBody(text='') {
+  const clean = compactResponseText(text);
+  if(clean.length < 40 || /^[{[]/.test(clean)) return false;
+  if(/^(xato|error|uzr|kechirasiz|i cannot|i can't|unable to)/i.test(clean)) return false;
+  const professional = /(topshiriq|xat|talabnoma|qaror|ijro|ma['‘`ʻ]?lum|taqdim|qurilish|obyekt|loyiha|hujjat|nazorat|o['‘`ʻ]?rgan|bartaraf|amalga\s+oshir|qabul\s+qil)/i.test(clean);
+  return professional && (/[.!?]\s+/.test(clean) || clean.length >= 100);
+}
+
+function parseAiResponsePayload(rawText='') {
+  const raw = stripAiResponseWrapper(rawText);
+  if(!raw) return null;
+  const parsed = parseAIJson(raw);
+  if(parsed) {
+    const body = extractAiResponseBody(parsed);
+    if(body && !/^[{[]/.test(body.trim())) {
+      return { ...(typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}), body };
+    }
+  }
+  const labeledBody = extractAiBodyFromLabeledText(raw);
+  if(isLikelyAiResponseBody(labeledBody)) {
+    return { ...(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}), body:labeledBody };
+  }
+  if(isLikelyAiResponseBody(raw)) {
+    return { ...(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}), body:raw };
+  }
+  return parsed && typeof parsed === 'object' ? parsed : null;
 }
 
 function normalizeAiConfidence(value=0) {
@@ -8206,7 +8392,8 @@ QAT'IY TALAB:
     let parsed = null;
     let aiProof = null;
     try {
-      parsed = parseAIJson(await callTemplateAi(strictPrompt, filePart, true));
+      const rawAiResponse = await callTemplateAi(strictPrompt, filePart, true);
+      parsed = parseAiResponsePayload(rawAiResponse);
       aiProof = templateAiLastProof ? { ...templateAiLastProof } : null;
     } catch(e) {
       lastError = e.message;
@@ -9368,10 +9555,10 @@ const AI_PROVIDERS = [
     headers: () => ({ 'Content-Type': 'application/json' })
   },
   {
-    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.1-70b-versatile',
+    name: 'Groq', icon: '⚡', streaming: true, model: 'llama-3.3-70b-versatile',
     getUrl: () => 'https://api.groq.com/openai/v1/chat/completions',
     getKey: () => localStorage.getItem('GROQ_API_KEY') || '',
-    buildBody: (messages) => ({ model: localStorage.getItem('GROQ_MODEL') || 'llama-3.1-70b-versatile', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048, temperature: 0.7 }),
+    buildBody: (messages) => ({ model: localStorage.getItem('GROQ_MODEL') || 'llama-3.3-70b-versatile', messages: messages.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })), stream: true, max_tokens: 2048, temperature: 0.7 }),
     parseChunk: (line) => { try { if (line === 'data: [DONE]') return ''; const data = JSON.parse(line.replace(/^data: /, '')); return data?.choices?.[0]?.delta?.content || ''; } catch { return ''; } },
     headers: (key) => ({ 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' })
   },

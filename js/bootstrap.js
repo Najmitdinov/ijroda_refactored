@@ -1,4 +1,4 @@
-const APP_BUILD = '20260608-body-fix1';
+const APP_BUILD = '20260608-body-parser3';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
