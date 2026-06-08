@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 
 const source = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
 
@@ -16,6 +17,7 @@ function extractFunction(name) {
 
 const names = [
   'normalizeText',
+  'normalizeOcrText',
   'simpleHash',
   'stripNonWordChars',
   'compactResponseText',
@@ -42,6 +44,9 @@ const runtime = new Function(`
   ${names.map(extractFunction).join('\n\n')}
   return { ${names.join(', ')} };
 `)();
+
+assert.equal(runtime.normalizeOcrText("0'RQ-937-sonli qonun"), "O'RQ-937-sonli qonun");
+assert.equal(runtime.normalizeOcrText('0.Shukurov'), 'O.Shukurov');
 
 const infoProfile = runtime.responseTaskProfile(
   "Mazkur uslubiy qo'llanma ma'lumot va ijroda foydalanish uchun yuborilmoqda.",
@@ -199,11 +204,38 @@ assert.equal(modelCandidates.some(x => /deepseek/i.test(x)), false);
 
 assert.match(source, /resolveOpenRouterModels/);
 assert.match(source, /async function readPdfAsText/);
+assert.match(source, /async function readPdfOcrText/);
+assert.match(source, /async function readImageOcrText/);
+assert.match(source, /TesseractApi\.createWorker/);
+assert.match(source, /LOCAL_OCR_LANGUAGES = \['uzb', 'rus', 'eng'\]/);
+assert.match(source, /workerPath:`\$\{ocrAssetBase\}worker\.min\.js/);
+assert.match(source, /corePath:`\$\{ocrAssetBase\}core`/);
+assert.match(source, /langPath:`\$\{ocrAssetBase\}lang`/);
 assert.match(source, /window\.pdfjsLib/);
 assert.match(source, /pdfLib\.getDocument/);
-assert.match(source, /if\(\/\\\.pdf\$\/i\.test\(file\.name\)\) return \(await readPdfAsText\(file\)\)/);
+assert.match(source, /if\(\/\\\.pdf\$\/i\.test\(file\.name\)\) return \(await readPdfAsText\(file, options\)\)/);
+assert.match(source, /if\(text\.length >= 80\) return text;\s*return readPdfOcrText\(file, options\)/);
+assert.match(source, /Skaner hujjat OCR qilinmoqda/);
 assert.match(source, /body oddiy matn satri emas/);
 assert.match(source, /PDF yoki rasmda matn qatlami topilmadi/);
+
+const vendorRoot = new URL('../assets/vendor/tesseract/', import.meta.url);
+for(const relative of [
+  'tesseract.min.js',
+  'worker.min.js',
+  'core/tesseract-core-lstm.wasm.js',
+  'core/tesseract-core-simd-lstm.wasm.js',
+  'core/tesseract-core-relaxedsimd-lstm.wasm.js'
+]) {
+  const file = new URL(relative, vendorRoot);
+  assert.equal(existsSync(file), true, `${relative} topilmadi`);
+  assert.ok(statSync(file).size > 50000, `${relative} bo'sh yoki noto'g'ri`);
+}
+for(const language of ['uzb', 'rus', 'eng']) {
+  const file = new URL(`lang/${language}.traineddata.gz`, vendorRoot);
+  assert.equal(existsSync(file), true, `${language} OCR modeli topilmadi`);
+  assert.ok(gunzipSync(readFileSync(file)).length > 1000000, `${language} OCR modeli buzilgan`);
+}
 const templateProviderSource = source.slice(
   source.indexOf('async function callTemplateAi'),
   source.indexOf('function localTemplateAnalysis')
@@ -228,4 +260,4 @@ assert.match(source, /if\(!parsed\.ai_provider \|\| !parsed\.ai_model\)/);
 assert.match(source, /aiOnly:true,\s*provider:parsed\.ai_provider,\s*model:parsed\.ai_model/s);
 assert.match(source, /Javob xati faqat AI orqali yaratildi/);
 
-console.log('Response letter and AI provider rules: 46 checks passed.');
+console.log('Response letter, OCR and AI provider rules: 64 checks passed.');

@@ -52,7 +52,7 @@ bot.on('text', async (ctx) => {
   const session = (await query<{ state: string }>('select state from telegram_sessions where telegram_id = $1', [telegramId])).rows[0];
 
   if (session?.state === 'AWAITING_EMPLOYEE_ID') {
-    const employee = (await query('update employees set telegram_id = $1, username = $2 where employee_id::text = $3 returning employee_id, ism, familiya', [
+    const employee = (await query<{ employee_id: string; ism: string; familiya: string }>('update employees set telegram_id = $1, username = $2 where employee_id::text = $3 returning employee_id, ism, familiya', [
       telegramId,
       ctx.from.username ?? '',
       text

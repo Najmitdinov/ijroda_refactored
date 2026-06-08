@@ -4218,12 +4218,18 @@ window.handleLegalAiFile = async function(file) {
       legalAiState.rawText = await readDocxAsText(file);
     } else if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) {
       legalAiState.rawText = await readAsText(file);
+    } else if(/\.(pdf|png|jpe?g|webp)$/i.test(file.name)) {
+      legalSetStatus('Hujjat matni o‘qilmoqda...', 'warn', true);
+      legalAiState.rawText = await aiDocExtractText(file, {
+        onProgress: message => legalSetStatus(message, 'warn', true)
+      });
     } else {
       legalAiState.filePart = { base64: await readFileAsBase64(file), mimeType: file.type || 'application/octet-stream' };
       legalAiState.rawText = '';
     }
     const textArea = document.getElementById('legal-ai-text');
     if(textArea && legalAiState.rawText) textArea.value = legalAiState.rawText.slice(0, 16000);
+    legalSetStatus('Hujjat tahlilga tayyor', 'ok');
     showToast('Hujjat tahlilga tayyor', 'success');
   } catch(e) {
     showToast('Faylni o qishda xatolik: ' + e.message, 'error');
@@ -4264,14 +4270,14 @@ window.handleLegalTaskLetterFile = function(file) {
   showToast('Topshiriq xati tanlandi', 'success');
 };
 
-async function readLegalAiFileSmart(file) {
+async function readLegalAiFileSmart(file, options={}) {
   if(!file) return { text:'', filePart:null };
   if(/\.docx$/i.test(file.name)) return { text: await readDocxAsText(file), filePart:null };
-  if(/\.pdf$/i.test(file.name)) {
-    const text = await readPdfAsText(file).catch(() => '');
+  if(/\.(pdf|png|jpe?g|webp)$/i.test(file.name)) {
+    const text = await aiDocExtractText(file, options);
     return text
       ? { text, filePart:null }
-      : { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/pdf' } };
+      : { text:'', filePart:{ base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } };
   }
   if(/\.(xls|xlsx)$/i.test(file.name)) return { text: await readExcelAsText(file), filePart:null };
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return { text: await readAsText(file), filePart:null };
@@ -4403,7 +4409,11 @@ window.generateLegalTemplateAnswer = async function() {
   try {
     const [templateData, taskData] = await Promise.all([
       readLegalAiFileSmart(templateFile),
-      readLegalAiFileSmart(taskFile)
+      readLegalAiFileSmart(taskFile, {
+        onProgress: message => {
+          if(status) status.textContent = message;
+        }
+      })
     ]);
     if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
     const rag = legalBaseContext(`${taskData.text || taskFile.name} ${document.getElementById('legal-ai-question')?.value?.trim() || ''}`);
@@ -6291,11 +6301,171 @@ function readAsText(file) {
   });
 }
 
-async function readPdfAsText(file) {
+const LOCAL_OCR_BUILD = '20260608-local-ocr1';
+const LOCAL_OCR_LANGUAGES = ['uzb', 'rus', 'eng'];
+const LOCAL_OCR_MAX_PAGES = 20;
+let localOcrWorkerPromise = null;
+let localOcrProgressListener = null;
+let localOcrQueue = Promise.resolve();
+
+function notifyLocalOcr(options={}, message='') {
+  if(typeof options.onProgress === 'function' && message) options.onProgress(message);
+}
+
+function normalizeOcrText(text='') {
+  return String(text || '')
+    .replace(/\r/g, '\n')
+    .replace(/\b0(?=['’‘ʻ`]?RQ-\d)/gi, 'O')
+    .replace(/\b0\.([A-ZА-ЯO‘ʻ'`])/g, 'O.$1')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ +([,.;:!?])/g, '$1')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function getLocalOcrWorker(options={}) {
+  const TesseractApi = window.Tesseract;
+  if(!TesseractApi?.createWorker) throw new Error('Lokal OCR moduli yuklanmadi');
+  localOcrProgressListener = options.onProgress || localOcrProgressListener;
+  if(!localOcrWorkerPromise) {
+    notifyLocalOcr(options, 'Skaner hujjat uchun lokal OCR ishga tushirilmoqda...');
+    const ocrAssetBase = new URL('./assets/vendor/tesseract/', location.href).href;
+    localOcrWorkerPromise = TesseractApi.createWorker(
+      LOCAL_OCR_LANGUAGES,
+      TesseractApi.OEM?.LSTM_ONLY ?? 1,
+      {
+        workerPath:`${ocrAssetBase}worker.min.js?v=${LOCAL_OCR_BUILD}`,
+        corePath:`${ocrAssetBase}core`,
+        langPath:`${ocrAssetBase}lang`,
+        gzip:true,
+        cacheMethod:'write',
+        logger: info => {
+          if(typeof localOcrProgressListener !== 'function') return;
+          const progress = Math.round(Number(info?.progress || 0) * 100);
+          if(info?.status === 'recognizing text') {
+            localOcrProgressListener(`Skaner hujjat OCR qilinmoqda: ${progress}%`);
+          } else if(info?.status === 'loading language traineddata') {
+            localOcrProgressListener(`OCR til modeli yuklanmoqda: ${progress}%`);
+          } else if(info?.status === 'loading tesseract core') {
+            localOcrProgressListener(`OCR mexanizmi yuklanmoqda: ${progress}%`);
+          }
+        }
+      }
+    ).then(async worker => {
+      await worker.setParameters({
+        preserve_interword_spaces:'1',
+        user_defined_dpi:'300',
+        tessedit_pageseg_mode:TesseractApi.PSM?.AUTO ?? 3
+      });
+      return worker;
+    }).catch(error => {
+      localOcrWorkerPromise = null;
+      throw error;
+    });
+  }
+  const worker = await withTimeout(localOcrWorkerPromise, 120000, 'Lokal OCR modulini ishga tushirish vaqti tugadi');
+  localOcrProgressListener = options.onProgress || localOcrProgressListener;
+  return worker;
+}
+
+function runLocalOcrJob(task) {
+  const run = localOcrQueue.catch(() => {}).then(task);
+  localOcrQueue = run.catch(() => {});
+  return run;
+}
+
+async function recognizeCanvasText(canvas, options={}) {
+  return runLocalOcrJob(async() => {
+    const worker = await getLocalOcrWorker(options);
+    const result = await withTimeout(worker.recognize(canvas), 180000, 'Skaner sahifani OCR qilish vaqti tugadi');
+    return {
+      text:normalizeOcrText(result?.data?.text || ''),
+      confidence:Number(result?.data?.confidence || 0)
+    };
+  });
+}
+
+async function renderPdfPageForOcr(page) {
+  const original = page.getViewport({ scale:1 });
+  const scale = Math.max(1.5, Math.min(2.4, 2400 / Math.max(1, original.width)));
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const context = canvas.getContext('2d', { alpha:false, willReadFrequently:true });
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext:context, viewport, background:'#fff' }).promise;
+  return canvas;
+}
+
+async function readPdfOcrText(file, options={}) {
+  const pdfLib = window.pdfjsLib;
+  if(!pdfLib) throw new Error('PDF matnini o‘qish kutubxonasi yuklanmadi');
+  notifyLocalOcr(options, 'PDF matn qatlami topilmadi. Lokal OCR boshlandi...');
+  pdfLib.GlobalWorkerOptions.workerSrc = `./assets/vendor/pdfjs/pdf.worker.min.js?v=${LOCAL_OCR_BUILD}`;
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfLib.getDocument({ data }).promise;
+  const pageLimit = Math.min(pdf.numPages, LOCAL_OCR_MAX_PAGES);
+  const pages = [];
+  let confidenceTotal = 0;
+
+  for(let pageNumber = 1; pageNumber <= pageLimit; pageNumber++) {
+    notifyLocalOcr(options, `PDF ${pageNumber}/${pageLimit}-sahifasi OCR uchun tayyorlanmoqda...`);
+    const page = await pdf.getPage(pageNumber);
+    const canvas = await renderPdfPageForOcr(page);
+    const result = await recognizeCanvasText(canvas, {
+      onProgress: message => notifyLocalOcr(options, `PDF ${pageNumber}/${pageLimit}: ${message}`)
+    });
+    canvas.width = 1;
+    canvas.height = 1;
+    if(result.text) pages.push(result.text);
+    confidenceTotal += result.confidence;
+  }
+
+  const text = normalizeOcrText(pages.join('\n\n')).slice(0, 50000);
+  const averageConfidence = pageLimit ? confidenceTotal / pageLimit : 0;
+  if(text.length < 40 || averageConfidence < 25) {
+    throw new Error('Skaner PDF matni OCR orqali yetarli aniqlikda o‘qilmadi. Hujjat tasvirini tiniqroq skanerlab qayta yuklang.');
+  }
+  notifyLocalOcr(options, `OCR yakunlandi: ${pageLimit} sahifa, aniqlik ${Math.round(averageConfidence)}%.`);
+  return text;
+}
+
+async function imageFileToCanvas(file) {
+  const bitmap = await createImageBitmap(file);
+  const maxSide = 2600;
+  const scale = Math.min(2, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext('2d', { alpha:false, willReadFrequently:true });
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return canvas;
+}
+
+async function readImageOcrText(file, options={}) {
+  notifyLocalOcr(options, 'Skaner rasm lokal OCR orqali o‘qilmoqda...');
+  const canvas = await imageFileToCanvas(file);
+  const result = await recognizeCanvasText(canvas, options);
+  canvas.width = 1;
+  canvas.height = 1;
+  if(result.text.length < 40 || result.confidence < 25) {
+    throw new Error('Rasmdagi matn OCR orqali yetarli aniqlikda o‘qilmadi. Tiniqroq rasm yuklang.');
+  }
+  notifyLocalOcr(options, `OCR yakunlandi: aniqlik ${Math.round(result.confidence)}%.`);
+  return result.text.slice(0, 50000);
+}
+
+async function readPdfTextLayer(file) {
   if(!file || !/\.pdf$/i.test(file.name || '')) return '';
   const pdfLib = window.pdfjsLib;
   if(!pdfLib) throw new Error('PDF matnini o‘qish kutubxonasi yuklanmadi');
-  pdfLib.GlobalWorkerOptions.workerSrc = './assets/vendor/pdfjs/pdf.worker.min.js?v=20260607-pdf-text2';
+  pdfLib.GlobalWorkerOptions.workerSrc = `./assets/vendor/pdfjs/pdf.worker.min.js?v=${LOCAL_OCR_BUILD}`;
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfLib.getDocument({ data }).promise;
   const pages = [];
@@ -6327,6 +6497,12 @@ async function readPdfAsText(file) {
     if(pageText) pages.push(pageText);
   }
   return pages.join('\n\n').replace(/[ \t]+\n/g, '\n').slice(0, 50000);
+}
+
+async function readPdfAsText(file, options={}) {
+  const text = normalizeOcrText(await readPdfTextLayer(file));
+  if(text.length >= 80) return text;
+  return readPdfOcrText(file, options);
 }
 
 function parseAIJson(text) {
@@ -6454,10 +6630,11 @@ function aiDocFileKind(file) {
   return 'file';
 }
 
-async function aiDocExtractText(file) {
+async function aiDocExtractText(file, options={}) {
   if(!file) return '';
   if(/\.docx$/i.test(file.name)) return (await readDocxAsText(file)).slice(0, 50000);
-  if(/\.pdf$/i.test(file.name)) return (await readPdfAsText(file)).slice(0, 50000);
+  if(/\.pdf$/i.test(file.name)) return (await readPdfAsText(file, options)).slice(0, 50000);
+  if(/\.(png|jpe?g|webp)$/i.test(file.name)) return (await readImageOcrText(file, options)).slice(0, 50000);
   if(/^text\//.test(file.type) || /\.txt$/i.test(file.name)) return (await readAsText(file)).slice(0, 50000);
   return '';
 }
@@ -8387,7 +8564,14 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
   if(!file) { showToast('Yuqori tashkilotdan kelgan topshiriq hujjatini yuklang', 'error'); return; }
   if(status) { status.className='template-ai-status warn'; status.textContent='AI javob xatini shablon asosida yozmoqda...'; }
   try {
-    const taskText = file ? await aiDocExtractText(file) : '';
+    const taskText = file ? await aiDocExtractText(file, {
+      onProgress: message => {
+        if(status) status.textContent = message;
+      }
+    }) : '';
+    if(!taskText.trim() && /\.(pdf|png|jpe?g|webp)$/i.test(file?.name || '')) {
+      throw new Error('Topshiriq hujjatidan matn ajratilmadi. Tiniqroq skaner fayl yuklang.');
+    }
     const filePart = file && !taskText ? { base64: await readFileAsBase64(file), mimeType:file.type || 'application/octet-stream' } : null;
     const incomingReq = inferIncomingTaskRequisites(taskText);
     const inferredRecipient = inferResponseRecipientFromText(taskText) || inferResponseRecipientFromText(extra);

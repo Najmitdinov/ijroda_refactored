@@ -1,4 +1,4 @@
-const APP_BUILD = '20260607-pdf-text2';
+const APP_BUILD = '20260608-local-ocr1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
