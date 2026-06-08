@@ -31,6 +31,9 @@ const names = [
   'normalizeResponseRecipientName',
   'responseOpeningFormula',
   'responseOpeningPlan',
+  'aiResponseTextValue',
+  'extractAiResponseBody',
+  'cleanGeneratedResponseBody',
   'responseMissesRequiredExtra',
   'responseBodyLooksGeneric',
   'responseUsesUnsupportedSpecialist',
@@ -47,6 +50,37 @@ const runtime = new Function(`
 
 assert.equal(runtime.normalizeOcrText("0'RQ-937-sonli qonun"), "O'RQ-937-sonli qonun");
 assert.equal(runtime.normalizeOcrText('0.Shukurov'), 'O.Shukurov');
+
+const officialBodyStartingWithOrg = "Navoiy viloyati Qurilish va uy-joy kommunal xo'jaligi bosh boshqarmasi Sizning 2026-yil 5-iyundagi 04-13/492-sonli xatingiz yuzasidan quyidagilarni ma'lum qiladi. Topshiriqda ko'rsatilgan obyektning loyiha-smeta hujjatlari o'rganib chiqildi. Aniqlangan holatlar bo'yicha asoslantirilgan ma'lumot taqdim etiladi.";
+assert.equal(
+  runtime.cleanGeneratedResponseBody(officialBodyStartingWithOrg),
+  officialBodyStartingWithOrg,
+  'tashkilot nomi qatnashgan mazmunli javob header deb o‘chirilmasligi kerak'
+);
+
+const bodyWithHeader = `O'ZBEKISTON RESPUBLIKASI
+QURILISH VA UY-JOY KOMMUNAL XO'JALIGI VAZIRLIGI
+NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL XO'JALIGI BOSH BOSHQARMASI
+210100 Navoiy shahri, Zarapetyan ko'chasi, 10-uy
+Tel: (79)220-50-08
+
+Mazkur topshiriqda ko'rsatilgan obyektning loyiha-smeta hujjatlari o'rganib chiqildi.
+Aniqlangan holatlar bo'yicha tegishli ma'lumot taqdim etiladi.`;
+const cleanedBodyWithHeader = runtime.cleanGeneratedResponseBody(bodyWithHeader);
+assert.doesNotMatch(cleanedBodyWithHeader, /Zarapetyan|O'ZBEKISTON RESPUBLIKASI/);
+assert.match(cleanedBodyWithHeader, /Mazkur topshiriqda ko'rsatilgan obyekt/);
+
+assert.equal(
+  runtime.extractAiResponseBody({
+    body: {
+      paragraphs: [
+        "Mazkur topshiriq bo'yicha loyiha hujjatlari o'rganib chiqildi.",
+        "Natijasi yuzasidan asoslantirilgan axborot taqdim etiladi."
+      ]
+    }
+  }),
+  "Mazkur topshiriq bo'yicha loyiha hujjatlari o'rganib chiqildi.\n\nNatijasi yuzasidan asoslantirilgan axborot taqdim etiladi."
+);
 
 const infoProfile = runtime.responseTaskProfile(
   "Mazkur uslubiy qo'llanma ma'lumot va ijroda foydalanish uchun yuborilmoqda.",
@@ -216,7 +250,8 @@ assert.match(source, /pdfLib\.getDocument/);
 assert.match(source, /if\(\/\\\.pdf\$\/i\.test\(file\.name\)\) return \(await readPdfAsText\(file, options\)\)/);
 assert.match(source, /if\(text\.length >= 80\) return text;\s*return readPdfOcrText\(file, options\)/);
 assert.match(source, /Skaner hujjat OCR qilinmoqda/);
-assert.match(source, /body oddiy matn satri emas/);
+assert.match(source, /AI javobida asosiy body matni topilmadi/);
+assert.doesNotMatch(source, /const noiseLine = .*QURILISH\\s\+VA\\s\+UY-JOY/);
 assert.match(source, /PDF yoki rasmda matn qatlami topilmadi/);
 
 const vendorRoot = new URL('../assets/vendor/tesseract/', import.meta.url);

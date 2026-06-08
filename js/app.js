@@ -6301,7 +6301,7 @@ function readAsText(file) {
   });
 }
 
-const LOCAL_OCR_BUILD = '20260608-local-ocr1';
+const LOCAL_OCR_BUILD = '20260608-ai-body2';
 const LOCAL_OCR_LANGUAGES = ['uzb', 'rus', 'eng'];
 const LOCAL_OCR_MAX_PAGES = 20;
 let localOcrWorkerPromise = null;
@@ -8142,16 +8142,47 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
+function aiResponseTextValue(value, depth=0) {
+  if(depth > 4 || value === null || value === undefined) return '';
+  if(typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if(Array.isArray(value)) {
+    return value.map(item => aiResponseTextValue(item, depth + 1)).filter(Boolean).join('\n\n').trim();
+  }
+  if(typeof value !== 'object') return '';
+  const preferredKeys = ['text', 'content', 'value', 'body', 'paragraphs', 'sections', 'answer', 'response', 'javob_matni'];
+  for(const key of preferredKeys) {
+    const text = aiResponseTextValue(value[key], depth + 1);
+    if(text) return text;
+  }
+  return '';
+}
+
+function extractAiResponseBody(parsed) {
+  if(!parsed || typeof parsed !== 'object') return '';
+  const candidates = [
+    parsed.body,
+    parsed.answer_text,
+    parsed.response_body,
+    parsed.javob_matni,
+    parsed.answer,
+    parsed.content,
+    parsed.text,
+    parsed.summary
+  ];
+  for(const candidate of candidates) {
+    const text = aiResponseTextValue(candidate);
+    if(text) return text;
+  }
+  return '';
+}
+
 function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
-  if(parsed.body !== undefined && typeof parsed.body !== 'string') {
-    return { ok:false, reason:'body oddiy matn satri emas', body:'', confidence:0 };
-  }
-  let body = String(parsed.body || '').trim();
-  if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
+  let body = extractAiResponseBody(parsed);
+  if(!body) return { ok:false, reason:'AI javobida asosiy body matni topilmadi', body:'', confidence:0 };
   body = cleanGeneratedResponseBody(body);
   body = enforceRequiredResponseOpening(body, requiredOpening);
-  if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
+  if(body.length < 40) return { ok:false, reason:`body matni juda qisqa (${body.length} belgi)`, body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
   if(responseUsesUnsupportedSpecialist(body, qualitySeed)) return { ok:false, reason:'body topshiriqda bo‘lmagan mutaxassis yoki mas’ul xodimni asossiz qo‘shdi', body, confidence:0 };
@@ -8176,14 +8207,23 @@ function cleanGeneratedResponseBody(text, meta={}) {
   let s = String(text || '').replace(/\r/g, '\n').replace(/\u00a0/g, ' ').trim();
   if(!s) return '';
   const firstOpening = s.search(/\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i);
-  const firstHeaderNoise = s.search(/O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|MAVZU\s*:/i);
-  if(firstOpening > 0 && (firstHeaderNoise < 0 || firstHeaderNoise < firstOpening)) {
+  const definiteHeaderPrefix = /O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|210100|Zarapetyan|navqurilish@|(?:^|\n)\s*(?:MAVZU|Tel|Faks|E-?mail|Sayt)\s*:/i;
+  if(firstOpening > 0 && definiteHeaderPrefix.test(s.slice(0, firstOpening))) {
     s = s.slice(firstOpening).trim();
   }
   const recipientNorm = normalizeText(meta.recipient || meta.recipientOrg || '');
   const outNumber = String(meta.outNumber || '').trim();
   const dateText = String(meta.date || meta.officialDate || '').trim();
-  const noiseLine = /O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|XO['‘`ʻ]?JALIGI|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|Tel\s*:|Faks\s*:|E-?mail\s*:|Sayt\s*:|MAVZU\s*:/i;
+  const isStandaloneHeaderNoise = (value='') => {
+    const line = compactResponseText(value);
+    if(!line || line.length > 190) return false;
+    if(/^(?:210100\b|Tel\s*:|Faks\s*:|E-?mail\s*:|Sayt\s*:|MAVZU\s*:)/i.test(line)) return true;
+    if(/Zarapetyan|navqurilish@|navqurilish\.uz/i.test(line)) return true;
+    if(/^O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI$/i.test(line)) return true;
+    if(/^QURILISH\s+VA\s+UY-JOY\s+KOMMUNAL\s+XO['‘`ʻ]?JALIGI\s+VAZIRLIGI$/i.test(line)) return true;
+    if(/^NAVOIY\s+VILOYATI\s+QURILISH\s+VA\s+UY-JOY\s+KOMMUNAL\s+XO['‘`ʻ]?JALIGI\s+BOSH\s+BOSHQARMASI$/i.test(line)) return true;
+    return false;
+  };
   const dateLine = /^\s*20\d{2}\s*[- ]?y\.?.{0,35}(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)\s*$/i;
   const numberLine = /^\s*(№|N[oº]?|#)\s*[0-9A-Za-zА-Яа-я\/.-]+\s*$/i;
   const answerOpening = /\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i;
@@ -8195,7 +8235,7 @@ function cleanGeneratedResponseBody(text, meta={}) {
     if(!isAnswerOpening && outNumber && line.includes(outNumber) && line.length < 100) return false;
     if(!isAnswerOpening && dateText && line.includes(dateText) && line.length < 100) return false;
     if(!isAnswerOpening && recipientNorm && (n === recipientNorm || (n.includes(recipientNorm) && line.length < 140))) return false;
-    if(!isAnswerOpening && noiseLine.test(line)) return false;
+    if(!isAnswerOpening && isStandaloneHeaderNoise(line)) return false;
     return true;
   });
   return cleanedLines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
