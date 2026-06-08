@@ -28,6 +28,16 @@ const names = [
   'normalizeResponseRecipientName',
   'responseOpeningFormula',
   'responseOpeningPlan',
+  'aiResponseTextValue',
+  'extractAiResponseBody',
+  'normalizeAiConfidence',
+  'cleanGeneratedResponseBody',
+  'responseBodySimilarity',
+  'responseLooksCopiedFromMemory',
+  'responseTooSimilarToPrevious',
+  'estimateResponseConfidence',
+  'enforceRequiredResponseOpening',
+  'validateAiResponseDocument',
   'responseMissesRequiredExtra',
   'responseBodyLooksGeneric',
   'responseUsesUnsupportedSpecialist',
@@ -39,6 +49,58 @@ const runtime = new Function(`
   ${names.map(extractFunction).join('\n\n')}
   return { ${names.join(', ')} };
 `)();
+
+const officialBodyStartingWithOrg = "Navoiy viloyati Qurilish va uy-joy kommunal xo'jaligi bosh boshqarmasi Sizning 2026-yil 5-iyundagi 04-13/492-sonli xatingiz yuzasidan quyidagilarni ma'lum qiladi. Topshiriqda ko'rsatilgan obyektning loyiha-smeta hujjatlari o'rganib chiqildi. Aniqlangan holatlar bo'yicha asoslantirilgan ma'lumot taqdim etiladi.";
+assert.equal(
+  runtime.cleanGeneratedResponseBody(officialBodyStartingWithOrg),
+  officialBodyStartingWithOrg,
+  'tashkilot nomi qatnashgan mazmunli javob header deb o‘chirilmasligi kerak'
+);
+
+const bodyWithHeader = `O'ZBEKISTON RESPUBLIKASI
+QURILISH VA UY-JOY KOMMUNAL XO'JALIGI VAZIRLIGI
+NAVOIY VILOYATI QURILISH VA UY-JOY KOMMUNAL XO'JALIGI BOSH BOSHQARMASI
+210100 Navoiy shahri, Zarapetyan ko'chasi, 10-uy
+Tel: (79)220-50-08
+
+Mazkur topshiriqda ko'rsatilgan obyektning loyiha-smeta hujjatlari o'rganib chiqildi.
+Aniqlangan holatlar bo'yicha tegishli ma'lumot taqdim etiladi.`;
+const cleanedBodyWithHeader = runtime.cleanGeneratedResponseBody(bodyWithHeader);
+assert.doesNotMatch(cleanedBodyWithHeader, /Zarapetyan|O'ZBEKISTON RESPUBLIKASI/);
+assert.match(cleanedBodyWithHeader, /Mazkur topshiriqda ko'rsatilgan obyekt/);
+
+assert.equal(
+  runtime.extractAiResponseBody({
+    body: {
+      paragraphs: [
+        "Mazkur topshiriq bo'yicha loyiha hujjatlari o'rganib chiqildi.",
+        "Natijasi yuzasidan asoslantirilgan axborot taqdim etiladi."
+      ]
+    }
+  }),
+  "Mazkur topshiriq bo'yicha loyiha hujjatlari o'rganib chiqildi.\n\nNatijasi yuzasidan asoslantirilgan axborot taqdim etiladi."
+);
+assert.equal(runtime.normalizeAiConfidence(0.91), 91);
+assert.equal(runtime.normalizeAiConfidence('0,88'), 88);
+
+const validatedStructuredResponse = runtime.validateAiResponseDocument(
+  {
+    body: {
+      paragraphs: [
+        "Navoiy viloyati Qurilish va uy-joy kommunal xo'jaligi bosh boshqarmasi tomonidan Nurota tumanidagi obyektning loyiha-smeta hujjatlari o'rganib chiqildi.",
+        "Aniqlangan holatlar va kamchiliklar bo'yicha asoslantirilgan ma'lumot belgilangan tartibda taqdim etiladi."
+      ]
+    },
+    confidence_score: 0.91
+  },
+  "Nurota tumanidagi obyektning loyiha-smeta hujjatlari o'rganilib, aniqlangan kamchiliklar bo'yicha ma'lumot berilsin.",
+  '',
+  '',
+  []
+);
+assert.equal(validatedStructuredResponse.ok, true, validatedStructuredResponse.reason);
+assert.match(validatedStructuredResponse.body, /Qurilish va uy-joy kommunal xo'jaligi/);
+assert.equal(validatedStructuredResponse.confidence, 91);
 
 const infoProfile = runtime.responseTaskProfile(
   "Mazkur uslubiy qo'llanma ma'lumot va ijroda foydalanish uchun yuborilmoqda.",
@@ -171,5 +233,7 @@ assert.match(source, /parsed\.ai_provider = aiProof\.provider/);
 assert.match(source, /if\(!parsed\.ai_provider \|\| !parsed\.ai_model\)/);
 assert.match(source, /aiOnly:true,\s*provider:parsed\.ai_provider,\s*model:parsed\.ai_model/s);
 assert.match(source, /Javob xati faqat AI orqali yaratildi/);
+assert.match(source, /AI javobida asosiy body matni topilmadi/);
+assert.doesNotMatch(source, /const noiseLine = .*QURILISH\\s\+VA\\s\+UY-JOY/);
 
-console.log('Response letter and AI provider rules: 24 checks passed.');
+console.log('Response letter and AI provider rules: 34 checks passed.');
