@@ -6286,7 +6286,9 @@ function parseAIJson(text) {
     kimdan: pick(['kimdan','from','tashkilot']),
     ishonch: Number(pick(['ishonch','confidence'])) || 60
   };
-  return Object.values(recovered).some(Boolean) ? recovered : null;
+  const hasRecoveredField = Object.entries(recovered)
+    .some(([key, value]) => key !== 'ishonch' && Boolean(value));
+  return hasRecoveredField ? recovered : null;
 }
 
 // ===== AI TEMPLATE DOCUMENT BUILDER =====
@@ -7673,23 +7675,183 @@ const LEGAL_RESPONSE_QUALITY_RULES = `YURIDIK XATOLARNI OLDINI OLISH BO'YICHA QA
 5. Qurilish sohasi terminlari professional qo'llansin: obyekt, pudrat tashkiloti, loyiha-smeta hujjatlari, texnik nazorat, mualliflik nazorati, ekspertiza xulosasi, foydalanishga topshirish, SHNQ, KMK, normativ talab, ijro intizomi.
 6. Final validatsiya: ichki ravishda "Ushbu xat davlat tashkiloti rahbariga yuborishga tayyormi?" savoli bilan tekshir. Bitta ham yuridik, imloviy, uslubiy yoki mantiqiy kamchilik bo'lsa, body matnini qayta yoz. Yakuniy JSON ichida faqat tozalangan, yuborishga tayyor matnni qaytar. Self-check izohlarini body matniga yozma.`;
 
+function aiResponseTextValue(value, depth=0) {
+  if(depth > 6 || value === null || value === undefined) return '';
+  if(typeof value === 'string') {
+    let text = value.trim();
+    if(/^[{[]/.test(text)) {
+      try {
+        const nested = JSON.parse(text);
+        const nestedText = aiResponseTextValue(nested, depth + 1);
+        if(nestedText) return nestedText;
+      } catch(e) {}
+    }
+    if(/<\/?(?:p|div|br|li|section|article|h[1-6])\b/i.test(text)) {
+      text = text
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(?:p|div|li|section|article|h[1-6])>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+    return text;
+  }
+  if(typeof value === 'number') return String(value);
+  if(Array.isArray(value)) {
+    return value.map(item => aiResponseTextValue(item, depth + 1)).filter(Boolean).join('\n\n').trim();
+  }
+  if(typeof value !== 'object') return '';
+  const segmentedText = ['opening', 'introduction', 'main', 'body', 'closing', 'conclusion']
+    .map(key => aiResponseTextValue(value[key], depth + 1))
+    .filter(Boolean);
+  if(segmentedText.length >= 2) return [...new Set(segmentedText)].join('\n\n').trim();
+  const preferredKeys = [
+    'body', 'main_body', 'letter_body', 'answer_text', 'response_body', 'javob_matni',
+    'javob_xati_matni', 'xat_matni', 'asosiy_matn', 'matn', 'javob_xati', 'javob',
+    'main_text', 'generated_text', 'response_text', 'letter_text', 'official_response',
+    'opening', 'introduction', 'main', 'closing', 'conclusion',
+    'paragraphs', 'sections', 'answer', 'response', 'final', 'output', 'result',
+    'document', 'letter', 'generated_document', 'response_letter', 'message',
+    'document_content', 'content', 'text', 'value', 'data', 'payload', 'choices', 'html'
+  ];
+  for(const key of preferredKeys) {
+    const text = aiResponseTextValue(value[key], depth + 1);
+    if(text) return text;
+  }
+  const ignoredKeys = /^(title|recipient|out_number|date|responsible|task_analysis|learned_style_used|footer|signature_block|style_notes|confidence|confidence_score|ishonch|quality_self_check|legal|grammar|logic|style|not_copied)$/i;
+  const fallbackTexts = Object.entries(value)
+    .filter(([key]) => !ignoredKeys.test(key))
+    .map(([, item]) => aiResponseTextValue(item, depth + 1))
+    .filter(text => compactResponseText(text).length >= 40)
+    .sort((a, b) => {
+      const aScore = isLikelyAiResponseBody(a) ? 1000 : 0;
+      const bScore = isLikelyAiResponseBody(b) ? 1000 : 0;
+      return (bScore + b.length) - (aScore + a.length);
+    });
+  return fallbackTexts[0] || '';
+}
+
+function extractAiResponseBody(parsed) {
+  if(!parsed) return '';
+  if(typeof parsed === 'string' || Array.isArray(parsed)) return aiResponseTextValue(parsed);
+  if(typeof parsed !== 'object') return '';
+  const candidates = [
+    parsed.body, parsed.answer_text, parsed.response_body, parsed.javob_matni,
+    parsed.javob_xati_matni, parsed.xat_matni, parsed.asosiy_matn, parsed.matn,
+    parsed.javob_xati, parsed.javob, parsed.main_body, parsed.letter_body,
+    parsed.main_text, parsed.generated_text, parsed.response_text, parsed.letter_text,
+    parsed.official_response, parsed.answer, parsed.final, parsed.output, parsed.result,
+    parsed.document, parsed.letter, parsed.generated_document, parsed.response_letter,
+    parsed.message, parsed.content, parsed.text, parsed.data, parsed.payload,
+    parsed.choices, parsed.html, parsed.summary
+  ];
+  for(const candidate of candidates) {
+    const text = aiResponseTextValue(candidate);
+    if(text) return text;
+  }
+  return '';
+}
+
+function stripAiResponseWrapper(text='') {
+  return String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/^\s*```(?:json|javascript|js|text|markdown)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+}
+
+function decodeAiQuotedValue(value='') {
+  const token = String(value || '').trim();
+  if(!token) return '';
+  if(token.startsWith('"')) {
+    try { return String(JSON.parse(token)).trim(); } catch(e) {}
+  }
+  if(token.startsWith("'") && token.endsWith("'")) {
+    return token.slice(1, -1)
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .trim();
+  }
+  return token;
+}
+
+function extractAiBodyFromLabeledText(text='') {
+  const source = stripAiResponseWrapper(text);
+  if(!source) return '';
+  const keys = 'body|answer_text|response_body|javob_matni|javob_xati|javob|main_text|generated_text|response_text|letter_text|official_response|final_answer';
+  const quoted = source.match(new RegExp(`["']?(?:${keys})["']?\\s*[:\uFF1A]\\s*("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')`, 'i'));
+  if(quoted?.[1]) {
+    const decoded = decodeAiQuotedValue(quoted[1]);
+    if(decoded) return decoded;
+  }
+  const labeled = source.match(new RegExp(`(?:^|\\n)\\s*["']?(?:${keys})["']?\\s*[:\uFF1A-]\\s*([\\s\\S]+)$`, 'i'));
+  if(!labeled?.[1]) return '';
+  return labeled[1]
+    .replace(/\n\s*["']?(?:confidence_score|confidence|quality_self_check|style_notes|footer|signature_block|html)["']?\s*[:\uFF1A][\s\S]*$/i, '')
+    .replace(/^[\s"']+|[\s"',}]+$/g, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .trim();
+}
+
+function isLikelyAiResponseBody(text='') {
+  const clean = compactResponseText(text);
+  if(clean.length < 40 || /^[{[]/.test(clean)) return false;
+  if(/^(xato|error|uzr|kechirasiz|i cannot|i can't|unable to)/i.test(clean)) return false;
+  const professional = /(topshiriq|xat|talabnoma|qaror|ijro|ma['‘’ʻʼ`]?lum|taqdim|qurilish|obyekt|loyiha|hujjat|nazorat|o['‘’ʻʼ`]?rgan|bartaraf|amalga\s+oshir|qabul\s+qil)/i.test(clean);
+  return professional && (/[.!?]\s+/.test(clean) || clean.length >= 100);
+}
+
+function parseAiResponsePayload(rawText='') {
+  const raw = stripAiResponseWrapper(rawText);
+  if(!raw) return null;
+  const parsed = parseAIJson(raw);
+  if(parsed) {
+    const body = extractAiResponseBody(parsed);
+    if(body && !/^[{[]/.test(body.trim())) {
+      return { ...(typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}), body };
+    }
+  }
+  const labeledBody = extractAiBodyFromLabeledText(raw);
+  if(isLikelyAiResponseBody(labeledBody)) {
+    return { ...(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}), body:labeledBody };
+  }
+  if(isLikelyAiResponseBody(raw)) {
+    return { ...(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}), body:raw };
+  }
+  return parsed && typeof parsed === 'object' ? parsed : null;
+}
+
+function normalizeAiConfidence(value=0) {
+  const parsed = Number(String(value ?? '').replace(',', '.'));
+  if(!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(Math.min(100, parsed <= 1 ? parsed * 100 : parsed));
+}
+
 function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
-  let body = String(parsed.body || '').trim();
-  if(!body) body = String(parsed.answer_text || parsed.summary || '').trim();
+  let body = extractAiResponseBody(parsed);
+  if(!body) return { ok:false, reason:'AI javobida asosiy body matni topilmadi', body:'', confidence:0 };
   body = cleanGeneratedResponseBody(body);
   body = enforceRequiredResponseOpening(body, requiredOpening);
-  if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
+  if(body.length < 40) return { ok:false, reason:`body matni juda qisqa (${body.length} belgi)`, body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
   if(responseLooksCopiedFromMemory(body, learningContext)) return { ok:false, reason:'body learning blankadan copy-paste qilinganga o‘xshaydi', body, confidence:0 };
   if(responseTooSimilarToPrevious(body, previousBodies)) return { ok:false, reason:'body oldingi yaratilgan javoblarga juda o‘xshash', body, confidence:0 };
-  const explicitConfidence = Number(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
+  const explicitConfidence = normalizeAiConfidence(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
   const estimatedConfidence = estimateResponseConfidence(body, qualitySeed, legalContext, learningContext);
-  if(explicitConfidence && explicitConfidence < 80) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
+  if(explicitConfidence && explicitConfidence < 65) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
   const confidence = explicitConfidence ? Math.min(99, Math.max(explicitConfidence, estimatedConfidence)) : estimatedConfidence;
-  if(confidence < 80) return { ok:false, reason:`ishonchlilik darajasi past: ${confidence}%`, body, confidence };
+  if(confidence < 70) return { ok:false, reason:`ishonchlilik darajasi past: ${confidence}%`, body, confidence };
   return { ok:true, reason:'', body, confidence };
 }
 
@@ -7703,13 +7865,13 @@ function cleanGeneratedResponseBody(text, meta={}) {
   if(!s) return '';
   const firstOpening = s.search(/\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i);
   const firstHeaderNoise = s.search(/O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|MAVZU\s*:/i);
-  if(firstOpening > 0 && (firstHeaderNoise < 0 || firstHeaderNoise < firstOpening)) {
+  if(firstOpening > 0 && /O\S?ZBEKISTON\s+RESPUBLIKASI|210100|Zarapetyan|navqurilish@|(?:^|\n)\s*(?:MAVZU|Tel|Faks|E-?mail|Sayt)\s*:/i.test(s.slice(0, firstOpening))) {
     s = s.slice(firstOpening).trim();
   }
   const recipientNorm = normalizeText(meta.recipient || meta.recipientOrg || '');
   const outNumber = String(meta.outNumber || '').trim();
   const dateText = String(meta.date || meta.officialDate || '').trim();
-  const noiseLine = /O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|XO['‘`ʻ]?JALIGI|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|Tel\s*:|Faks\s*:|E-?mail\s*:|Sayt\s*:|MAVZU\s*:/i;
+  const noiseLine = /^(?:O.+ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY\s+KOMMUNAL\s+XO.+JALIGI\s+VAZIRLIGI|NAVOIY\s+VILOYATI\s+QURILISH\s+VA\s+UY-JOY\s+KOMMUNAL\s+XO.+JALIGI\s+BOSH\s+BOSHQARMASI|210100\b.*|Tel\s*:.*|Faks\s*:.*|E-?mail\s*:.*|Sayt\s*:.*|MAVZU\s*:.*)$/i;
   const dateLine = /^\s*20\d{2}\s*[- ]?y\.?.{0,35}(yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)\s*$/i;
   const numberLine = /^\s*(№|N[oº]?|#)\s*[0-9A-Za-zА-Яа-я\/.-]+\s*$/i;
   const answerOpening = /\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i;
@@ -7955,7 +8117,8 @@ QAT'IY TALAB:
 - FAQAT JSON qaytar.`;
     let parsed = null;
     try {
-      parsed = parseAIJson(await callTemplateAi(strictPrompt, filePart, true));
+      const rawAiResponse = await callTemplateAi(strictPrompt, filePart, true);
+      parsed = parseAiResponsePayload(rawAiResponse);
     } catch(e) {
       lastError = e.message;
       break;
@@ -8316,7 +8479,7 @@ function responseBodyLooksGeneric(body='', taskText='') {
 function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {
   const clean = compactResponseText(body);
   const norm = normalizeText(clean);
-  if(clean.length < 220) return true;
+  if(clean.length < 80) return true;
   const forbidden = /(salom|assalomu|iltimos|xop|mayli|yaxshi bo'lardi|shuni aytmoqchimiz|taxminan|balki|menimcha|ai sifatida|sun'iy intellekt)/i;
   if(forbidden.test(norm)) return true;
   if(/uydirma|bazada yo'q hujjat|aniqlanmaganligi sababli/i.test(norm)) return true;
