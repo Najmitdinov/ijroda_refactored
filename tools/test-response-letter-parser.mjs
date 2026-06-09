@@ -99,19 +99,4 @@ assert.ok(body.replace(/\s+/g, ' ').length < 220);
 assert.equal(runtime.responseBodyFailsLegalQuality(body, task, ''), false);
 assert.equal(runtime.parseAIJson(body), null);
 
-const repeatedNormativeBody = "Nurota tumanidagi obyekt bo'yicha topshiriq ko'rib chiqildi. Shaharsozlik normalari va qoidalari (ShNQ), qurilish me'yorlari va qoidalari (KMK) hamda boshqa normativ-huquqiy hujjatlar talablari asosida tegishli ma'lumotlar to'planmoqda. Natijasi yuzasidan axborot taqdim etiladi.";
-assert.equal(
-  runtime.responseBodyLooksGeneric(repeatedNormativeBody, task),
-  true,
-  'takroriy ShNQ/KMK qolipi rad etilishi kerak'
-);
-assert.equal(
-  runtime.responseBodyLooksGeneric(
-    "Nurota tumanidagi obyektning loyiha-smeta hujjatlari ShNQ 2.07.01-03 talablariga muvofiqligi yuzasidan o'rganildi. Aniqlangan kamchiliklar bo'yicha buyurtmachiga aniq ko'rsatmalar berildi. Natijasi yuzasidan ma'lumot taqdim etiladi.",
-    task
-  ),
-  false,
-  'aniq normativga mazmunli havola saqlanishi kerak'
-);
-
 console.log('AI response body parser: all checks passed.');

@@ -8110,7 +8110,6 @@ QAT'IY TALAB:
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
 - Body birinchi gapi aynan shu kirish formulasi bilan boshlansin: "${requiredOpening} ...".
 - ${compactResponseText(requiredExtra) ? `Qo'shimcha ma'lumotdagi quyidagi faktlar body ichida aniq aks etsin: ${compactResponseText(requiredExtra).slice(0, 700)}` : `Qo'shimcha ma'lumot kiritilmagan; javobni faqat topshiriq hujjati va blanka uslubidan kelib chiqib shakllantir.`}
-- "Shaharsozlik normalari va qoidalari (ShNQ), qurilish me'yorlari va qoidalari (KMK) hamda boshqa normativ-huquqiy hujjatlar talablari asosida tegishli ma'lumotlar to'planmoqda" degan umumiy qolipni yozma. Normativ zarur bo'lsa, faqat topshiriq yoki huquqiy bazada mavjud aniq hujjat va aniq talabni mazmunga mos keltir.
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
 - Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
@@ -8240,7 +8239,6 @@ MAJBURIY TALABLAR:
 - Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
 - Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
 - Keraksiz ma'lumot, topshiriqda yoki qo'shimcha ma'lumotda ko'rsatilmagan fakt, umumiy bayon va mavzudan tashqari gaplar yozilmasin.
-- "Shaharsozlik normalari va qoidalari (ShNQ), qurilish me'yorlari va qoidalari (KMK) hamda boshqa normativ-huquqiy hujjatlar talablari asosida tegishli ma'lumotlar to'planmoqda" jumlasi va uning mazmunan bir xil umumiy variantlari ishlatilmasin. ShNQ yoki KMK faqat joriy topshiriqqa bevosita tegishli aniq normativ bazada mavjud bo'lsa, hujjat nomi yoki raqami bilan individual qo'llansin.
 - Qo'shimcha ma'lumot kiritilgan bo'lsa, body matni shu ma'lumotga tayanib tuzilsin; kiritilmagan bo'lsa, AI topshiriq hujjatidan mazmunni o'zi aniqlasin.
 - BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
 - BODY faqat asosiy javob xati matni bo'lsin.
@@ -8456,13 +8454,6 @@ function responseBodyLooksGeneric(body='', taskText='') {
   const normBody = normalizeText(body);
   if(!normBody || normBody.length < 80) return true;
   const plainBody = stripNonWordChars(normBody).replace(/\s+/g, ' ').trim();
-  const comparableBody = plainBody.replace(/['’‘ʻʼ`´]/g, '');
-  const repeatedNormativeBoilerplate =
-    comparableBody.includes('shaharsozlik normalari va qoidalari shnq') &&
-    comparableBody.includes('qurilish meyorlari va qoidalari kmk') &&
-    comparableBody.includes('boshqa normativ-huquqiy hujjatlar talablari asosida') &&
-    comparableBody.includes('malumotlar toplanmoqda');
-  if(repeatedNormativeBoilerplate) return true;
   const generic = [
     "sizning yuborgan topshirig'ingiz yuzasidan quyidagilarni ma'lum qiladi",
     'mazkur masala shaharsozlik hujjatlari loyiha-smeta yechimlari',
