@@ -10041,7 +10041,7 @@ window.exportTashkilotlarExcel = () => {
 let ahbCache = [];
 let ahbLastReport = null;
 const DEFAULT_OUR_ORG_NAME = "Navoiy viloyati Qurilish va uy-joy kommunal xo'jaligi bosh boshqarmasi";
-const AHB_SUMMARY_TITLE = `${DEFAULT_OUR_ORG_NAME} tomonidan O'zbekiston Respublikasi Qonunlari, Prezident farmonlari, qarorlari, farmoyishlari va Vazirlar Mahkamasi qarorlari va farmoyishlarining ijrosi haqida`;
+const AHB_SUMMARY_TITLE = `${DEFAULT_OUR_ORG_NAME} tomonidan Prezident, Vazirlar Mahkamasi va Navoiy viloyati hokimligidan kelgan hujjatlarning ijrosi haqida`;
 
 const AHB_EXPORT_COLS = [
   { key:'docName', label:'Hujjat nomi', aliases:['hujjat','nomi','hujjat nomi'] },
@@ -10069,15 +10069,19 @@ const AHB_OFFICIAL_COLS = [
   { key:'discussionStatus', label:"Ijro holati qachon, qayerda muhokama etildi, kimga nisbatan qanday intizomiy choralar ko'rildi" }
 ];
 
-const AHB_OFFICIAL_GROUPS = [
-  "O‘zbekiston Respublikasi Qonunlari",
-  "O‘zbekiston Respublikasi Prezidentining Farmoni",
-  "O‘zbekiston Respublikasi Prezidentining Qarorlari",
-  "O‘zbekiston Respublikasi Prezidenti Farmoyishi",
-  "O‘zbekiston Respublikasi Vazirlar Mahkamasining Qarorlari",
-  "O‘zbekiston Respublikasi Vazirlar Mahkamasining Farmoyishi",
-  "Navoiy viloyati hokimi topshiriqlari"
+const AHB_OFFICIAL_CATEGORIES = [
+  { key:'president_decree', label:"O'zbekiston Respublikasi Prezidenti Farmoni", shortLabel:'Prezident farmonlari' },
+  { key:'president_decision', label:"O'zbekiston Respublikasi Prezidenti Qarori", shortLabel:'Prezident qarorlari' },
+  { key:'president_order', label:"O'zbekiston Respublikasi Prezidenti Farmoyishi", shortLabel:'Prezident farmoyishlari' },
+  { key:'president_law', label:"O'zbekiston Respublikasi Prezidenti Qonuni", shortLabel:'Prezident qonunlari' },
+  { key:'cabinet_decree', label:'Vazirlar Mahkamasi Farmoni', shortLabel:'VM farmonlari' },
+  { key:'cabinet_decision', label:'Vazirlar Mahkamasi Qarori', shortLabel:'VM qarorlari' },
+  { key:'cabinet_law', label:'Vazirlar Mahkamasi Qonuni', shortLabel:'VM qonunlari' },
+  { key:'cabinet_order', label:'Vazirlar Mahkamasi Farmoyishi', shortLabel:'VM farmoyishlari' },
+  { key:'navoiy_governor_letter', label:'Navoiy viloyati hokimligidan kelgan xatlar', shortLabel:'Navoiy hokimligi xatlari' },
+  { key:'unclassified', label:"Aniqlanmagan yoki boshqa hujjatlar", shortLabel:'Aniqlanmagan', audit:true }
 ];
+const AHB_OFFICIAL_GROUPS = AHB_OFFICIAL_CATEGORIES.map(category => category.label);
 
 function getAhbExportCols(fieldsText='') {
   const requested = String(fieldsText||'').toLowerCase();
@@ -10101,8 +10105,22 @@ function canonicalOrgName(name) {
 }
 
 function parseAhbTashkilotlar(value='') {
-  if(Array.isArray(value)) return value.map(normalizeOrgName).filter(Boolean);
-  return String(value||'').split('||').map(normalizeOrgName).filter(Boolean);
+  const values = Array.isArray(value) ? value : String(value||'').split('||');
+  return values
+    .map(item => getAhbCategoryByLabel(item)?.label || normalizeOrgName(item))
+    .filter(Boolean);
+}
+
+function splitAhbSelection(value='') {
+  const values = parseAhbTashkilotlar(value);
+  const categoryLabels = [];
+  const organizationNames = [];
+  values.forEach(item => {
+    const category = getAhbCategoryByLabel(item);
+    if(category && !category.audit) categoryLabels.push(category.label);
+    else organizationNames.push(item);
+  });
+  return { values, categoryLabels, organizationNames };
 }
 
 function getSelectedAhbTashkilotlar() {
@@ -10195,127 +10213,199 @@ function ahbOfficialValue(doc={}, key) {
   const resolution = doc.resolution || getRawField(doc, ['rezolyutsiya','rezalyutsiya','resolution','kimga','кому']);
 
   const values = {
-    docName: doc.docName || getRawField(doc, ['hujjat nomi','nomi','наименование']) || '—',
+    docName: doc.docName || getRawField(doc, ['hujjat nomi','nomi','fayl nomi','наименование']) || task || '—',
     docReg: joinLines(docNum, docDate) || '—',
-    higherDecision: joinLines(getRawField(doc, ['yuqori tashkilot','rahbar qarori','buyruq','farmoyish','qaror']), docNum, docDate) || joinLines(docNum, docDate) || '—',
-    inReg: joinLines(ourOutNum || orgOutNum, getRawField(doc, ['kirish sanasi','qabul sanasi']) || docDate) || '—',
+    higherDecision: joinLines(
+      org,
+      doc.docType || getRawField(doc, ['hujjat turi','tur','type']),
+      getRawField(doc, ['yuqori tashkilot','rahbar qarori','buyruq','farmoyish','qaror']),
+      docNum,
+      docDate
+    ) || '—',
+    inReg: joinLines(ourOutNum || orgOutNum, getRawField(doc, ['kirish sanasi','qabul sanasi','ro‘yxatga olingan sana']) || docDate) || '—',
     leaderResolutionDate: getRawField(doc, ['rezolyutsiya sanasi','rahbar rezolyutsiyasi','resolution date']) || docDate || '—',
     resolution: resolution || '—',
     acceptedDecision: joinLines(getRawField(doc, ['qabul qilingan qaror','qabul qilingan buyruq','tadbirlar']), orgOutNum, docDate) || '—',
     acceptedDecisionExec: joinLines(getRawField(doc, ['nazorat rejasi','grafik','harakat dasturi','tasdiqlangan sana']), deadline || docDate) || '—',
     ownDecision: joinLines(getRawField(doc, ['reyestr','reestr','tarqatma','nazorat reestr']), deadline || docDate) || '—',
     executionStatus: joinLines(status, task, executor ? `Ijrochi: ${executor}` : '') || '—',
-    discussionStatus: getRawField(doc, ['muhokama','choralar','intizomiy','kimga nisbatan']) || 'Hisobotda mavjud maʼlumotlar asosida alohida muhokama/choralar qaydi topilmadi.'
+    discussionStatus: getRawField(doc, ['muhokama','choralar','intizomiy','kimga nisbatan']) || '—'
   };
   return values[key] || '';
 }
 
+function ahbDocumentSearchText(doc={}) {
+  const rawValues = Object.values(doc._raw || {})
+    .filter(value => ['string','number'].includes(typeof value))
+    .join(' ');
+  return [
+    doc.source, doc.docType, doc.docName, doc.docNum, doc.docDate,
+    doc.fromOrg, getOrgText(doc), doc.taskText, doc.resolution, rawValues
+  ].filter(Boolean).join(' ');
+}
+
+function getAhbCategoryByKey(key='') {
+  return AHB_OFFICIAL_CATEGORIES.find(category => category.key === key)
+    || AHB_OFFICIAL_CATEGORIES.find(category => category.key === 'unclassified');
+}
+
+function ahbCategoryCanon(value='') {
+  return normalizeText(value)
+    .replace(/['".,;:()[\]{}_/\\]+/g, '')
+    .replace(/-+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getAhbCategoryByLabel(label='') {
+  const canon = ahbCategoryCanon(label);
+  return AHB_OFFICIAL_CATEGORIES.find(category => ahbCategoryCanon(category.label) === canon) || null;
+}
+
+function classifyAhbOfficialDocument(doc={}) {
+  const txt = normalizeText(ahbDocumentSearchText(doc));
+  const source = String(doc.source || '').trim().toUpperCase();
+  const isNavoiyGovernor = /navoiy/.test(txt) && /hokim|хоким/.test(txt);
+  if(isNavoiyGovernor) return getAhbCategoryByKey('navoiy_governor_letter');
+
+  const isCabinet = source === 'VM'
+    || /\bvmq[-\s]?\d|\bvmf[-\s]?\d/.test(txt)
+    || /vazirlar mahkamasi|vazirlar mahkamasining|hukumat|кабинет министров|правительств/.test(txt);
+  const isPresident = source === 'PF'
+    || /\bpf[-\s]?\d|\bpq[-\s]?\d|пф[-\s]?\d|пк[-\s]?\d|пқ[-\s]?\d/.test(txt)
+    || /o'zbekiston respublikasi prezidenti|prezident|президент/.test(txt);
+
+  const isLaw = /qonun|конун|қонун|закон/.test(txt);
+  const isOrder = /farmoyish|фармойиш|фармойиш|распоряж/.test(txt) || /\bvmf[-\s]?\d/.test(txt);
+  const isDecree = /farmon|фармон|ukaz|указ/.test(txt) || /\bpf[-\s]?\d|пф[-\s]?\d/.test(txt);
+  const isDecision = /qaror|карор|қарор|постанов/.test(txt)
+    || /\bpq[-\s]?\d|\bvmq[-\s]?\d|пк[-\s]?\d|пқ[-\s]?\d/.test(txt);
+
+  if(isCabinet) {
+    if(isLaw) return getAhbCategoryByKey('cabinet_law');
+    if(isOrder) return getAhbCategoryByKey('cabinet_order');
+    if(isDecree) return getAhbCategoryByKey('cabinet_decree');
+    if(isDecision || source === 'VM') return getAhbCategoryByKey('cabinet_decision');
+  }
+  if(isPresident) {
+    if(isLaw) return getAhbCategoryByKey('president_law');
+    if(isOrder) return getAhbCategoryByKey('president_order');
+    if(isDecree) return getAhbCategoryByKey('president_decree');
+    if(isDecision || source === 'PF') return getAhbCategoryByKey('president_decision');
+  }
+
+  // O'zbekiston Respublikasi qonunlari amaliyotda Prezident tomonidan imzolanadi.
+  if(isLaw) return getAhbCategoryByKey('president_law');
+  if(isDecree) return getAhbCategoryByKey('president_decree');
+  return getAhbCategoryByKey('unclassified');
+}
+
 function normalizeAhbOfficialGroupName(name='') {
-  const txt = normalizeText(name);
-  if(!txt) return '';
-  if(/qonun|конун|закон/.test(txt)) return AHB_OFFICIAL_GROUPS[0];
-  if(/navoiy/.test(txt) && /hokim|хоким/.test(txt)) return AHB_OFFICIAL_GROUPS[6];
-  if(/vazirlar|mahkama|hukumat|vm\b|кабинет|правитель/.test(txt)) {
-    if(/farmoyish|фармойиш|распоряж/.test(txt)) return AHB_OFFICIAL_GROUPS[5];
-    return AHB_OFFICIAL_GROUPS[4];
-  }
-  if(/prezident|президент|pf[-\s]?\d|pq[-\s]?\d|пф[-\s]?\d|пк[-\s]?\d|пқ[-\s]?\d/.test(txt)) {
-    if(/farmoyish|фармойиш|распоряж/.test(txt)) return AHB_OFFICIAL_GROUPS[3];
-    if(/farmon|фармон|ukaz|указ|pf[-\s]?\d|пф[-\s]?\d/.test(txt)) return AHB_OFFICIAL_GROUPS[1];
-    return AHB_OFFICIAL_GROUPS[2];
-  }
-  return '';
+  const exact = getAhbCategoryByLabel(name);
+  if(exact) return exact.label;
+  const category = classifyAhbOfficialDocument({ docName:name, fromOrg:name });
+  return category.key === 'unclassified' ? '' : category.label;
 }
 
 function ahbGroupTitle(doc={}) {
-  const txt = `${doc.source||''} ${doc.docType||''} ${doc.docName||''} ${doc.docNum||''} ${getOrgText(doc)||''} ${getRawField(doc, ['hujjat turi','tur','type','hujjat raqami','raqam','qaror','farmon','farmoyish','organ'])}`;
-  const normalized = normalizeAhbOfficialGroupName(txt);
-  if(normalized) return normalized;
-  if(doc.source === 'VM') return AHB_OFFICIAL_GROUPS[4];
-  if(doc.source === 'PF') return AHB_OFFICIAL_GROUPS[2];
-  return '';
+  return classifyAhbOfficialDocument(doc).label;
 }
 
 function findAhbRequestedMatch(title='', requestedGroups=[]) {
-  const titleCanon = normalizeText(normalizeAhbOfficialGroupName(title) || title);
-  if(!titleCanon) return '';
-  return (requestedGroups||[]).find(group => {
-    const groupCanon = normalizeText(normalizeAhbOfficialGroupName(group) || group);
-    return groupCanon && (groupCanon === titleCanon || groupCanon.includes(titleCanon) || titleCanon.includes(groupCanon));
+  const category = getAhbCategoryByLabel(title)
+    || classifyAhbOfficialDocument({ docName:title, fromOrg:title });
+  return (requestedGroups || []).find(group => {
+    const requested = getAhbCategoryByLabel(group);
+    return requested?.key === category.key;
   }) || '';
 }
 
 function getAhbRequestedGroupTitles(selectedOrgs=[], docs=[], contextText='') {
-  const titles = [];
-  const add = (value) => {
-    const clean = normalizeOrgName(value);
-    if(!clean) return;
-    const title = normalizeAhbOfficialGroupName(clean) || clean;
-    const key = normalizeText(title);
-    if(!titles.some(x => normalizeText(x) === key)) titles.push(title);
-  };
+  const selectedCategories = parseAhbTashkilotlar(selectedOrgs)
+    .map(getAhbCategoryByLabel)
+    .filter(Boolean);
+  if(selectedCategories.length) return selectedCategories.map(category => category.label);
 
-  (selectedOrgs||[]).forEach(add);
   const context = normalizeText(contextText);
-  if(!titles.length && context) {
-    const contextSegments = context.split(/[,;\n]+|\s+va\s+/).map(part => part.trim()).filter(Boolean);
-    contextSegments
-      .map(part => normalizeAhbOfficialGroupName(part))
-      .filter(Boolean)
-      .forEach(add);
-
-    AHB_OFFICIAL_GROUPS.forEach(group => {
-      const canon = normalizeText(group);
-      if(context.includes(canon) || context.includes(normalizeText(group.replace('O‘zbekiston Respublikasi ', '')))) add(group);
+  const contextMatches = AHB_OFFICIAL_CATEGORIES
+    .filter(category => !category.audit)
+    .filter(category => {
+      const label = normalizeText(category.label);
+      return context.includes(label)
+        || context.includes(label.replace("o'zbekiston respublikasi ", ''));
     });
+  if(contextMatches.length) return contextMatches.map(category => category.label);
 
-    const presidentContext = contextSegments.filter(part => /prezident|pf[-\s]?\d|pq[-\s]?\d|пф[-\s]?\d|пк[-\s]?\d|пқ[-\s]?\d/.test(part)).join(' ');
-    if(/farmon|pf[-\s]?\d|пф[-\s]?\d/.test(presidentContext || context)) add(AHB_OFFICIAL_GROUPS[1]);
-    if(/qaror|pq[-\s]?\d|пк[-\s]?\d|пқ[-\s]?\d/.test(presidentContext) || /pq[-\s]?\d|пк[-\s]?\d|пқ[-\s]?\d/.test(context)) add(AHB_OFFICIAL_GROUPS[2]);
-    if(/farmoyish/.test(presidentContext)) add(AHB_OFFICIAL_GROUPS[3]);
-
-    const vmContext = contextSegments.filter(part => /vazirlar|mahkama|hukumat|vm\b/.test(part)).join(' ');
-    if(/farmoyish/.test(vmContext)) add(AHB_OFFICIAL_GROUPS[5]);
-    if(/qaror/.test(vmContext) || ((/vazirlar|mahkama|hukumat|vm\b/.test(context)) && !/farmoyish/.test(vmContext))) {
-      add(AHB_OFFICIAL_GROUPS[4]);
-    }
-    if(/navoiy.*hokim/.test(context)) add(AHB_OFFICIAL_GROUPS[6]);
+  const allRequested = AHB_OFFICIAL_CATEGORIES
+    .filter(category => !category.audit)
+    .map(category => category.label);
+  if((docs || []).some(doc => classifyAhbOfficialDocument(doc).key === 'unclassified')) {
+    allRequested.push(getAhbCategoryByKey('unclassified').label);
   }
+  return allRequested;
+}
 
-  if(!titles.length) {
-    const docGroups = [...new Set((docs||[]).map(ahbGroupTitle).filter(Boolean))];
-    AHB_OFFICIAL_GROUPS.forEach(group => { if(docGroups.includes(group)) add(group); });
-  }
+function ahbDocSortValue(doc={}) {
+  const parsed = parseDate(doc.docDate)
+    || parseDate(getRawField(doc, ['hujjat sanasi','sana','date','дата']))
+    || parseDate(doc.deadline);
+  return parsed ? parsed.getTime() : 0;
+}
 
-  return titles;
+function groupAhbOfficialDocuments(docs=[], requestedGroups=[]) {
+  const requested = (requestedGroups || [])
+    .map(value => getAhbCategoryByLabel(value)?.label || normalizeOrgName(value))
+    .filter(Boolean);
+  const groups = new Map(requested.map(title => [title, []]));
+  let unclassifiedCount = 0;
+
+  (docs || []).forEach(doc => {
+    const category = classifyAhbOfficialDocument(doc);
+    const matchedTitle = findAhbRequestedMatch(category.label, requested);
+    const title = matchedTitle || category.label;
+    if(category.key === 'unclassified') unclassifiedCount += 1;
+    if(!groups.has(title)) groups.set(title, []);
+    groups.get(title).push(doc);
+  });
+
+  groups.forEach(groupDocs => groupDocs.sort((a,b) => {
+    const dateDiff = ahbDocSortValue(b) - ahbDocSortValue(a);
+    if(dateDiff) return dateDiff;
+    return String(a.docNum || a.docName || '').localeCompare(String(b.docNum || b.docName || ''), 'uz');
+  }));
+
+  return {
+    groups,
+    totalInput: (docs || []).length,
+    totalGrouped: [...groups.values()].reduce((sum, groupDocs) => sum + groupDocs.length, 0),
+    unclassifiedCount
+  };
 }
 
 function buildAhbOfficialRows(docs=[], options={}) {
   const selectedOrgs = parseAhbTashkilotlar(options.selectedOrgs || []);
   const contextText = `${options.title||''} ${options.fields||''} ${options.korstma||''} ${options.groupTitle||''}`;
   const requestedGroups = Array.isArray(options.requestedGroups) && options.requestedGroups.length
-    ? options.requestedGroups.map(normalizeOrgName).filter(Boolean)
+    ? options.requestedGroups
+      .map(value => getAhbCategoryByLabel(value)?.label || normalizeOrgName(value))
+      .filter(Boolean)
     : getAhbRequestedGroupTitles(selectedOrgs, docs, contextText);
-  const groups = new Map(requestedGroups.map(title => [title, []]));
-
-  docs.forEach(doc => {
-    const rawTitle = selectedOrgs.length ? getAhbOrgGroupTitle(doc, selectedOrgs) : ahbGroupTitle(doc);
-    const title = requestedGroups.length ? findAhbRequestedMatch(rawTitle, requestedGroups) : rawTitle;
-    if(!title) return;
-    if(!groups.has(title)) groups.set(title, []);
-    groups.get(title).push(doc);
-  });
+  const grouped = groupAhbOfficialDocuments(docs, requestedGroups);
 
   return {
     requestedGroups,
-    groups: [...groups.entries()].map(([title, groupDocs]) => ({
+    totalInput: grouped.totalInput,
+    totalGrouped: grouped.totalGrouped,
+    unclassifiedCount: grouped.unclassifiedCount,
+    groups: [...grouped.groups.entries()].map(([title, groupDocs]) => ({
       title,
+      documentCount: groupDocs.length,
       rows: (groupDocs.length ? groupDocs : [null]).map((doc, i) => ({
         n: i + 1,
         isEmpty: !doc,
         values: doc
           ? AHB_OFFICIAL_COLS.map(col => ahbOfficialValue(doc, col.key))
-          : AHB_OFFICIAL_COLS.map((col, idx) => idx === 0 ? `${title} bo'yicha ma'lumot kiritilmagan` : '—')
+          : AHB_OFFICIAL_COLS.map((col, idx) => idx === 0 ? `${title} bo'yicha hujjat topilmadi` : '—')
       }))
     }))
   };
@@ -10368,7 +10458,7 @@ function buildAhbOfficialTableHtml(docs=[], options={}) {
     <div class="official-report-page">
       ${showTitle ? `
         <div class="official-report-title">
-          ${escH(ourOrg)}da O‘zbekiston Respublikasi Qonunlari, Prezident farmonlari, qarorlari, farmoyishlari va Hukumat qarorlarining bajarilishi yuzasidan
+          ${escH(ourOrg)}da Prezident, Vazirlar Mahkamasi va Navoiy viloyati hokimligidan kelgan hujjatlarning bajarilishi yuzasidan
           <span class="main-word">MA'LUMOT</span>
         </div>
         <div class="official-table-label">1-jadval</div>
@@ -10382,24 +10472,17 @@ function buildAhbOfficialTableHtml(docs=[], options={}) {
 }
 
 function classifyAhbSummaryType(doc={}) {
-  const txt = normalizeText(`${doc.source||''} ${doc.docType||''} ${doc.docName||''} ${doc.docNum||''} ${doc.resolution||''} ${getRawField(doc, ['hujjat turi','tur','type','hujjat raqami','raqam','qaror','farmon','farmoyish','qonun','organ'])}`);
-  if(/qonun|қонун|закон/i.test(txt)) return 'law';
-  if(/vazirlar|mahkama|vm\b|hukumat|кабинет|правитель/i.test(txt) || doc.source === 'VM') return 'vm';
-  if(/farmoyish|фармойиш|распоряж/i.test(txt)) return 'presidentOrder';
-  if(/farmon|pf[-\s]?\d|пф[-\s]?\d|фармон|указ/i.test(txt)) return 'presidentDecree';
-  if(/qaror|pq[-\s]?\d|пқ[-\s]?\d|пк[-\s]?\d|қарор|постанов/i.test(txt)) return 'presidentDecision';
-  if(doc.source === 'PF') return 'presidentDecision';
-  return 'other';
+  return classifyAhbOfficialDocument(doc).key;
 }
 
 function countAhbSummary(docs=[]) {
-  const counts = { total: docs.length, law:0, presidentDecree:0, presidentDecision:0, presidentOrder:0, vm:0, other:0 };
+  const byCategory = Object.fromEntries(AHB_OFFICIAL_CATEGORIES.map(category => [category.key, 0]));
   docs.forEach(doc => {
     const key = classifyAhbSummaryType(doc);
-    if(counts[key] !== undefined) counts[key] += 1;
-    else counts.other += 1;
+    if(byCategory[key] !== undefined) byCategory[key] += 1;
+    else byCategory.unclassified += 1;
   });
-  return counts;
+  return { total:docs.length, byCategory };
 }
 
 function filterDocsByKeywords(docs=[], words=[]) {
@@ -10449,7 +10532,7 @@ function buildAhbSummaryRows(docs=[], options={}) {
     ahbSummaryRow("Farmoyishlar", rowDocs.instructions, '', { isSub:true }),
     ahbSummaryRow("Tadbirlar", rowDocs.events, '', { isSub:true }),
     ahbSummaryRow("Tegishli hujjatlar ijrosi bo'yicha maqsadli va kompleks o'rganishlar", rowDocs.study, 'III'),
-    { roman:'', label:'Shu jumladan:', counts:{total:'',law:'',presidentDecree:'',presidentDecision:'',presidentOrder:'',vm:''}, isSub:true },
+    { roman:'', label:'Shu jumladan:', counts:{total:'',byCategory:{}}, isSub:true },
     { roman:'IV', label:"Topshiriq ijrosi holati qachon, qayerda muhokama etildi, kimga nisbatan qanday intizomiy choralar ko'rildi.", discussion: ahbSummaryDiscussionText(docs), counts:null }
   ];
 }
@@ -10459,6 +10542,8 @@ function buildAhbSummaryTableHtml(docs=[], options={}) {
   const rows = buildAhbSummaryRows(docs, { ourOrg });
   const title = options.title || AHB_SUMMARY_TITLE;
   const includeStyles = options.includeStyles !== false;
+  const categories = AHB_OFFICIAL_CATEGORIES;
+  const detailColspan = categories.length + 1;
   return `
     ${includeStyles ? ahbOfficialStyles() : ''}
     <style>
@@ -10483,14 +10568,10 @@ function buildAhbSummaryTableHtml(docs=[], options={}) {
           <th rowspan="2" class="num">T/r</th>
           <th rowspan="2" style="width:38%;">Hisobot davrida qabul qilingan hujjatlar<br><br><span style="font-size:16px;">O'z qarorlarini,<br>tadbirlarini ishlab chiqish,<br>maqsadli o'rganishlar</span></th>
           <th rowspan="2" style="width:70px;">Jami soni</th>
-          <th colspan="5" class="red">Shu jumladan</th>
+          <th colspan="${categories.length}" class="red">Shu jumladan</th>
         </tr>
         <tr>
-          <th><div class="vertical">O'zbekiston Respublikasi qonunlari</div></th>
-          <th><div class="vertical">Prezident farmonlari</div></th>
-          <th><div class="vertical">Prezident qarorlari</div></th>
-          <th><div class="vertical">Prezident farmoyishlari</div></th>
-          <th><div class="vertical">Vazirlar Mahkamasi qarorlari, farmoyishlari</div></th>
+          ${categories.map(category => `<th><div class="vertical">${escH(category.shortLabel || category.label)}</div></th>`).join('')}
         </tr>
       </thead>
       <tbody>
@@ -10499,16 +10580,12 @@ function buildAhbSummaryTableHtml(docs=[], options={}) {
             <td class="section">${escH(row.roman)}</td>
             <td class="label ${row.isSub?'red':''}">${escH(row.label)}</td>
             <td class="count">${row.counts.total || ''}</td>
-            <td class="count">${row.counts.law || ''}</td>
-            <td class="count">${row.counts.presidentDecree || ''}</td>
-            <td class="count">${row.counts.presidentDecision || ''}</td>
-            <td class="count">${row.counts.presidentOrder || ''}</td>
-            <td class="count">${row.counts.vm || ''}</td>
+            ${categories.map(category => `<td class="count">${row.counts.byCategory?.[category.key] || ''}</td>`).join('')}
           </tr>` : `
           <tr>
             <td class="section">${escH(row.roman)}</td>
             <td class="label red">${escH(row.label)}</td>
-            <td colspan="6" class="discussion">${escH(row.discussion)}</td>
+            <td colspan="${detailColspan}" class="discussion">${escH(row.discussion)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -10527,20 +10604,20 @@ window.loadAiHisobotAdmin = loadAiHisobotAdmin;
 function populateAhbTashkilot() {
   const wrap = document.getElementById('ahb-tashkilot-list');
   if(!wrap) return;
-  const orgs = [...new Map(tashkilotlarCache
-    .filter(t=>isValidOrgName(t.nom))
-    .map(t=>[canonicalOrgName(t.nom), t.nom])
-  ).values()].sort((a,b)=>a.localeCompare(b,'uz'));
+  const categories = AHB_OFFICIAL_CATEGORIES.filter(category => !category.audit);
   wrap.innerHTML = `
     <label class="ahb-org-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;">
       <input type="checkbox" id="ahb-org-all" checked onchange="toggleAhbOrgAll(this.checked)">
-      <span>— Barchasi —</span>
+      <span><b>Barcha 9 ta toifa</b></span>
     </label>
-    ${orgs.length ? orgs.map(n=>`
+    ${categories.map(category=>`
       <label class="ahb-org-row" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;">
-        <input type="checkbox" class="ahb-org-check" value="${escH(n)}" onchange="syncAhbOrgAllState()">
-        <span>${escH(n)}</span>
-      </label>`).join('') : '<div style="font-size:12px;color:var(--muted);padding:8px;">Tashkilotlar topilmadi. Avval hujjat yuklang yoki Tashkilotlar bo‘limida tiklang.</div>'}
+        <input type="checkbox" class="ahb-org-check" value="${escH(category.label)}" onchange="syncAhbOrgAllState()">
+        <span>${escH(category.label)}</span>
+      </label>`).join('')}
+    <div style="font-size:11px;color:var(--muted);padding:7px 8px;background:var(--surface);">
+      Toifasi aniqlanmagan hujjatlar “Aniqlanmagan yoki boshqa hujjatlar” guruhida yo'qolmasdan ko'rsatiladi.
+    </div>
   `;
 }
 
@@ -10567,7 +10644,7 @@ function renderAhbList() {
         <div style="flex:1;">
           <div style="font-weight:800;font-size:14px;margin-bottom:4px;">${escH(b.nom||'Buyruq')}</div>
           <div style="font-size:12px;color:var(--muted);line-height:1.6;">
-            🏛️ ${escH(parseAhbTashkilotlar(b.tashkilot).join(', ')||'Barcha')} &nbsp;|&nbsp; 
+            🗂️ ${escH(parseAhbTashkilotlar(b.tashkilot).join(', ')||'Barcha 9 ta toifa')} &nbsp;|&nbsp;
             📊 ${escH(b.tur||'excel')} &nbsp;|&nbsp; 
             📅 ${escH(ahbDateLabel(b.dateFrom || b.muddatFrom, b.dateTo || b.muddatTo))} &nbsp;|&nbsp;
             📋 ${escH(b.status||'Barchasi')}
@@ -10649,8 +10726,16 @@ window.runAhbBuyruq = async (buyruqJson) => {
     }
     // Filter docs based on command
     let docs = [...allDocs];
-    const selectedOrgs = parseAhbTashkilotlar(b.tashkilot);
-    if(selectedOrgs.length) docs = docs.filter(d=>ahbOrgMatches(d, selectedOrgs));
+    const selection = splitAhbSelection(b.tashkilot);
+    const selectedCategories = selection.categoryLabels;
+    const selectedOrgs = selection.organizationNames;
+    if(selectedCategories.length) {
+      const selectedKeys = new Set(selectedCategories.map(label => getAhbCategoryByLabel(label)?.key).filter(Boolean));
+      docs = docs.filter(doc => selectedKeys.has(classifyAhbOfficialDocument(doc).key));
+    } else if(selectedOrgs.length) {
+      // Old saved commands remain compatible with the former organization filter.
+      docs = docs.filter(d=>ahbOrgMatches(d, selectedOrgs));
+    }
     if(b.status) docs = docs.filter(d=>statusMatches(d, b.status));
     docs = docs.filter(d => ahbDateInRange(d, b.dateFrom || b.muddatFrom || '', b.dateTo || b.muddatTo || ''));
 
@@ -10659,9 +10744,22 @@ window.runAhbBuyruq = async (buyruqJson) => {
     const done = statusCounts.done;
     const proc = statusCounts.proc + statusCounts.new + statusCounts.unknown;
     const fail = statusCounts.fail;
-    const selectedOrgTitle = getAhbSelectedOrgTitle(selectedOrgs, docs);
+    const selectedOrgTitle = selectedCategories.length
+      ? selectedCategories.join(', ')
+      : getAhbSelectedOrgTitle(selectedOrgs, docs);
     const ourOrgName = getOurOrgName();
-    const requestedGroups = getAhbRequestedGroupTitles(selectedOrgs, docs, `${b.nom||''} ${b.fields||''} ${b.korstma||''} ${selectedOrgTitle||''}`);
+    const requestedGroups = selectedCategories.length
+      ? selectedCategories
+      : getAhbRequestedGroupTitles(selectedOrgs, docs, `${b.nom||''} ${b.fields||''} ${b.korstma||''} ${selectedOrgTitle||''}`);
+    const officialData = buildAhbOfficialRows(docs, {
+      title:b.nom||'Hisobot',
+      selectedOrgs,
+      requestedGroups,
+      fields:b.fields||'',
+      korstma:b.korstma||'',
+      groupTitle:selectedOrgTitle
+    });
+    const classifiedCount = officialData.totalGrouped - officialData.unclassifiedCount;
 
     // Build AI prompt
     const geminiKey = localStorage.getItem('GEMINI_API_KEY');
@@ -10670,8 +10768,9 @@ window.runAhbBuyruq = async (buyruqJson) => {
       const prompt = `Sen O'zbekiston davlat muassasasi uchun hujjat hisoboti tayyorlayotgan AI yordamchisisiz.
 
 Hisobot buyrug'i: "${b.nom||'Hisobot'}"
-Tashkilot filtri: ${selectedOrgs.length ? selectedOrgs.join(', ') : 'Barcha tashkilotlar'}
-1-jadval yuqori turuvchi tashkilotlari: ${requestedGroups.join(', ')}
+Hujjat toifalari: ${selectedCategories.length ? selectedCategories.join(', ') : 'Barcha 9 ta toifa'}
+Eski tashkilot filtri: ${selectedOrgs.length ? selectedOrgs.join(', ') : 'Yo‘q'}
+1-jadval guruhlari: ${requestedGroups.join(', ')}
 Muddat oralig'i: ${ahbDateLabel(b.dateFrom || b.muddatFrom || '', b.dateTo || b.muddatTo || '')}
 Holat filtri: ${b.status||'Barchasi'}
 So'ralgan ma'lumotlar: ${b.fields||'Hujjat nomi, raqami, sanasi, tashkilot, holat, muddat, ijrochi, rezolyutsiya va topshiriq'}
@@ -10683,8 +10782,8 @@ Hujjatlar statistikasi:
 - Jarayonda: ${proc}
 - Bajarilmadi: ${fail}
 
-Hujjatlar ro'yxati (birinchi 30 ta):
-${docs.slice(0,30).map((d,i)=>`${i+1}. ${d.docName||'—'} | ${getOrgText(d)||'—'} | ${getStatusText(d)||'—'} | Muddat: ${d.deadline||'—'} | Ijrochi: ${d.executor||'—'}`).join('\n')}
+Hujjatlar ro'yxati (birinchi 50 ta):
+${docs.slice(0,50).map((d,i)=>`${i+1}. [${classifyAhbOfficialDocument(d).label}] ${d.docName||'—'} | ${getOrgText(d)||'—'} | ${getStatusText(d)||'—'} | Muddat: ${d.deadline||'—'} | Ijrochi: ${d.executor||'—'}`).join('\n')}
 
 QAT'IY TALAB: 1-jadvaldagi yuqori turuvchi tashkilotlar nomlarini o'zgartirma, qisqartirma va boshqa nom bilan almashtirma. Jadval tuzilmasini kod yaratadi, sen faqat xulosa matnida shu bo'limlarga mos gapir.
 Iltimos, o'zbek tilida qisqa amaliy hisobot xulosasi yozing (3-5 jumlada). Asosiy muammolar, kechikkan topshiriqlar va tavsiyalarni bering. FAQAT matn yoz, JSON yoki kod yozma.`;
@@ -10708,12 +10807,15 @@ Iltimos, o'zbek tilida qisqa amaliy hisobot xulosasi yozing (3-5 jumlada). Asosi
       selectedOrgs,
       selectedOrgTitle,
       requestedGroups,
-      ourOrgName
+      ourOrgName,
+      selectedCategories,
+      classifiedCount,
+      unclassifiedCount: officialData.unclassifiedCount
     };
     window.ahbLastReport = ahbLastReport;
 
     if(resultEl) {
-      const previewHtml = buildAhbOfficialTableHtml(docs.slice(0, 30), { title:b.nom||'Hisobot', includeStyles:true, groupTitle:selectedOrgTitle, selectedOrgs, requestedGroups, fields:b.fields||'', korstma:b.korstma||'', ourOrg:ourOrgName });
+      const previewHtml = buildAhbOfficialTableHtml(docs, { title:b.nom||'Hisobot', includeStyles:true, groupTitle:selectedOrgTitle, selectedOrgs, requestedGroups, fields:b.fields||'', korstma:b.korstma||'', ourOrg:ourOrgName });
       const summaryPreviewHtml = buildAhbSummaryTableHtml(docs, { includeStyles:true, ourOrg:ourOrgName });
       resultEl.innerHTML = `<div class="card" style="border:2px solid var(--blue-mid);">
         <div class="card-title">📊 AI Hisobot: ${escH(b.nom||'Hisobot')}</div>
@@ -10724,8 +10826,13 @@ Iltimos, o'zbek tilida qisqa amaliy hisobot xulosasi yozing (3-5 jumlada). Asosi
           <div class="stat-box red"><div class="sv">${fail}</div><div class="sl">Bajarilmadi</div></div>
           <div class="stat-box navy"><div class="sv">${total?Math.round(done/total*100):0}%</div><div class="sl">Foiz</div></div>
         </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px;font-size:12px;">
+          <span style="padding:6px 10px;border-radius:6px;background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;"><b>${classifiedCount}</b> ta hujjat aniq toifalandi</span>
+          <span style="padding:6px 10px;border-radius:6px;background:${officialData.unclassifiedCount?'#fff7ed':'#f8fafc'};color:${officialData.unclassifiedCount?'#9a3412':'#475569'};border:1px solid ${officialData.unclassifiedCount?'#fed7aa':'#e2e8f0'};"><b>${officialData.unclassifiedCount}</b> ta aniqlanmagan hujjat</span>
+          <span style="padding:6px 10px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;"><b>${officialData.totalGrouped}/${officialData.totalInput}</b> ta hujjat jadvalga kiritildi</span>
+        </div>
         ${aiAnaliz?`<div style="background:#f5f0ff;border-left:4px solid #7c3aed;border-radius:0 8px 8px 0;padding:12px 16px;margin:12px 0;font-size:13px;line-height:1.7;color:#3b0764;"><b>🤖 AI Xulosa:</b><br>${escH(aiAnaliz)}</div>`:''}
-        <div class="official-note">Rasmiy jadval ko'rinishi: previewda birinchi 30 ta qator ko'rsatiladi, Excel/Word faylida barcha qatorlar chiqadi.</div>
+        <div class="official-note">Rasmiy jadvalda barcha ${officialData.totalGrouped} ta hujjat alohida qatorda ko'rsatilmoqda. Hech bir hujjat yashirin qisqartirilmaydi.</div>
         <div class="official-report-wrap">${previewHtml}</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
           <button class="btn btn-success" onclick="exportCurrentAhbExcel()">📥 Excel yuklash</button>
