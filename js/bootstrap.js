@@ -1,4 +1,4 @@
-const APP_BUILD = '20260609-response-parser1';
+const APP_BUILD = '20260609-normative-boilerplate1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';
