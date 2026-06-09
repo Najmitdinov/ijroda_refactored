@@ -6453,7 +6453,7 @@ async function getDefaultLearningBlankaText() {
   return defaultLearningBlankaText;
 }
 
-async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
+async function callTemplateAiDetailed(prompt, filePart=null, jsonMode=false) {
   let lastError = '';
   const generationTemperature = jsonMode ? 0.22 : 0.28;
   const geminiKey = localStorage.getItem('GEMINI_API_KEY') || '';
@@ -6468,7 +6468,7 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             contents: [{ role:'user', parts }],
-            generationConfig: { temperature:generationTemperature, maxOutputTokens: jsonMode ? 7000 : 7600, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
+            generationConfig: { temperature:generationTemperature, maxOutputTokens:8192, ...(jsonMode ? { responseMimeType:'application/json' } : {}) }
           })
         });
         if(!resp.ok) {
@@ -6476,9 +6476,12 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
           throw new Error(errData?.error?.message || `Gemini HTTP ${resp.status}`);
         }
         const data = await resp.json();
-        const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('\n').trim();
-        await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model });
-        return text;
+        const candidate = data?.candidates?.[0] || {};
+        const text = (candidate?.content?.parts || []).map(p => p.text || '').join('\n').trim();
+        const finishReason = String(candidate?.finishReason || candidate?.finish_reason || '');
+        const truncated = /max[_\s-]?tokens|length|token[_\s-]?limit/i.test(finishReason);
+        await writeAIRequestLog({ provider:'Gemini', ok:true, chars:prompt.length, model, finishReason, truncated });
+        return { text, provider:'Gemini', model, finishReason, truncated };
       } catch(e) {
         lastError = e.message;
         await writeAIRequestLog({ provider:'Gemini', ok:false, chars:prompt.length, model, error:e.message }).catch(()=>{});
@@ -6493,15 +6496,18 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
       const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method:'POST',
         headers:{'Authorization':'Bearer '+groqKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:6200 })
+        body: JSON.stringify({ model, messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:8192 })
       });
       if(!resp.ok) {
         const errData = await resp.json().catch(()=>({}));
         throw new Error(errData?.error?.message || `Groq HTTP ${resp.status}`);
       }
       const data = await resp.json();
-      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model });
-      return data?.choices?.[0]?.message?.content || '';
+      const choice = data?.choices?.[0] || {};
+      const finishReason = String(choice?.finish_reason || '');
+      const truncated = /length|max[_\s-]?tokens|token[_\s-]?limit/i.test(finishReason);
+      await writeAIRequestLog({ provider:'Groq', ok:true, chars:prompt.length, model, finishReason, truncated });
+      return { text:choice?.message?.content || '', provider:'Groq', model, finishReason, truncated };
     } catch(e) {
       lastError = lastError ? `${lastError}; ${e.message}` : e.message;
       await writeAIRequestLog({ provider:'Groq', ok:false, chars:prompt.length, model:'groq', error:e.message }).catch(()=>{});
@@ -6514,12 +6520,16 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method:'POST',
         headers:{'Authorization':'Bearer '+openRouterKey,'Content-Type':'application/json'},
-        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:5200 })
+        body: JSON.stringify({ model:localStorage.getItem('OPENROUTER_MODEL') || 'mistralai/mistral-7b-instruct', messages:[{role:'user',content:prompt}], temperature:generationTemperature, max_tokens:7500 })
       });
       if(!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}`);
       const data = await resp.json();
-      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model:'openrouter' });
-      return data?.choices?.[0]?.message?.content || '';
+      const choice = data?.choices?.[0] || {};
+      const model = data?.model || localStorage.getItem('OPENROUTER_MODEL') || 'openrouter';
+      const finishReason = String(choice?.finish_reason || '');
+      const truncated = /length|max[_\s-]?tokens|token[_\s-]?limit/i.test(finishReason);
+      await writeAIRequestLog({ provider:'OpenRouter', ok:true, chars:prompt.length, model, finishReason, truncated });
+      return { text:choice?.message?.content || '', provider:'OpenRouter', model, finishReason, truncated };
     } catch(e) {
       lastError = lastError ? `${lastError}; ${e.message}` : e.message;
       await writeAIRequestLog({ provider:'OpenRouter', ok:false, chars:prompt.length, model:'openrouter', error:e.message }).catch(()=>{});
@@ -6527,6 +6537,10 @@ async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
     }
   }
   throw new Error(lastError || 'AI API kalit topilmadi. AI Sozlamalar bo limidan Gemini yoki OpenRouter kalitini kiriting.');
+}
+
+async function callTemplateAi(prompt, filePart=null, jsonMode=false) {
+  return (await callTemplateAiDetailed(prompt, filePart, jsonMode)).text;
 }
 
 function localTemplateAnalysis(file, text='') {
@@ -7835,6 +7849,20 @@ function normalizeAiConfidence(value=0) {
   return Math.round(Math.min(100, parsed <= 1 ? parsed * 100 : parsed));
 }
 
+function responseBodyLooksIncomplete(body='', generationMeta={}) {
+  if(generationMeta?.truncated) return true;
+  const clean = compactResponseText(body);
+  if(!clean) return true;
+  if(!/[.!?]["'»”)\]]?$/.test(clean)) return true;
+  if(/[,;:\-–—]\s*["'»”)\]]?$/.test(clean)) return true;
+  const lastSentence = clean.split(/[.!?]+/).map(x => x.trim()).filter(Boolean).pop() || '';
+  if(/\b(va|hamda|yoki|bilan|uchun|bo['‘’ʻʼ`]?yicha|yuzasidan|asosan|orqali|doirasida|maqsadida|shuningdek|jumladan|natijada|muvofiq)\s*$/i.test(lastSentence)) return true;
+  const openParens = (clean.match(/\(/g) || []).length;
+  const closeParens = (clean.match(/\)/g) || []).length;
+  if(openParens !== closeParens) return true;
+  return false;
+}
+
 function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', learningContext='', previousBodies=[], requiredOpening='', requiredExtra='') {
   if(!parsed || typeof parsed !== 'object') return { ok:false, reason:'AI javobi JSON obyekt emas', body:'', confidence:0 };
   let body = extractAiResponseBody(parsed);
@@ -7842,6 +7870,7 @@ function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', lea
   body = cleanGeneratedResponseBody(body);
   body = enforceRequiredResponseOpening(body, requiredOpening);
   if(body.length < 40) return { ok:false, reason:`body matni juda qisqa (${body.length} belgi)`, body, confidence:0 };
+  if(responseBodyLooksIncomplete(body, parsed._generation || {})) return { ok:false, reason:'body matni oxirigacha tugallanmagan yoki AI token limitida to‘xtagan', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
@@ -8101,7 +8130,7 @@ async function createAiOnlyResponseDocument(prompt, filePart, qualitySeed='', le
   for(let attempt = 0; attempt < 4; attempt++) {
     const strictPrompt = attempt === 0 ? prompt : `${prompt}
 
-OLDINGI JAVOB RAD ETILDI: u umumiy, bir xil yoki topshiriq mazmuniga yetarli darajada mos emas.
+OLDINGI JAVOB RAD ETILDI: u sifat talabidan o'tmadi yoki oxirigacha tugallanmadi.
 RAD SABABI: ${retryNotes.slice(-2).join('; ') || lastError}
 QAT'IY TALAB:
 - Lokal yoki shablon javob yozma.
@@ -8113,12 +8142,28 @@ QAT'IY TALAB:
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
 - Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
+- Topshiriqda bandlar ko'p bo'lsa, ularning har birini mantiqiy ketma-ketlikda yorit; matnni o'rtada uzma.
+- Body yakuniy xulosa yoki aniq natijani bildiruvchi to'liq gap bilan tugasin va oxiriga nuqta qo'yilsin.
+- JSON sintaktik jihatdan to'liq yopilsin. Token limitiga yetmaslik uchun keraksiz izohlarni qisqartir, lekin topshiriq bandlarini tashlab ketma.
 - confidence_score kamida 85 bo'lsin; bunga ishonching yetmasa xatni qayta yoz.
 - FAQAT JSON qaytar.`;
     let parsed = null;
     try {
-      const rawAiResponse = await callTemplateAi(strictPrompt, filePart, true);
-      parsed = parseAiResponsePayload(rawAiResponse);
+      const generation = await callTemplateAiDetailed(strictPrompt, filePart, true);
+      parsed = parseAiResponsePayload(generation.text);
+      if(parsed && typeof parsed === 'object') {
+        parsed._generation = {
+          provider:generation.provider || '',
+          model:generation.model || '',
+          finishReason:generation.finishReason || '',
+          truncated:!!generation.truncated
+        };
+      }
+      if(generation.truncated && !parsed) {
+        lastError = `AI token limitida to'xtadi (${generation.provider || 'provider'})`;
+        retryNotes.push(lastError);
+        continue;
+      }
     } catch(e) {
       lastError = e.message;
       break;
@@ -8238,6 +8283,8 @@ MAJBURIY TALABLAR:
 - Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, mas'ul xodim, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
 - Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
 - Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
+- Topshiriq bir nechta band yoki masaladan iborat bo'lsa, har bir band javobda alohida va to'liq yoritilsin; birorta band tashlab ketilmasin.
+- Javob o'rtada uzilib qolmasin. Body oxirgi obzasda topshiriq mazmuniga mos yakuniy xulosa yoki natijani bildiruvchi to'liq gap va nuqta bilan tugasin.
 - Keraksiz ma'lumot, topshiriqda yoki qo'shimcha ma'lumotda ko'rsatilmagan fakt, umumiy bayon va mavzudan tashqari gaplar yozilmasin.
 - Qo'shimcha ma'lumot kiritilgan bo'lsa, body matni shu ma'lumotga tayanib tuzilsin; kiritilmagan bo'lsa, AI topshiriq hujjatidan mazmunni o'zi aniqlasin.
 - BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
@@ -8282,6 +8329,7 @@ JAVOB YOZISH ALGORITMI:
 3. 2-obzasda bosh boshqarma tomonidan amalga oshirilgan yoki amalga oshiriladigan aniq chora-tadbirlarni yoz.
 4. 3-obzasda faqat bazada mavjud huquqiy asoslarni ehtiyotkorlik bilan keltir; bazada yo'q modda/bandni uydirma.
 5. Yakuniy gap topshiriq mazmuniga mos bo'lsin: axborot taqdim etish, amaliy yordam berish, ijro nazoratini ta'minlash, kamchilikni bartaraf etish yoki tegishli mutaxassis biriktirish kabi aniq natija yozilsin.
+6. Matnni yuborishdan oldin oxirgi gap tugallanganini, barcha ochilgan qavslar yopilganini va JSON to'liq yopilganini ichki tekshir.
 
 Shablon nomi: ${tpl.name}
 Hujjat turi: ${tpl.docType}
@@ -8357,6 +8405,7 @@ FAQAT JSON qaytar:
 header/html/footer/signature_block maydonlarini bo'sh qoldirishing mumkin; ular tizim tomonidan alohida chiziladi.
 body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana, №, qabul qiluvchi, MAVZU, imzo, ijrochi va telefon kiritilmasin.
 body birinchi gapi aynan ushbu formula bilan boshlansin: ${requiredOpening}.
+body oxirgi gapi tugallangan rasmiy xulosa bo'lsin va nuqta bilan yakunlansin; matnni o'rtada uzma.
 ${extra ? `body matnida qo'shimcha ma'lumotdagi asosiy dalillar aks etsin: ${extra.slice(0, 900)}` : `qo'shimcha ma'lumot kiritilmagan; body faqat topshiriq matni va blanka skeletoniga tayanib yozilsin.`}
 confidence_score 85 dan past bo'lmasin.`;
     const qualitySeed = extra ? `${extra}\n${taskText} ${region}` : `${taskText} ${region}`;
@@ -8367,6 +8416,9 @@ confidence_score 85 dan past bo'lmasin.`;
       date: officialDate
     });
     parsed.body = enforceRequiredResponseOpening(parsed.body, requiredOpening);
+    if(responseBodyLooksIncomplete(parsed.body, parsed._generation || {})) {
+      throw new Error('AI javob xatini oxirigacha tugatmadi. Hujjat saqlanmadi; qayta yaratishda to‘liq yakunlangan xat talab qilinadi.');
+    }
     if(responseMissesRequiredExtra(parsed.body, extra)) {
       throw new Error('AI qo‘shimcha ma’lumotdagi asosiy dalillarni javob xatiga kiritmadi. Tafsilotni aniqroq yozib qayta urinib ko‘ring.');
     }
