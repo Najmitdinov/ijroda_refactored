@@ -7107,47 +7107,19 @@ function responseTaskProfile(text='', meta={}) {
   const norm = normalizeText(source);
   const numbers = [...new Set((source.match(/\b\d{1,4}\s*[-\u2013]?\s*(?:sonli|son|raqamli)\b|\u2116\s*\d+|\b\d{1,4}[-/]\d+\b/gi) || []).map(compactResponseText).filter(x => /\d/.test(x)).slice(0, 8))];
   const dates = [...new Set((source.match(/\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b|\b\d{4}-yil(?:ning)?\s+\d{1,2}[-\s]*(?:yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)/gi) || []).slice(0, 6))];
-  const informationOnly = /(ma['‘’`ʼ]?lumot\s+(?:va\s+ijro\s+uchun|va\s+ijroda\s+foydalanish\s+uchun|uchun)|tanishib\s+chiqish\s+uchun|ishda\s+foydalanish\s+uchun|ma['‘’`ʼ]?lumot\s+tariqasida)/i.test(norm);
-  const requiresPerson = /(mas['‘’`ʼ]?ul\s+xodim|mutaxassis|vakil|ishchi\s+guruh|biriktir|nomzod\s+taqdim)/i.test(norm);
-  const seriousSignals = [
-    /(zudlik|qat['‘’`ʼ]?iy|kechiktirmasdan|shaxsiy\s+javobgarlik)/i,
-    /(prokuratura|talabnoma|taqdimnoma|sud|huquqbuzarlik|noqonuniy)/i,
-    /(kamchilik|nuqson|bartaraf|intizomiy|javobgarlik)/i,
-    /(nazorat|tekshiruv|monitoring|o['‘’`ʼ]?rganish\s+natijasi)/i,
-    /(qaror|farmon|farmoyish|bayon|ijrosini\s+ta['‘’`ʼ]?minlash)/i,
-    /(muddat|yakuniga\s+qadar|\d{1,2}\s*(?:yanvar|fevral|mart|aprel|may|iyun|iyul|avgust|sentabr|oktabr|noyabr|dekabr)ga\s+qadar)/i
-  ].filter(re => re.test(norm)).length;
   const actions = [
-    ['malumot_uchun', /(ma['‘’`ʼ]?lumot\s+(?:va\s+ijro\s+uchun|va\s+ijroda\s+foydalanish\s+uchun|uchun)|tanishib\s+chiqish\s+uchun|ishda\s+foydalanish\s+uchun)/i],
     ['amaliy_yordam', /(amaliy yordam|ko'?mak|yordam ber)/i],
-    ['malumot_taqdim', /(ma['‘’`ʼ]?lumot\s+taqdim|axborot\s+taqdim|hisobot\s+taqdim|ma['‘’`ʼ]?lumot\s+ber)/i],
+    ['malumot_taqdim', /(ma'?lumot|axborot|taqdim et|hisobot)/i],
     ['nazorat_tekshiruv', /(nazorat|tekshir|o'?rgan|monitoring|dalolatnoma|nuqson)/i],
     ['qaror_ijrosi', /(qaror ijrosi|ijrosini ta'?min|ijro yuzasidan)/i],
     ['biriktirish', /(biriktir|mas'?ul xodim|vakil)/i],
-    ['kamchilik_bartaraf', /(kamchilik|nuqson|bartaraf|qoidabuzarlik)/i],
-    ['muddat_sorash', /(qo['‘’`ʼ]?shimcha\s+muddat|muddat\s+uzaytir|muddat\s+ber)/i],
-    ['resurs_sorovi', /(kompyuter|jihoz|mablag['‘’`ʼ]?|moliyalashtirish|xarid\s+qilib\s+ber)/i],
     ['qurilish_sifati', /(qurilish-montaj|pudrat|loyiha-smeta|texnik nazorat|obyekt|shaharsozlik)/i]
   ].filter(([,re]) => re.test(norm)).map(([key]) => key);
-  let primaryType = 'umumiy_javob';
-  if(informationOnly) primaryType = 'malumot_uchun';
-  else if(/(talabnoma|taqdimnoma|prokuratura)/i.test(norm)) primaryType = 'talabnoma_javobi';
-  else if(actions.includes('kamchilik_bartaraf')) primaryType = 'kamchilik_bartaraf';
-  else if(actions.includes('qaror_ijrosi')) primaryType = 'qaror_ijrosi';
-  else if(actions.includes('nazorat_tekshiruv')) primaryType = 'nazorat_tekshiruv';
-  else if(actions.includes('amaliy_yordam')) primaryType = 'amaliy_yordam';
-  else if(actions.includes('malumot_taqdim')) primaryType = 'malumot_taqdim';
-  else if(actions.includes('resurs_sorovi')) primaryType = 'resurs_sorovi';
-  else if(actions.includes('biriktirish')) primaryType = 'biriktirish';
   const meaningful = taskMeaningfulWords(source, 18);
   return {
     numbers,
     dates,
     actions,
-    primaryType,
-    informationOnly,
-    requiresPerson,
-    seriousness: seriousSignals >= 3 ? 'yuqori' : (seriousSignals >= 1 ? 'orta' : 'oddiy'),
     region: meta.region || '',
     extra: meta.extra || '',
     meaningful,
@@ -7157,10 +7129,6 @@ function responseTaskProfile(text='', meta={}) {
 
 function responseTaskProfileText(profile={}) {
   return [
-    `Asosiy topshiriq turi: ${profile.primaryType || 'umumiy_javob'}`,
-    `Jiddiylik darajasi: ${profile.seriousness || 'oddiy'}`,
-    `Faqat ma'lumot uchun: ${profile.informationOnly ? 'ha' : 'yoq'}`,
-    `Xodim yoki mutaxassis biriktirish talab etilgan: ${profile.requiresPerson ? 'ha' : 'yoq'}`,
     `Aniqlangan harakat turi: ${(profile.actions || []).join(', ') || 'umumiy rasmiy javob'}`,
     `Raqamlar/rekvizitlar: ${(profile.numbers || []).join(', ') || 'aniqlanmadi'}`,
     `Sanalar: ${(profile.dates || []).join(', ') || 'aniqlanmadi'}`,
@@ -7207,11 +7175,8 @@ function estimateResponseConfidence(body='', taskText='', legalContext='', learn
   const clean = compactResponseText(body);
   if(!clean) return 0;
   let score = 50;
-  if(clean.length >= 80) score += 4;
-  if(clean.length >= 220) score += 4;
-  const sentenceCount = splitTaskSentences(clean).length;
-  if(sentenceCount >= 2) score += 4;
-  if(sentenceCount >= 3) score += 3;
+  if(clean.length >= 360) score += 8;
+  if(splitTaskSentences(clean).length >= 3) score += 6;
   const taskWords = taskMeaningfulWords(taskText, 16);
   const bodyNorm = normalizeText(clean);
   const overlap = taskWords.filter(w => bodyNorm.includes(w)).length;
@@ -7717,15 +7682,14 @@ function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', lea
   if(body.length < 40) return { ok:false, reason:'body matni juda qisqa', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
-  if(responseUsesUnsupportedSpecialist(body, qualitySeed)) return { ok:false, reason:'body topshiriqda bo‘lmagan mutaxassis yoki mas’ul xodimni asossiz qo‘shdi', body, confidence:0 };
   if(responseBodyFailsLegalQuality(body, qualitySeed, legalContext)) return { ok:false, reason:'body yuridik/uslubiy/mantiqiy sifat nazoratidan o‘tmadi', body, confidence:0 };
   if(responseLooksCopiedFromMemory(body, learningContext)) return { ok:false, reason:'body learning blankadan copy-paste qilinganga o‘xshaydi', body, confidence:0 };
   if(responseTooSimilarToPrevious(body, previousBodies)) return { ok:false, reason:'body oldingi yaratilgan javoblarga juda o‘xshash', body, confidence:0 };
   const explicitConfidence = Number(parsed.confidence_score || parsed.confidence || parsed.ishonch || 0);
   const estimatedConfidence = estimateResponseConfidence(body, qualitySeed, legalContext, learningContext);
-  if(explicitConfidence && explicitConfidence < 65) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
+  if(explicitConfidence && explicitConfidence < 80) return { ok:false, reason:`AI ishonchlilik darajasi past: ${explicitConfidence}%`, body, confidence:explicitConfidence };
   const confidence = explicitConfidence ? Math.min(99, Math.max(explicitConfidence, estimatedConfidence)) : estimatedConfidence;
-  if(confidence < 70) return { ok:false, reason:`ishonchlilik darajasi past: ${confidence}%`, body, confidence };
+  if(confidence < 80) return { ok:false, reason:`ishonchlilik darajasi past: ${confidence}%`, body, confidence };
   return { ok:true, reason:'', body, confidence };
 }
 
@@ -7857,13 +7821,7 @@ function inferIncomingTaskRequisites(text='') {
   ];
   const date = normalizeIncomingDateText(datePatterns.map(re => all.match(re)?.[0]).find(Boolean) || '');
   const number = normalizeIncomingNumberText(numberPatterns.map(re => all.match(re)?.[0]).find(Boolean) || '');
-  let kind = 'topshiriq';
-  if(/(?:sonli\s+)?talabnoma|talabnomangiz/i.test(all)) kind = 'talabnoma';
-  else if(/(?:sonli\s+)?taqdimnoma|taqdimnomangiz/i.test(all)) kind = 'taqdimnoma';
-  else if(/(?:sonli\s+)?xat(?:i|ingiz|iga)|xatingiz/i.test(all)) kind = 'xat';
-  else if(/farmoyish/i.test(all)) kind = 'farmoyish';
-  else if(/qaror/i.test(all)) kind = 'qaror';
-  return { date, number, kind };
+  return { date, number };
 }
 
 function normalizeIncomingDateText(value='') {
@@ -7895,68 +7853,11 @@ function responseOpeningFormula(senderOrg='', req={}) {
   const org = normalizeResponseRecipientName(senderOrg).replace(/\b(ga|ka|qa)$/i, '');
   const date = compactResponseText(req.date || '');
   const number = compactResponseText(req.number || '');
-  const kind = compactResponseText(req.kind || 'topshiriq');
-  const possessiveKind = {
-    xat: 'xatingiz',
-    topshiriq: "topshirig'ingiz",
-    talabnoma: 'talabnomangiz',
-    taqdimnoma: 'taqdimnomangiz',
-    farmoyish: 'farmoyishingiz',
-    qaror: 'qaroringiz'
-  }[kind] || `${kind}ingiz`;
-  if(date && number) return `Sizning ${date}dagi ${number}-sonli ${possessiveKind}`;
-  if(number) return `Sizning ${number}-sonli ${possessiveKind}`;
-  if(date) return `Sizning ${date}dagi ${possessiveKind}`;
+  if(date && number) return `Sizning ${date}dagi ${number}-sonli topshirig'ingiz ijrosini ta'minlash maqsadida`;
+  if(number) return `Sizning ${number}-sonli topshirig'ingiz ijrosini ta'minlash maqsadida`;
+  if(date) return `Sizning ${date}dagi topshirig'ingiz ijrosini ta'minlash maqsadida`;
   if(org) return `${org}ning topshirig'i ijrosini ta'minlash maqsadida`;
   return `Sizning topshirig'ingiz ijrosini ta'minlash maqsadida`;
-}
-
-function responseOpeningPlan(profile={}, senderOrg='', req={}) {
-  const referenced = responseOpeningFormula(senderOrg, req);
-  const hasExactReference = !!(compactResponseText(req.date || '') && compactResponseText(req.number || ''));
-  const type = profile.primaryType || 'umumiy_javob';
-  const alternatives = [];
-  let preferred = referenced;
-  let requireExact = false;
-
-  if(type === 'malumot_uchun') {
-    requireExact = hasExactReference;
-    alternatives.push(
-      `${referenced} bosh boshqarma tomonidan ma'lumot va ijroda foydalanish uchun qabul qilindi.`,
-      `Mazkur hujjat bosh boshqarma tomonidan ma'lumot va kelgusida xizmat faoliyatida foydalanish uchun qabul qilindi.`
-    );
-  } else if(['talabnoma_javobi', 'malumot_taqdim', 'resurs_sorovi', 'amaliy_yordam'].includes(type)) {
-    requireExact = hasExactReference;
-    alternatives.push(
-      `${referenced} yuzasidan quyidagilarni ma'lum qilamiz.`,
-      `${referenced} asosida ko'rsatilgan masala vakolat doirasida ko'rib chiqildi.`
-    );
-  } else if(['qaror_ijrosi', 'kamchilik_bartaraf', 'nazorat_tekshiruv'].includes(type)) {
-    preferred = '';
-    alternatives.push(
-      `Mazkur topshiriq ijrosini ta'minlash maqsadida ko'rsatilgan masala bosh boshqarma tomonidan atroflicha o'rganib chiqildi.`,
-      `Topshiriqda belgilangan vazifalar ijrosi yuzasidan tegishli hujjatlar va amaldagi holat tahlil qilindi.`,
-      `${referenced} ijrosi yuzasidan quyidagilarni ma'lum qilamiz.`
-    );
-  } else {
-    requireExact = hasExactReference;
-    alternatives.push(
-      `${referenced} yuzasidan quyidagilarni ma'lum qilamiz.`,
-      `Mazkur murojaat va unda ko'rsatilgan masalalar vakolat doirasida ko'rib chiqildi.`
-    );
-  }
-
-  return {
-    preferred,
-    requiredOpening: requireExact ? referenced : '',
-    alternatives,
-    guidance: [
-      `Topshiriq turi: ${type}.`,
-      `Jiddiylik: ${profile.seriousness || 'oddiy'}.`,
-      `Kirishni topshiriq mohiyatiga mos tanla; barcha xatni bir xil gap bilan boshlama.`,
-      `Mumkin bo'lgan kirishlar: ${alternatives.join(' | ')}`
-    ].join('\n')
-  };
 }
 
 function enforceRequiredResponseOpening(body='', requiredOpening='') {
@@ -8045,14 +7946,12 @@ QAT'IY TALAB:
 - Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
-- ${requiredOpening ? `Body birinchi gapi shu rekvizitli ibora bilan boshlansin: "${requiredOpening} ...".` : `Body kirishi topshiriq turiga mos bo'lsin; oldingi universal kirishni takrorlama.`}
+- Body birinchi gapi aynan shu kirish formulasi bilan boshlansin: "${requiredOpening} ...".
 - ${compactResponseText(requiredExtra) ? `Qo'shimcha ma'lumotdagi quyidagi faktlar body ichida aniq aks etsin: ${compactResponseText(requiredExtra).slice(0, 700)}` : `Qo'shimcha ma'lumot kiritilmagan; javobni faqat topshiriq hujjati va blanka uslubidan kelib chiqib shakllantir.`}
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
-- Topshiriqdagi barcha alohida talablarni yorit; qisqa topshiriqqa 3 ta mazmunli gap yetarli bo'lsa, keraksiz gap bilan cho'zma.
-- Mutaxassis yoki mas'ul xodim haqida faqat topshiriqda shunday talab bo'lsa yoz.
 - Agar huquqiy asos bazada yo'q bo'lsa, uydirma modda/band yozma, lekin topshiriq mohiyatiga mos vakolat doirasidagi rasmiy javob yoz.
 - Javob oldingi urinishdan semantik jihatdan farqli bo'lsin.
-- confidence_score ni javobning real aniqligi va qamroviga qarab bahola; qisqa javobni faqat uzunligi sabab rad etma.
+- confidence_score kamida 85 bo'lsin; bunga ishonching yetmasa xatni qayta yoz.
 - FAQAT JSON qaytar.`;
     let parsed = null;
     try {
@@ -8119,18 +8018,17 @@ window.generateResponseDocument = async function(numberConfirmed=false) {
       openResponseNumberModal();
       return;
     }
-    const ragQuery = `${taskText} ${region} ${extra}`;
-    const taskProfile = responseTaskProfile(ragQuery, { region, extra });
-    const openingPlan = responseOpeningPlan(taskProfile, recipientOrg, incomingReq);
-    const requiredOpening = openingPlan.requiredOpening;
+    const requiredOpening = responseOpeningFormula(recipientOrg, incomingReq);
     const recipientHidden = document.getElementById('resp-recipient-org');
     const summary = document.getElementById('resp-number-summary');
     if(recipientHidden) recipientHidden.value = recipientOrg;
     if(summary) summary.textContent = `Chiquvchi raqam: ${outNum}. Qabul qiluvchi: ${recipientOrg}`;
     if(!legalBaseDocsCache.length) await loadLegalBaseForAi().catch(()=>{});
     if(!aiLearningCache.length) await loadAiLearningDocs().catch(()=>{});
+    const ragQuery = `${taskText} ${region} ${extra}`;
     const legalRagContext = legalBaseContext(ragQuery);
     const learningRagContext = aiLearningContext(ragQuery);
+    const taskProfile = responseTaskProfile(ragQuery, { region, extra });
     const previousBodies = recentGeneratedBodies(10);
     if(status) status.textContent = 'AI blankani o‘rganib, topshiriq mazmuniga mos individual javob yozmoqda...';
     if(tpl.isDefault && !tpl.extractedText) {
@@ -8174,26 +8072,17 @@ MAJBURIY TALABLAR:
 - AI hech qachon umumiy yoki shablon javob bermasin.
 - Javob mazmuni topshiriqqa to'liq mos bo'lsin.
 - "Sizning yuborgan topshirig'ingiz yuzasidan..." kabi umumiy gap bilan cheklanma.
-- Topshiriqdagi barcha mustaqil talablarni bittalab aniqlab, javobda ularning har birini mazmunan yorit. Biror band, obyekt, hudud, muddat yoki so'ralgan natijani tashlab ketma.
-- Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
+- Topshiriqda ko'rsatilgan qaror/farmon/xat raqami, sana, hudud, obyekt, mas'ul xodim, bajarilishi so'ralgan ish va natijani body matnida aniq aks ettir.
 - Agar topshiriq amaliy yordam so'rasa - ko'rsatiladigan amaliy yordamni yoz; agar ma'lumot so'rasa - taqdim etilayotgan ma'lumotni yoz; agar nazorat/tekshiruv so'ralsa - o'rganish va nazorat natijasini yoz; agar qaror ijrosi so'ralsa - ijro bo'yicha amalga oshiriladigan choralarni yoz.
-- Jiddiy topshiriqda masala mohiyati, o'rganilgan holat, bajarilgan yoki bajarilishi belgilangan aniq chora, ijro holati va yakuniy natijani to'liq yorit. Zaruratga qarab 3-5 mazmunli obzas yoz.
-- Oddiy yoki qisqa topshiriqda 3 ta aniq gap yetarli bo'lishi mumkin. Matnni faqat uzun ko'rsatish uchun keraksiz gap qo'shma.
-- "Mutaxassis", "mas'ul xodim", "ishchi guruh" yoki "vakil biriktirildi" degan iboralarni faqat topshiriq yoki qo'shimcha ma'lumotda aynan shunday talab/fakt mavjud bo'lsa ishlat. Boshqa xatlarga bu iboralarni avtomatik qo'shma.
-- Bajarilganligi haqida ma'lumot berilmagan ishni "bajarildi", "bartaraf etildi", "biriktirildi" yoki "nazoratga olindi" deb uydirma. Bunday holatda rejalashtirilgan chora va kutilayotgan natijani aniq kelasi zamonda yoz.
-- Faqat ma'lumot uchun kelgan hujjatga javobda "ma'lumot va ijroda foydalanish uchun qabul qilindi" mazmunini yoz, hujjat kimlarga yetkazilishi yoki faoliyatda qanday inobatga olinishi mumkinligini topshiriq mazmunidan kelib chiqib tushuntir.
+- Har bir xat kamida 2 ta mazmunli obzasdan iborat bo'lsin va body matnida topshiriqdagi kamida 3 ta muhim kalit ma'lumot ishlatilsin.
 - Keraksiz ma'lumot, topshiriqda yoki qo'shimcha ma'lumotda ko'rsatilmagan fakt, umumiy bayon va mavzudan tashqari gaplar yozilmasin.
 - Qo'shimcha ma'lumot kiritilgan bo'lsa, body matni shu ma'lumotga tayanib tuzilsin; kiritilmagan bo'lsa, AI topshiriq hujjatidan mazmunni o'zi aniqlasin.
 - BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
 - BODY faqat asosiy javob xati matni bo'lsin.
-- BODY kirishi blankadagi real xatlar kabi topshiriq turiga qarab tanlansin. Hamma xatni bir xil boshlama.
-- ${requiredOpening ? `BODY birinchi gapi "${requiredOpening}" rekvizitli ibora bilan boshlansin.` : `Jiddiy topshiriqda normativ hujjat yoki ijro predmeti bilan to'g'ridan-to'g'ri boshlash mumkin; sana-raqamli "Sizning ... xatingiz" iborasini zarurat bo'lsa ishlat.`}
+- BODY birinchi gapi blankalardagi kabi boshlansin va quyidagi formulani buzmasdan ishlatsin: "${requiredOpening} ...". Kelgan sana va raqam blankadan/topshiriqdan ajratilgan, chiquvchi raqam bilan almashtirma.
 - AUTO_DATE va AUTO_NUMBER body ichida ishlatilmasin; ular faqat tepada rekvizit sifatida chiqadi.
 
 ${LEGAL_RESPONSE_QUALITY_RULES}
-
-KIRISH USLUBI VA BLANKADAN OLINGAN YO'NALISH:
-${openingPlan.guidance}
 
 QO'SHIMCHA MA'LUMOT USTUVORLIGI:
 ${extraPriorityInstruction}
@@ -8225,13 +8114,11 @@ KO'K HUDUDGA QAYTA HEADER YOZISH TAQIQLANADI: sana, №, qabul qiluvchi, O'zbeki
 SARIQ HUDUD: ijrochi va telefon past chapda italic ko'rinishida yoziladi.
 
 JAVOB YOZISH ALGORITMI:
-1. Topshiriq mazmunini ichki tahlil qil: kim yuborgan, hujjat turi, barcha alohida talablar, obyekt/hudud, muddat, huquqiy asos va qanday natija talab qilingan.
-2. Topshiriqni quyidagi turlardan biriga ajrat: ma'lumot uchun, ma'lumot taqdim etish, qaror/farmon ijrosi, jiddiy nazorat yoki tekshiruv, kamchilikni bartaraf etish, amaliy yordam, talabnoma, resurs so'rovi yoki boshqa rasmiy javob.
-3. Kirishni topshiriq turiga mos tanla. Ayrim xatlarda "Sizning [sana]dagi [raqam]-sonli xatingiz/topshirig'ingiz..." shaklini ishlat; jiddiy qaror/farmon ijrosida esa huquqiy hujjat yoki ijro vazifasidan boshlash mumkin.
-4. Keyingi obzaslarda topshiriqdagi har bir talab bo'yicha aniq javob ber. Qo'shimcha ma'lumotda ko'rsatilgan bajarilgan ishlarni fakt sifatida, hali bajarilmagan ishlarni esa reja yoki belgilangan chora sifatida yoz.
-5. Huquqiy asos faqat masalani haqiqatan asoslantirsa va bazada mavjud bo'lsa keltirilsin. Qonun yoki normativni xatni uzunlashtirish uchun qo'shma.
-6. Yakuniy gap topshiriq turiga mos bo'lsin: ma'lumot qabul qilingani, axborot taqdim etilishi, ijro nazorati, kamchilikni bartaraf etish, amaliy yordam yoki boshqa aniq natija.
-7. Mutaxassis/xodim haqidagi gapni faqat topshiriq shuni talab qilsa yoz.
+1. Topshiriq mazmunini ichki tahlil qil: kim yuborgan, nimani so'ragan, qaysi obyekt/hudud/qaror haqida, qanday natija talab qilingan.
+2. body matnining 1-obzasini aynan "${requiredOpening}" formulasi bilan boshlat. Faqat kelgan hujjat raqami/sanasini ko'rsat; chiquvchi AUTO_NUMBER/AUTO_DATE ni body ichida takrorlama.
+3. 2-obzasda bosh boshqarma tomonidan amalga oshirilgan yoki amalga oshiriladigan aniq chora-tadbirlarni yoz.
+4. 3-obzasda faqat bazada mavjud huquqiy asoslarni ehtiyotkorlik bilan keltir; bazada yo'q modda/bandni uydirma.
+5. Yakuniy gap topshiriq mazmuniga mos bo'lsin: axborot taqdim etish, amaliy yordam berish, ijro nazoratini ta'minlash, kamchilikni bartaraf etish yoki tegishli mutaxassis biriktirish kabi aniq natija yozilsin.
 
 Shablon nomi: ${tpl.name}
 Hujjat turi: ${tpl.docType}
@@ -8262,7 +8149,7 @@ BLANKA LEARNING AMALGA OSHIRISH KETMA-KETLIGI:
 3. Qo'shimcha ma'lumot kiritilgan bo'lsa, uni body mazmunining asosiy yo'nalishi qilib ol.
 4. Blankadan faqat skelet, boshlanish formulasi, obzaslash va professional ohangni ol; jumlani aynan ko'chirma.
 5. Joriy topshiriq bo'yicha yangi, individual va faktlarga mos javob yoz.
-6. Yakuniy JSON ichida confidence_score haqiqiy baholansin. Qisqa, lekin topshiriqqa aniq javob berilgan xatni faqat uzunligi sabab body'siz qaytarma.
+6. Yakuniy JSON ichida confidence_score kamida 85 bo'lsin. Agar 85% ishonch bilan yozolmasang, past confidence qaytar va body'ni bo'sh qoldir.
 
 TOPSHIRIQ SEMANTIK PROFILI:
 ${responseTaskProfileText(taskProfile)}
@@ -8281,8 +8168,7 @@ Sana: ${officialDate}
 Tashkilot nomi: ${recipientOrg}
 Blankadan aniqlangan kelgan topshiriq sanasi: ${incomingReq.date || 'aniqlanmadi'}
 Blankadan aniqlangan kelgan topshiriq raqami: ${incomingReq.number || 'aniqlanmadi'}
-Blankadan aniqlangan hujjat turi: ${incomingReq.kind || 'topshiriq'}
-${requiredOpening ? `Majburiy kirish rekviziti: ${requiredOpening}` : `Kirish formulasi: topshiriq turiga mos ravishda erkin tanlanadi.`}
+Majburiy kirish formulasi: ${requiredOpening}
 Ijrochi: ${executorName || 'Kiritilmagan'}
 Ijrochi telefon raqami: ${executorPhone || 'Kiritilmagan'}
 Hudud: ${region}
@@ -8293,9 +8179,7 @@ KIRISH MA'LUMOTLARI JSON:
   "tashkilot": ${JSON.stringify(recipientOrg)},
   "kelgan_sana": ${JSON.stringify(incomingReq.date || '')},
   "kelgan_raqam": ${JSON.stringify(incomingReq.number || '')},
-  "kelgan_hujjat_turi": ${JSON.stringify(incomingReq.kind || 'topshiriq')},
   "majburiy_kirish_formulasi": ${JSON.stringify(requiredOpening)},
-  "topshiriq_profili": ${JSON.stringify(taskProfile)},
   "topshiriq": ${JSON.stringify(taskText || '')},
   "hudud": ${JSON.stringify(region)},
   "user_number": ${JSON.stringify(userNumber)},
@@ -8309,9 +8193,9 @@ FAQAT JSON qaytar:
 {"title":"","recipient":"","out_number":"","date":"","responsible":"","task_analysis":{"what_requested":"","object":"","region":"","required_action":"","answer_strategy":""},"learned_style_used":"","body":"","footer":"","signature_block":"","style_notes":"","confidence_score":0,"quality_self_check":{"legal":true,"grammar":true,"logic":true,"style":true,"not_copied":true},"html":""}
 header/html/footer/signature_block maydonlarini bo'sh qoldirishing mumkin; ular tizim tomonidan alohida chiziladi.
 body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana, №, qabul qiluvchi, MAVZU, imzo, ijrochi va telefon kiritilmasin.
-${requiredOpening ? `body birinchi gapi ushbu rekvizitli ibora bilan boshlansin: ${requiredOpening}.` : `body kirishini topshiriqning jiddiyligi va turiga mos tanla; bir xil universal boshlanish ishlatma.`}
+body birinchi gapi aynan ushbu formula bilan boshlansin: ${requiredOpening}.
 ${extra ? `body matnida qo'shimcha ma'lumotdagi asosiy dalillar aks etsin: ${extra.slice(0, 900)}` : `qo'shimcha ma'lumot kiritilmagan; body faqat topshiriq matni va blanka skeletoniga tayanib yozilsin.`}
-confidence_score javobning real aniqligi va topshiriqni qamrab olishiga qarab baholansin.`;
+confidence_score 85 dan past bo'lmasin.`;
     const qualitySeed = extra ? `${extra}\n${taskText} ${region}` : `${taskText} ${region}`;
     const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies, requiredOpening, extra);
     parsed.body = cleanGeneratedResponseBody(parsed.body || parsed.answer_text || parsed.summary || '', {
@@ -8394,9 +8278,7 @@ function responseMissesRequiredExtra(body='', extra='') {
   if(extraText.length < 12) return false;
   const normBody = normalizeText(body);
   const keyWords = taskMeaningfulWords(extraText, 18);
-  const numbers = [...new Set((extraText.match(/\b\d{1,4}(?:[./-]\d{1,4}){0,3}\s*(?:-?sonli|-?son|ta|%|foiz|mln|mlrd|so['‘’`ʼ]?m|kun|oy)\b/gi) || [])
-    .map(x => x.match(/\d{1,4}(?:[./-]\d{1,4}){0,3}/)?.[0] || '')
-    .filter(Boolean))].slice(0, 8);
+  const numbers = [...new Set((extraText.match(/\b\d{1,4}(?:[.\-/]\d{1,4}){0,3}\b/g) || []).filter(x => x.length > 1))].slice(0, 8);
   if(numbers.length && !numbers.some(n => String(body || '').includes(n))) return true;
   if(keyWords.length >= 3) {
     const overlap = keyWords.filter(w => normBody.includes(w)).length;
@@ -8431,18 +8313,10 @@ function responseBodyLooksGeneric(body='', taskText='') {
   return false;
 }
 
-function responseUsesUnsupportedSpecialist(body='', taskText='') {
-  const normBody = normalizeText(body);
-  const normTask = normalizeText(taskText);
-  const bodyAssignsPerson = /(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil).{0,80}(biriktir|tayinla|jalb\s+et)|(?:biriktir|tayinla|jalb\s+et).{0,80}(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil)/i.test(normBody);
-  if(!bodyAssignsPerson) return false;
-  return !/(mutaxassis|mas['‘’`ʼ]?ul\s+xodim|ishchi\s+guruh|vakil|biriktir|tayinla|nomzod)/i.test(normTask);
-}
-
 function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {
   const clean = compactResponseText(body);
   const norm = normalizeText(clean);
-  if(clean.length < 80) return true;
+  if(clean.length < 220) return true;
   const forbidden = /(salom|assalomu|iltimos|xop|mayli|yaxshi bo'lardi|shuni aytmoqchimiz|taxminan|balki|menimcha|ai sifatida|sun'iy intellekt)/i;
   if(forbidden.test(norm)) return true;
   if(/uydirma|bazada yo'q hujjat|aniqlanmaganligi sababli/i.test(norm)) return true;
@@ -8451,9 +8325,9 @@ function responseBodyFailsLegalQuality(body='', taskText='', legalContext='') {
   const taskWords = taskMeaningfulWords(taskText, 14);
   if(taskWords.length >= 5) {
     const overlap = taskWords.filter(w => norm.includes(w)).length;
-    if(overlap < 2) return true;
+    if(overlap < 3) return true;
   }
-  const hasProfessionalTone = /(vakolat|ijro|normativ|hujjat|talab|nazorat|loyiha|qurilish|obyekt|taqdim|ta'min|ta’min|o'rgan|o‘rgan|qabul\s+qil|bartaraf|amalga\s+oshir|ko'rib\s+chiq)/i.test(norm);
+  const hasProfessionalTone = /(vakolat|ijro|normativ|hujjat|talab|nazorat|loyiha|qurilish|obyekt|taqdim|ta'min|ta’min|o'rgan|o‘rgan)/i.test(norm);
   if(!hasProfessionalTone) return true;
   const inventedWarning = /(qonunning \d+[-\s]*(modda|band)|\d+[-\s]*(modda|band))/i.test(norm)
     && !new RegExp(clean.match(/(\d+[-\s]*(?:modda|band))/i)?.[1] || '$^', 'i').test(`${taskText} ${legalContext}`);
