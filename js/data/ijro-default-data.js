@@ -221,3 +221,87 @@ export const IJRO_XODIMLAR = [
     kalit_sozlar: "uy-joy kommunal xo'jaligi bo'yicha bosh mutaxassis, tuman shahar bo'limi, kommunal xizmat, zamonaviy ish yuritish, kompyuter internet, hududiy kommunal masalalar, bo'lim boshlig'iga bo'ysunish"
   }
 ];
+
+const TIZIM_XODIM_MANBASI = "Tizimlarga_biriktirilgan_xodimlar.docx";
+
+function tizimXodim(
+  fullName,
+  lavozim,
+  sektor,
+  hududlar,
+  tizimlar,
+  vakolatlar,
+  email = "",
+  telefon = ""
+) {
+  const [familiya, ...ismParts] = fullName.split(" ");
+  const normalizedHududlar = hududlar.split(";").map(x => x.trim()).filter(Boolean);
+  const normalizedTizimlar = tizimlar.split(";").map(x => x.trim()).filter(Boolean);
+  const normalizedVakolatlar = vakolatlar.split(";").map(x => x.trim()).filter(Boolean);
+  return {
+    familiya,
+    ism: ismParts.join(" "),
+    lavozim,
+    sektor,
+    hududlar: normalizedHududlar,
+    tizimlar: normalizedTizimlar,
+    vakolatlar: normalizedVakolatlar,
+    email,
+    telefon,
+    manba_hujjat: TIZIM_XODIM_MANBASI,
+    biriktirilgan_hujjatlar: [TIZIM_XODIM_MANBASI],
+    kalit_sozlar: [...new Set([
+      ...normalizedHududlar,
+      ...normalizedTizimlar,
+      ...normalizedVakolatlar
+    ])].join(", ")
+  };
+}
+
+export const IJRO_TIZIM_XODIMLAR = [
+  tizimXodim("Ahmatkulov Izomiddin Nasimovich", "Hududiy bo'lim boshlig'i va elektron tizimlar bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "G'ozg'on shahar", "Faol fuqaro;cabinetpm2.gov.uz;e'tirof.kadastr.uz;k-savdo.soliq.uz;kb-business.gov.uz;yx.davaktiv.uz;VMQ-734", "Virtual qabulxona va fuqarolar murojaatlari;E'tirof etilgan ko'chmas mulk huquqlari;Ko'chma savdo obyektlari;Tadbirkorlar virtual ofisi;Yer uchastkalarini xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "gozgonarx123@umail.uz", "(79) 523-51-28"),
+  tizimXodim("Ahmedova Iroda Samat qizi", "Elektron tizimlar bo'yicha mas'ul xodim", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Xatirchi tuman", "edo.ijro.uz;kb-business.gov.uz", "Ijro intizomi va topshiriqlar nazorati;Tadbirkorlar virtual ofisi", "xatirchiarx123@umail.uz", "(79) 544-00-86"),
+  tizimXodim("Aliqulova Dilbar Rajabboy qizi", "Ijro intizomi tizimi bo'yicha mas'ul xodim", "Devonxona va ijro nazorati", "Zarafshon shahar", "edo.ijro.uz", "Ijro intizomi;Topshiriqlar va hujjatlar ijrosini nazorat qilish", "zararx123@umail.uz", "(79) 573-14-22"),
+  tizimXodim("Aslonov Burxon Botir o'g'li", "Hududiy bo'lim boshlig'i va elektron tizimlar bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Qiziltepa tuman", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;kabinet.yerelektron.uz;kb-business.gov.uz;VMQ-734", "Fuqarolar murojaatlari;Ijro intizomi;Yer elektron tizimi;Tadbirkorlar virtual ofisi;Termitdan zararlangan uy-joylarni aniqlash", "qiziltepaarx123@umail.uz", "(79) 555-22-58"),
+  tizimXodim("Axmatkulov Jamoliddin Nasimovich", "Hududiy bo'lim boshlig'i", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Nurota tuman", "VMQ-734", "Termitdan zararlangan uy-joylarni aniqlash va yashash uchun yaroqsiz deb topish"),
+  tizimXodim("Axmedova Iroda", "Arxitektura-rejalashtirish bo'yicha mutaxassis", "Arxitektura va hududlarni rejalashtirish", "Navoiy viloyati", "dx.mc.uz", "Arxitektura-rejalashtirish topshirig'ini ishlab chiqish;VMQ-200", "", "(79) 220-50-21"),
+  tizimXodim("Azamatova Dilnavoz", "E'tirof tizimi bo'yicha mas'ul xodim", "Yer va mulk boshqaruvi", "Zarafshon shahar", "e'tirof.kadastr.uz", "E'tirof etilgan ko'chmas mulk huquqlari;VMQ-937", "zararx123@umail.uz", "(79) 573-14-22"),
+  tizimXodim("Baltabayeva Feruza Amanbay qizi", "Qurilish kengashi xulosasi bo'yicha moderator", "Yer va mulk boshqaruvi", "Navoiy viloyati", "kabinet.yerelektron.uz", "Yer elektron tizimida qurilish kengashi xulosasini berish;VMQ-543", "", "(79) 220-50-21"),
+  tizimXodim("Baqoyev Anvar Sergeyevich", "Elektron tizimlar bo'yicha hududiy mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Nurota tuman", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;kabinet.yerelektron.uz;k-savdo.soliq.uz;kb-business.gov.uz;yx.davaktiv.uz", "Fuqarolar murojaatlari;Ijro intizomi;Yer elektron tizimi;Ko'chma savdo obyektlari;Tadbirkorlar virtual ofisi;Yer uchastkalarini xususiylashtirish", "nurarx123@umail.uz", "(79) 523-19-02"),
+  tizimXodim("Baxodirov Abrorxon Fayzullo o'g'li", "Qayta ixtisoslashtirish va rekonstruksiya ruxsatnomalari bo'yicha mutaxassis", "Qurilish va shaharsozlik", "Karmana tuman;G'ozg'on shahar;Nurota tuman;Tomdi tuman;Uchquduq tuman;Xatirchi tuman;Zarafshon shahar", "dx.mc.uz;e'tirof.kadastr.uz", "Obyektni qayta ixtisoslashtirish va rekonstruksiya qilish uchun ruxsatnoma;E'tirof etilgan ko'chmas mulk huquqlari", "xatirchiarx123@umail.uz", "(79) 220-50-21"),
+  tizimXodim("Baxromzoda Islomi Qahramon", "Yer elektron tizimi bo'yicha mas'ul xodim", "Yer va mulk boshqaruvi", "Uchquduq tuman", "kabinet.yerelektron.uz", "Yer elektron tizimi;71-son qaror", "uchquduqarx123@umail.uz", "(79) 593-23-48"),
+  tizimXodim("Boltayev Azizjon Azamat o'g'li", "Yer va ijro elektron tizimlari bo'yicha mas'ul xodim", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Navbahor tuman;Qiziltepa tuman", "e'tirof.kadastr.uz;edo.ijro.uz;kabinet.yerelektron.uz;yx.davaktiv.uz", "E'tirof etilgan ko'chmas mulk huquqlari;Ijro intizomi;Yer elektron tizimi;Yer uchastkalarini xususiylashtirish", "navbahorarx123@umail.uz", "(79) 562-18-61"),
+  tizimXodim("Bozorov Sirojiddin Salohiddin o'g'li", "Murojaatlar va yer elektron tizimi bo'yicha mas'ul xodim", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Xatirchi tuman", "Faol fuqaro;cabinetpm2.gov.uz;kabinet.yerelektron.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Yer elektron tizimi", "xatirchiarx123@umail.uz", "(79) 544-00-86"),
+  tizimXodim("Choriyev Fayzullo", "E'tirof tizimi bo'yicha mas'ul xodim", "Yer va mulk boshqaruvi", "Konimex tuman", "e'tirof.kadastr.uz", "E'tirof etilgan ko'chmas mulk huquqlari;VMQ-937", "konimexarx123@umail.uz", "(79) 512-14-91"),
+  tizimXodim("Durnazarov Arman Namuratovich", "Elektron tizimlar bo'yicha hududiy mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Konimex tuman", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;kb-business.gov.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Ijro intizomi;Tadbirkorlar virtual ofisi", "konimexarx123@umail.uz", "(79) 512-14-91"),
+  tizimXodim("Jo'rayev Xasan Sohibovich", "Hududiy bosh arxitektor va elektron tizimlar bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Uchquduq tuman", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;e'tirof.kadastr.uz;k-savdo.soliq.uz;kb-business.gov.uz;yx.davaktiv.uz;VMQ-734", "Fuqarolar murojaatlari;Ijro intizomi;E'tirof etilgan ko'chmas mulk huquqlari;Ko'chma savdo;Tadbirkorlar virtual ofisi;Yer xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "uchquduqarx123@umail.uz", "(79) 593-23-48"),
+  tizimXodim("Mamanov Toxir Alisher o'g'li", "Loyiha-smeta hujjatlarini kelishish bo'yicha mas'ul", "Qurilish va shaharsozlik", "Navoiy viloyati", "dx.mc.uz", "Loyiha-smeta hujjatlarini kelishish;300 kub metrdan kichik obyektlar;VMQ-200", "", "(79) 220-50-21"),
+  tizimXodim("Mambetov Sultan Muxiddinovich", "Hududiy bo'lim boshlig'i va yer tizimlari bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Konimex tuman", "kabinet.yerelektron.uz;k-savdo.soliq.uz;yx.davaktiv.uz;VMQ-734", "Yer elektron tizimi;Ko'chma savdo obyektlari;Yer xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "konimexarx123@umail.uz", "(79) 512-14-91"),
+  tizimXodim("Mavlanova Dilnavoz Azamatovna", "Murojaatlar elektron tizimlari bo'yicha mas'ul", "Murojaatlar va dispetcherlik", "Zarafshon shahar", "Faol fuqaro;cabinetpm2.gov.uz;kb-business.gov.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Tadbirkorlar virtual ofisi", "zararx123@umail.uz", "(79) 573-14-22"),
+  tizimXodim("Mizomov Vohidjon Ruzimurodovich", "Hududiy bo'lim boshlig'i", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Xatirchi tuman", "VMQ-734", "Termitdan zararlangan uy-joylarni aniqlash va yashash uchun yaroqsiz deb topish"),
+  tizimXodim("Orziqulov Feruz Fayozovich", "Elektron davlat xizmatlari bo'yicha mas'ul mutaxassis", "Qurilish va shaharsozlik", "Navoiy viloyati", "dx.mc.uz;e-qaror.uz;e'tirof.kadastr.uz", "Qurilish obyektidan foydalanishga ruxsatnoma berish;E-qaror tizimi;E'tirof etilgan ko'chmas mulk huquqlari;VMQ-200;VMQ-937", "navqurilish@umail.uz", "(79) 220-50-11"),
+  tizimXodim("Orziyeva Nodira Ibragimovna", "Murojaatlar va ijro elektron tizimlari bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Navoiy shahar", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;kb-business.gov.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Ijro intizomi;Tadbirkorlar virtual ofisi", "navarx123@umail.uz", "(79) 220-50-06"),
+  tizimXodim("Otakulov Aziz Azimjonovich", "E-qaror tizimi bo'yicha mas'ul", "Devonxona va ijro nazorati", "Navoiy viloyati", "e-qaror.uz", "E-qaror elektron tizimida hujjatlar bilan ishlash", "", "(79) 220-50-08"),
+  tizimXodim("Oydinov Shoxruz Ilhomiddin o'g'li", "Qurilish davlat xizmatlari va Kengash bo'yicha mas'ul", "Qurilish va shaharsozlik", "Navoiy viloyati", "dx.mc.uz;kabinet.yerelektron.uz;moderator.ttreklama.uz", "300 kub metrdan katta loyiha-smeta hujjatlarini kelishish;Obyektni qayta ixtisoslashtirish va rekonstruksiya qilish;Kengash xulosasi;Buzilishga tushganlik ma'lumotnomasi;Yer uchastkasidan foydalanish turini o'zgartirish;Tashqi reklama obyektlari;VMQ-200;614-son qaror;104-son qaror", "navqurilish@umail.uz", "(79) 220-50-21"),
+  tizimXodim("Primov Tursunboy Uchqun o'g'li", "Kommunal yo'nalish bo'yicha yer elektron tizimi xulosa beruvchisi", "Kommunal xo'jalik", "Navoiy viloyati", "kabinet.yerelektron.uz", "Yer elektron tizimida kommunal yo'nalish bo'yicha xulosa berish;VMQ-543", "", "(79) 220-50-21"),
+  tizimXodim("Qurbonov Farhod Narzulloyevich", "Ko'chma savdo tizimi bo'yicha mas'ul xodim", "Transport va jamoat infratuzilmasi", "Qiziltepa tuman", "k-savdo.soliq.uz", "Ko'chma savdo obyektlarini ko'rib chiqish;485-son qaror", "qiziltepaarx123@umail.uz", "(79) 555-22-58"),
+  tizimXodim("Qurbonova Kamola Ibodulla qizi", "Elektron tizimlar bo'yicha hududiy mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Karmana tuman", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;kb-business.gov.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Ijro intizomi;Tadbirkorlar virtual ofisi", "kararx123@umail.uz", "(79) 532-10-87"),
+  tizimXodim("Quvondiqov Asilbek", "Arxitektura-rejalashtirish bo'yicha mutaxassis", "Arxitektura va hududlarni rejalashtirish", "Navoiy viloyati", "dx.mc.uz", "Arxitektura-rejalashtirish topshirig'ini ishlab chiqish;VMQ-200", "", "(79) 220-50-21"),
+  tizimXodim("Rasulov Farxod Ishmurodovich", "Yer elektron tizimi bo'yicha mas'ul xodim", "Yer va mulk boshqaruvi", "Tomdi tuman", "kabinet.yerelektron.uz", "Yer elektron tizimi;71-son qaror", "tomdiarx123@umail.uz", "(79) 582-13-51"),
+  tizimXodim("Sanaqulov G'ali Ko'mekbay o'g'li", "Hududiy bo'lim boshlig'i va elektron tizimlar bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Tomdi tuman", "Faol fuqaro;cabinetpm2.gov.uz;edo.ijro.uz;e'tirof.kadastr.uz;k-savdo.soliq.uz;kb-business.gov.uz;yx.davaktiv.uz;VMQ-734", "Fuqarolar murojaatlari;Ijro intizomi;E'tirof etilgan ko'chmas mulk huquqlari;Ko'chma savdo;Tadbirkorlar virtual ofisi;Yer xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "tomdiarx123@umail.uz", "(79) 582-13-51"),
+  tizimXodim("Savriddinov Jahongir Bobir o'g'li", "Yer elektron tizimlari bo'yicha mas'ul xodim", "Yer va mulk boshqaruvi", "Karmana tuman;Navoiy shahar", "e'tirof.kadastr.uz;kabinet.yerelektron.uz;yx.davaktiv.uz", "E'tirof etilgan ko'chmas mulk huquqlari;Yer elektron tizimi;Yer uchastkalarini xususiylashtirish", "kararx123@umail.uz", "(79) 532-10-87"),
+  tizimXodim("Shodiyev Ozod Arziqulovich", "E-qaror va yer xususiylashtirish tizimlari bo'yicha moderator", "Devonxona va ijro nazorati", "Navoiy viloyati", "e-qaror.uz;yx.davaktiv.uz", "E-qaror elektron tizimi;Yer uchastkalarini xususiylashtirish;71-son qaror", "navqurilish@umail.uz", "(79) 220-50-11"),
+  tizimXodim("Shukurov Ozodjon Faxriddin o'g'li", "Hududiy bosh mutaxassis va elektron tizimlar bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Navoiy shahar", "e'tirof.kadastr.uz;k-savdo.soliq.uz;yx.davaktiv.uz;VMQ-734", "E'tirof etilgan ko'chmas mulk huquqlari;Ko'chma savdo obyektlari;Yer xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "navarx123@umail.uz", "(79) 220-50-06"),
+  tizimXodim("Sobirov Oybek Boboqulovich", "Murojaatlar elektron tizimlari moderatori", "Murojaatlar va dispetcherlik", "Navoiy viloyati", "Faol fuqaro;cabinetpm2.gov.uz;kb-business.gov.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Tadbirkorlar virtual ofisi", "navqurilish@umail.uz", "(79) 220-50-19"),
+  tizimXodim("Sunnatov Temur Faxriddin o'g'li", "Qayta ixtisoslashtirish va rekonstruksiya ruxsatnomalari bo'yicha mutaxassis", "Qurilish va shaharsozlik", "Navoiy shahar;Navbahor tuman;Qiziltepa tuman;Konimex tuman;Xatirchi tuman", "dx.mc.uz", "Obyektni qayta ixtisoslashtirish va rekonstruksiya qilish uchun ruxsatnoma;VMQ-200", "", "(79) 220-50-21"),
+  tizimXodim("Tashnazarov Anvar Samandar o'g'li", "Hududiy bo'lim boshlig'i va yer elektron tizimi bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Karmana tuman", "kabinet.yerelektron.uz;VMQ-734", "Yer elektron tizimi;Termitdan zararlangan uy-joylarni aniqlash;71-son qaror", "kararx123@umail.uz", "(79) 532-10-87"),
+  tizimXodim("Temirov Ravshanjon Yoqubjonovich", "Murojaatlar elektron tizimlari bo'yicha hududiy mas'ul", "Murojaatlar va dispetcherlik", "Navbahor tuman", "Faol fuqaro;cabinetpm2.gov.uz;kb-business.gov.uz", "Fuqarolar murojaatlari;Virtual qabulxona;Tadbirkorlar virtual ofisi", "navbahorarx123@umail.uz", "(79) 562-18-61"),
+  tizimXodim("Toshov Ergash Gulmamatovich", "Hududiy bo'lim boshlig'i va davlat xizmatlari bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Navbahor tuman", "k-savdo.soliq.uz;yx.davaktiv.uz;VMQ-734", "Ko'chma savdo obyektlari;Yer uchastkalarini xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "navbahorarx123@umail.uz", "(79) 562-18-61"),
+  tizimXodim("Toshqulov Tohir", "E'tirof tizimi bo'yicha mas'ul xodim", "Yer va mulk boshqaruvi", "Navbahor tuman", "e'tirof.kadastr.uz", "E'tirof etilgan ko'chmas mulk huquqlari;VMQ-937", "navbahorarx123@umail.uz", "(79) 562-18-61"),
+  tizimXodim("Turdiyev Utkir Erkinovich", "Hududiy bo'lim boshlig'i va davlat xizmatlari bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Zarafshon shahar", "kabinet.yerelektron.uz;k-savdo.soliq.uz;yx.davaktiv.uz;VMQ-734", "Yer elektron tizimi;Ko'chma savdo obyektlari;Yer uchastkalarini xususiylashtirish;Termitdan zararlangan uy-joylarni aniqlash", "zararx123@umail.uz", "(79) 573-14-22"),
+  tizimXodim("Umarova Nilufar", "Arxitektura-rejalashtirish bo'yicha mutaxassis", "Arxitektura va hududlarni rejalashtirish", "Navoiy viloyati", "dx.mc.uz", "Arxitektura-rejalashtirish topshirig'ini ishlab chiqish;VMQ-200", "", "(79) 220-50-21"),
+  tizimXodim("Xaydarov Iskandarov Yusufboyevich", "Arxitektura-rejalashtirish bo'limi boshlig'i", "Arxitektura va hududlarni rejalashtirish", "Navoiy viloyati", "dx.mc.uz", "Arxitektura-rejalashtirish topshirig'ini ishlab chiqish;VMQ-200", "", "(79) 220-50-21"),
+  tizimXodim("Xidirov Alisher Nurquvvat o'g'li", "Savdo va yer xususiylashtirish tizimlari bo'yicha mas'ul", "Tuman (shahar) bo'limlari muvofiqlashtirish", "Xatirchi tuman", "k-savdo.soliq.uz;yx.davaktiv.uz", "Ko'chma savdo obyektlari;Yer uchastkalarini xususiylashtirish;71-son qaror", "xatirchiarx123@umail.uz", "(79) 544-00-86"),
+  tizimXodim("Xoliqulov Muhriddin Bahodirovich", "Qurilish davlat xizmatlari va elektron tizimlar bo'yicha mutaxassis", "Qurilish va shaharsozlik", "Navoiy viloyati;G'ozg'on shahar;Nurota tuman", "dx.mc.uz;e'tirof.kadastr.uz;edo.ijro.uz;kabinet.yerelektron.uz", "Qurilish obyektidan foydalanishga ruxsatnoma berish;E'tirof etilgan ko'chmas mulk huquqlari;Ijro intizomi;Yer elektron tizimi;VMQ-200", "navqurilish@umail.uz", "(79) 220-50-11"),
+  tizimXodim("Xolmo'minov Risqitillo Ziyodullayevich", "Ko'chma savdo tizimi bo'yicha mas'ul xodim", "Transport va jamoat infratuzilmasi", "Karmana tuman", "k-savdo.soliq.uz", "Ko'chma savdo obyektlarini ko'rib chiqish;485-son qaror", "kararx123@umail.uz", "(79) 532-10-87")
+];

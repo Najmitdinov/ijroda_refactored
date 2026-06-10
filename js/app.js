@@ -16,7 +16,7 @@ import {
   getStorage, ref as storageRef, uploadBytes, getDownloadURL
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 import { firebaseConfig } from "./firebase/config.js";
-import { IJRO_SEKTORLAR, IJRO_XODIMLAR } from "./data/ijro-default-data.js";
+import { IJRO_SEKTORLAR, IJRO_XODIMLAR, IJRO_TIZIM_XODIMLAR } from "./data/ijro-default-data.js";
 
 // ============================================================
 // 🔧 FIREBASE CONFIG — o'zingizning config ni shu yerga qo'ying
@@ -5754,6 +5754,102 @@ window.resetHisobot = () => {
 let xodimlarCache = [];
 let sektorlarCache = [];
 
+function employeeIdentityText(value='') {
+  return normalizeText(value)
+    .replace(/[^a-z0-9а-я\s'-]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^axmatqulov\b/, 'ahmatkulov')
+    .replace(/^baxadirov\b/, 'baxodirov')
+    .replace(/^bahodirov\b/, 'baxodirov')
+    .replace(/^savridinov\b/, 'savriddinov');
+}
+
+function employeeInitials(value='') {
+  return String(value || '')
+    .replace(/[.]/g, ' ')
+    .split(/\s+/)
+    .map(x => employeeIdentityText(x))
+    .filter(x => x && !/^(o'?g'?li|ugli|qizi)$/.test(x))
+    .map(x => x[0])
+    .join('');
+}
+
+function sameEmployeeProfile(a={}, b={}) {
+  const surnameA = employeeIdentityText(a.familiya).split(' ')[0] || '';
+  const surnameB = employeeIdentityText(b.familiya).split(' ')[0] || '';
+  if(!surnameA || surnameA !== surnameB) return false;
+  const firstA = employeeIdentityText(a.ism).split(' ')[0] || '';
+  const firstB = employeeIdentityText(b.ism).split(' ')[0] || '';
+  if(!firstA || !firstB) return false;
+  if(firstA === firstB || firstA.startsWith(firstB) || firstB.startsWith(firstA)) return true;
+  const initialsA = employeeInitials(a.ism);
+  const initialsB = employeeInitials(b.ism);
+  return initialsA.length >= 2 && initialsB.length >= 2 && initialsA === initialsB;
+}
+
+function mergeUniqueProfileValues(...values) {
+  return [...new Set(values.flatMap(value => Array.isArray(value) ? value : (value ? [value] : []))
+    .map(value => String(value).trim())
+    .filter(Boolean))];
+}
+
+function mergeEmployeeProfile(base={}, extra={}) {
+  const baseFirstName = employeeIdentityText(base.ism).split(' ')[0] || '';
+  const extraFirstName = employeeIdentityText(extra.ism).split(' ')[0] || '';
+  const baseIsDetailed = baseFirstName.length > 3;
+  const extraIsDetailed = extraFirstName.length > 3;
+  const tizimlar = mergeUniqueProfileValues(base.tizimlar, extra.tizimlar);
+  const vakolatlar = mergeUniqueProfileValues(base.vakolatlar, extra.vakolatlar);
+  const hududlar = mergeUniqueProfileValues(base.hududlar, extra.hududlar);
+  const sektorlar = mergeUniqueProfileValues(base.sektorlar, extra.sektorlar, base.sektor, extra.sektor);
+  const hujjatlar = mergeUniqueProfileValues(base.biriktirilgan_hujjatlar, extra.biriktirilgan_hujjatlar, base.manba_hujjat, extra.manba_hujjat);
+  const kalitSozlar = mergeUniqueProfileValues(
+    String(base.kalit_sozlar || '').split(','),
+    String(extra.kalit_sozlar || '').split(','),
+    tizimlar,
+    vakolatlar,
+    hududlar
+  ).join(', ');
+  return {
+    ...base,
+    ...extra,
+    id: base.id || extra.id,
+    familiya: base.familiya || extra.familiya,
+    ism: extraIsDetailed && !baseIsDetailed ? extra.ism : (base.ism || extra.ism),
+    lavozim: (extra.lavozim || '').length > (base.lavozim || '').length ? extra.lavozim : (base.lavozim || extra.lavozim),
+    sektor: base.sektor || extra.sektor,
+    email: base.email || extra.email,
+    telefon: base.telefon || extra.telefon,
+    hududlar,
+    sektorlar,
+    tizimlar,
+    vakolatlar,
+    kalit_sozlar: kalitSozlar,
+    manba_hujjat: hujjatlar[0] || '',
+    biriktirilgan_hujjatlar: hujjatlar,
+    faol: base.faol !== false && extra.faol !== false
+  };
+}
+
+function mergeEmployeeProfiles(profiles=[]) {
+  return profiles.reduce((result, profile) => {
+    const existingIndex = result.findIndex(item => sameEmployeeProfile(item, profile));
+    if(existingIndex < 0) result.push({ ...profile });
+    else result[existingIndex] = mergeEmployeeProfile(result[existingIndex], profile);
+    return result;
+  }, []);
+}
+
+function allIjroEmployeeProfiles() {
+  return mergeEmployeeProfiles([...IJRO_XODIMLAR, ...IJRO_TIZIM_XODIMLAR]);
+}
+
+function fishkaEmployeeCandidates() {
+  return mergeEmployeeProfiles([...allIjroEmployeeProfiles(), ...xodimlarCache])
+    .filter(x => x.faol !== false);
+}
+
 async function loadXodimlar() {
   try {
     const snap = await getDocs(query(collection(db,'xodimlar'), orderBy('familiya')));
@@ -5778,7 +5874,7 @@ function renderXodimlarTable() {
       <td>${escH(x.sektor||'—')}</td>
       <td>${escH(x.email||'—')}</td>
       <td>${escH(x.telefon||'—')}</td>
-      <td>${escH(x.kalit_sozlar||'—')}</td>
+      <td>${escH(x.kalit_sozlar||'—')}${Array.isArray(x.tizimlar) && x.tizimlar.length ? `<br><span style="font-size:10px;color:var(--blue-mid);">Tizimlar: ${escH(x.tizimlar.join(', '))}</span>` : ''}</td>
       <td><span class="badge ${x.faol!==false?'badge-done':'badge-fail'}">${x.faol!==false?'Faol':'Nofaol'}</span></td>
       <td style="display:flex;gap:4px;">
         <button class="btn btn-sm btn-outline" onclick="editXodim('${x.id}')">✏️</button>
@@ -5902,7 +5998,8 @@ window.importXodimlarExcel = (input) => {
 window.importIjroXodimlar = async () => {
   const btn = document.getElementById('btn-ijro-import');
   if(!btn) return;
-  if(!confirm(`Ijro.docx va ZIP lavozim yo'riqnomalaridan ${IJRO_XODIMLAR.length} ta xodim/lavozim profili va ${IJRO_SEKTORLAR.length} ta sektor yuklanadi.\n\nMavjud xodimlar saqlanib qoladi, lekin topilgan dublikatlar yangi tahlil qilingan kalit so'zlar va manba hujjatlar bilan yangilanadi.\n\nDavom ettirilsinmi?`)) return;
+  const importProfiles = allIjroEmployeeProfiles();
+  if(!confirm(`Ijro.docx, lavozim yo'riqnomalari va tizimlarga biriktirilgan xodimlar hujjatidan ${importProfiles.length} ta birlashtirilgan xodim/lavozim profili hamda ${IJRO_SEKTORLAR.length} ta sektor yuklanadi.\n\nMavjud xodimlar saqlanib qoladi, topilgan dublikatlar tizimlar, vakolatlar, hududlar va manba hujjatlar bilan boyitiladi.\n\nDavom ettirilsinmi?`)) return;
 
   btn.disabled = true;
   btn.textContent = '⏳ Yuklanmoqda...';
@@ -5922,14 +6019,14 @@ window.importIjroXodimlar = async () => {
 
     // 2. Import xodimlar / lavozim profillari
     let xodimSaved = 0, xodimUpdated = 0;
-    for (const x of IJRO_XODIMLAR) {
-      const existing = xodimlarCache.find(e =>
-        e.familiya.trim().toLowerCase() === x.familiya.trim().toLowerCase() &&
-        e.ism.trim().toLowerCase() === x.ism.trim().toLowerCase()
-      );
+    for (const x of importProfiles) {
+      const existing = xodimlarCache.find(e => sameEmployeeProfile(e, x));
       if (existing) {
+        const { id: _existingId, ...mergedProfile } = mergeEmployeeProfile(existing, x);
         await updateDoc(doc(db,'xodimlar',existing.id), {
-          ...x, faol: existing.faol !== false, updatedAt: serverTimestamp()
+          ...mergedProfile,
+          faol: existing.faol !== false,
+          updatedAt: serverTimestamp()
         });
         xodimUpdated++;
       } else {
@@ -5944,12 +6041,12 @@ window.importIjroXodimlar = async () => {
     hideLoading();
     btn.disabled = false;
     btn.textContent = '✅ Import qilindi!';
-    setTimeout(()=>{ if(btn) btn.textContent = '📋 Ijro.docx + ZIP dan yuklash'; }, 3000);
+    setTimeout(()=>{ if(btn) btn.textContent = '📋 Boyitilgan bazani yuklash'; }, 3000);
     showToast(`✅ ${xodimSaved} xodim/profil qo'shildi, ${xodimUpdated} tasi yangilandi, ${sektorSaved} sektor qo'shildi.`, 'success');
   } catch(e) {
     hideLoading();
     btn.disabled = false;
-    btn.textContent = '📋 Ijro.docx + ZIP dan yuklash';
+    btn.textContent = '📋 Boyitilgan bazani yuklash';
     showToast('Xatolik: ' + e.message, 'error');
   }
 };
@@ -6087,6 +6184,11 @@ function renderFishkalar() {
           </div>
           <div style="font-weight:700;font-size:13px;margin-bottom:6px;">${escH(f.hujjat_nomi||'Noma\'lum hujjat')}</div>
           <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${escH((f.ai_xulosa||'').slice(0,200))}${(f.ai_xulosa||'').length>200?'...':''}</div>
+          ${f.moslik_asosi || f.hujjat_dalili ? `<div class="fishka-saved-evidence">
+            ${f.hujjat_dalili ? `<div><span>Dalil:</span> “${escH(f.hujjat_dalili)}”</div>` : ''}
+            ${f.xodim_vakolati ? `<div><span>Vakolat:</span> ${escH(f.xodim_vakolati)}</div>` : ''}
+            ${f.moslik_asosi ? `<div><span>Tanlash asosi:</span> ${escH(f.moslik_asosi)}</div>` : ''}
+          </div>` : ''}
           ${f.rezolutsiya?`<div style="background:var(--blue-light);border-left:3px solid var(--blue-mid);padding:8px 12px;border-radius:0 6px 6px 0;font-size:12px;font-style:italic;">"${escH(f.rezolutsiya)}"</div>`:''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;min-width:110px;">
@@ -8718,6 +8820,154 @@ function normalizeAIResult(result) {
   return result;
 }
 
+function fishkaEmployeeFullName(employee={}) {
+  return `${employee.familiya || ''} ${employee.ism || ''}`.replace(/\s+/g, ' ').trim();
+}
+
+function findFishkaEmployeeCandidate(name='', candidates=fishkaEmployeeCandidates()) {
+  const cleanName = String(name || '').replace(/^EMP-\d+\s*\|\s*/i, '').trim();
+  const requested = employeeIdentityText(cleanName);
+  if(!requested) return null;
+  return candidates.find(employee => employeeIdentityText(fishkaEmployeeFullName(employee)) === requested)
+    || candidates.find(employee => sameEmployeeProfile(employee, {
+      familiya: cleanName.split(/\s+/)[0] || '',
+      ism: cleanName.split(/\s+/).slice(1).join(' ')
+    }))
+    || null;
+}
+
+function fishkaMatchTokens(value='') {
+  return [...new Set(employeeIdentityText(value)
+    .replace(/[^a-z0-9а-я' -]/gi, ' ')
+    .split(/\s+/)
+    .filter(token => token.length >= 4))];
+}
+
+function fishkaTokenOverlap(left='', right='') {
+  const leftTokens = fishkaMatchTokens(left);
+  const rightSet = new Set(fishkaMatchTokens(right));
+  if(!leftTokens.length || !rightSet.size) return 0;
+  return leftTokens.filter(token => rightSet.has(token)).length / Math.min(leftTokens.length, rightSet.size);
+}
+
+function bestFishkaResponsibility(employee={}, context='') {
+  const duties = mergeUniqueProfileValues(employee.vakolatlar, employee.tizimlar);
+  if(!duties.length) return employee.lavozim || employee.kalit_sozlar || '';
+  return duties
+    .map(value => ({ value, score: fishkaTokenOverlap(value, context) }))
+    .sort((a, b) => b.score - a.score || b.value.length - a.value.length)[0].value;
+}
+
+function normalizeFishkaMatchBands(value) {
+  const rows = Array.isArray(value) ? value : [];
+  return rows.slice(0, 4).map(item => {
+    if(typeof item === 'string') return { hujjat_bandi:item, xodim_vakolati:'', izoh:'', ball:0 };
+    return {
+      hujjat_bandi: String(item?.hujjat_bandi || item?.dalil || item?.ibora || '').trim(),
+      xodim_vakolati: String(item?.xodim_vakolati || item?.vakolat || '').trim(),
+      izoh: String(item?.izoh || item?.sabab || '').trim(),
+      ball: Math.max(0, Math.min(100, Number(item?.ball || item?.score || 0) || 0))
+    };
+  }).filter(item => item.hujjat_bandi || item.xodim_vakolati || item.izoh);
+}
+
+function calculateFishkaEvidenceConfidence(result={}, employee={}, rawText='') {
+  const profileText = [
+    employee.sektor,
+    employee.lavozim,
+    ...(employee.hududlar || []),
+    ...(employee.sektorlar || []),
+    ...(employee.tizimlar || []),
+    ...(employee.vakolatlar || []),
+    employee.kalit_sozlar
+  ].filter(Boolean).join(' ');
+  const evidence = result.hujjat_dalili || result.moslik_bandlari?.[0]?.hujjat_bandi || '';
+  const responsibility = result.xodim_vakolati || result.moslik_bandlari?.[0]?.xodim_vakolati || '';
+  const reason = result.moslik_asosi || result.moslik_bandlari?.[0]?.izoh || '';
+  let score = 30;
+  if(fishkaEmployeeFullName(employee)) score += 15;
+  if(evidence.length >= 20) score += 12;
+  if(responsibility.length >= 15) score += 10;
+  if(reason.length >= 35) score += 10;
+  if(fishkaTokenOverlap(responsibility, profileText) >= 0.18) score += 10;
+  if(fishkaTokenOverlap(`${evidence} ${reason}`, profileText) >= 0.12) score += 8;
+  if(employeeIdentityText(result.sektor) === employeeIdentityText(employee.sektor)) score += 5;
+  if(rawText && evidence) {
+    const source = employeeIdentityText(rawText);
+    const quote = employeeIdentityText(evidence);
+    score += quote.length >= 16 && source.includes(quote) ? 10 : -8;
+  }
+  return Math.max(35, Math.min(98, Math.round(score)));
+}
+
+function enrichFishkaMatchResult(result={}, rawText='') {
+  const candidates = fishkaEmployeeCandidates();
+  const employee = findFishkaEmployeeCandidate(result.xodim, candidates);
+  if(!employee) {
+    return {
+      ...result,
+      _matchError: `AI tanlagan "${result.xodim || 'noma’lum'}" xodim xodimlar bazasida topilmadi.`
+    };
+  }
+  const bands = normalizeFishkaMatchBands(result.moslik_bandlari);
+  const firstBand = bands[0] || {};
+  const evidence = String(result.hujjat_dalili || firstBand.hujjat_bandi || '').trim();
+  const responsibility = String(
+    result.xodim_vakolati
+    || firstBand.xodim_vakolati
+    || bestFishkaResponsibility(employee, `${evidence} ${result.xulosa || ''}`)
+  ).trim();
+  const reason = String(
+    result.moslik_asosi
+    || firstBand.izoh
+    || `Hujjatdagi vazifa ${responsibility || employee.lavozim || 'xodimning xizmat vazifasi'} bilan mazmunan mos keladi.`
+  ).trim();
+  if(!evidence || evidence.length < 12 || !responsibility || !reason) {
+    return {
+      ...result,
+      _matchError: 'AI xodim tanlovini hujjatdagi aniq band va xodim vakolati bilan yetarli asoslamadi.'
+    };
+  }
+  const normalizedBands = bands.length ? bands : [{
+    hujjat_bandi: evidence,
+    xodim_vakolati: responsibility,
+    izoh: reason,
+    ball: Number(result.ishonch || 0)
+  }];
+  const evidenceConfidence = calculateFishkaEvidenceConfidence({
+    ...result,
+    hujjat_dalili: evidence,
+    xodim_vakolati: responsibility,
+    moslik_asosi: reason,
+    moslik_bandlari: normalizedBands
+  }, employee, rawText);
+  const aiConfidence = Math.max(0, Math.min(100, Number(result.ishonch || 0) || 0));
+  const finalConfidence = aiConfidence
+    ? Math.round((aiConfidence * 0.55) + (evidenceConfidence * 0.45))
+    : evidenceConfidence;
+  const sourceText = employeeIdentityText(rawText);
+  const quoteText = employeeIdentityText(evidence);
+  return {
+    ...result,
+    xodim: fishkaEmployeeFullName(employee),
+    sektor: result.sektor || employee.sektor || '',
+    hujjat_dalili: evidence,
+    xodim_vakolati: responsibility,
+    moslik_asosi: reason,
+    moslik_bandlari: normalizedBands,
+    xodim_profili: {
+      lavozim: employee.lavozim || '',
+      sektor: employee.sektor || '',
+      hududlar: employee.hududlar || [],
+      tizimlar: employee.tizimlar || [],
+      manba_hujjat: employee.manba_hujjat || ''
+    },
+    dalil_tasdiqlangan: rawText && evidence ? sourceText.includes(quoteText) : null,
+    ishonch: Math.max(35, Math.min(98, finalConfidence)),
+    _evidenceConfidence: evidenceConfidence
+  };
+}
+
 async function analyzeWithAI(filePart, type, fileName, rawText='') {
   const aiStatus = document.getElementById('fishka-ai-status');
   if(aiStatus) {
@@ -8743,14 +8993,19 @@ async function analyzeWithAI(filePart, type, fileName, rawText='') {
     });
   }
 
-  const xodimList = xodimlarCache.map(x=> {
+  const candidateEmployees = fishkaEmployeeCandidates();
+  const xodimList = candidateEmployees.map((x, index)=> {
     const fullName = `${x.familiya} ${x.ism}`;
     const openCount = openTasksPerXodim[fullName] || 0;
     const yuklamaText = openCount === 0 ? 'Yuklama: bo\'sh' : `Yuklama: ${openCount} ta ochiq topshiriq`;
     const hujjatlar = Array.isArray(x.biriktirilgan_hujjatlar)
       ? x.biriktirilgan_hujjatlar.join('; ')
       : (x.manba_hujjat || '');
-    return `- ${fullName} | Lavozim: ${x.lavozim||'—'} | Sektor: ${x.sektor||'—'} | ${yuklamaText} | Biriktirilgan hujjatlar: ${hujjatlar||'—'} | Kalit so\'zlar: ${x.kalit_sozlar||'—'}`;
+    const hududlar = Array.isArray(x.hududlar) ? x.hududlar.join('; ') : '';
+    const sektorlar = Array.isArray(x.sektorlar) ? x.sektorlar.join('; ') : (x.sektor || '');
+    const tizimlar = Array.isArray(x.tizimlar) ? x.tizimlar.join('; ') : '';
+    const vakolatlar = Array.isArray(x.vakolatlar) ? x.vakolatlar.join('; ') : '';
+    return `- EMP-${String(index + 1).padStart(3,'0')} | ${fullName} | Lavozim: ${x.lavozim||'—'} | Sektorlar: ${sektorlar||'—'} | Hudud: ${hududlar||'—'} | ${yuklamaText} | Tizimlar: ${tizimlar||'—'} | Aniq vakolatlar: ${vakolatlar||'—'} | Biriktirilgan hujjatlar: ${hujjatlar||'—'} | Kalit so'zlar: ${x.kalit_sozlar||'—'}`;
   }).join('\n');
   const sektorList = sektorlarCache.map(s=>
     `- ${s.nom} | Kalit so\'zlar: ${s.kalit_sozlar||'—'} | Tavsif: ${s.tavsif||'—'}`
@@ -8760,20 +9015,28 @@ async function analyzeWithAI(filePart, type, fileName, rawText='') {
   const deadline10 = addWorkDays(today,10);
   const deadline12 = addWorkDays(today,12);
 
-  const systemPrompt = `Sen O'zbekiston davlat muassasasi uchun hujjat tahlil qiladigan AI yordamchisisan.
-Vazifa: PDF, Word matni, screenshot/rasm yoki qo'lda kiritilgan matndan rasmiy topshiriqni chuqur tahlil qil.
+  const systemPrompt = `Sen O'zbekiston davlat muassasasi uchun hujjat tahlil qiladigan professional AI yordamchisisan.
+  Vazifa: PDF, Word matni, screenshot/rasm yoki qo'lda kiritilgan matndagi HAR BIR TOPSHIRIQ BANDINI chuqur tahlil qilib, uni xodimning aniq lavozim vazifasi, hududi, biriktirilgan elektron tizimi va vakolati bilan solishtir.
 
-Aniqlashing kerak:
-1. Hujjat mazmuni qaysi SEKTOR/BO'LIMga tegishli.
-2. Mavjud xodimlar ichidan eng mos IJROCHI kim.
-   MUHIM QOIDA — YUKLAMANI MUVOZANATLASH:
-   - Har xodimning "Yuklama" ko'rsatkichiga e'tibor ber.
-   - Agar eng mos xodimda 5 va undan ko'p ochiq topshiriq bo'lsa, xuddi shu sektordagi kamroq yuklangan xodimni tanlashni ko'rib chiq.
-   - "bo'sh" (0 ta) yoki kam topshiriqlı xodimlarni afzal ko'r — agar ularning kalit so'zlari ham mos bo'lsa.
-   - Ishonch darajasi 80%+ bo'lsa ham, bir xodimga 5 tadan ortiq topshiriq yuklamaslik uchun alternativni ko'rib chiq.
-3. MUDDAT: agar hujjatda aniq muddat, sana, "falon kungacha", "zudlik bilan", "3 kun ichida" kabi talab bo'lsa, shu asosda muddat qo'y. Agar muddat umuman topilmasa, murakkabroq/topshiriqli hujjatga 12 ish kuni (${fmtDate(deadline12)}), oddiy murojaat yoki standart xatga 10 ish kuni (${fmtDate(deadline10)}) qo'y.
-4. Hujjatdan kimga tegishli ekanini, asosiy talabni, raqam/sana/tashkilotni imkon qadar ajrat.
-5. Qisqa xulosa va rasmiy rezolutsiya yoz.
+  Aniqlashing kerak:
+  1. Hujjat mazmuni qaysi SEKTOR/BO'LIMga tegishli.
+  2. Mavjud xodimlar ichidan eng mos IJROCHI kim. Faqat ro'yxatdagi xodimni, F.I.Sh. aynan ro'yxatda yozilgan shaklda tanla.
+  3. NEGA AYNAN SHU XODIM tanlanganini isbotla:
+     - "hujjat_dalili" maydoniga hujjatning tegishli bandi yoki 8-45 so'zli aniq iborasini ko'chir;
+     - "xodim_vakolati" maydoniga ro'yxatdagi ushbu xodimga biriktirilgan aniq tizim/vakolatni yoz;
+     - "moslik_asosi" maydonida hujjat dalili va xodim vakolati orasidagi mantiqiy bog'lanishni tushuntir;
+     - "moslik_bandlari" ichida zarur bo'lsa bir nechta bandni alohida taqqosla;
+     - hujjatda hudud, tizim nomi, qaror raqami yoki xizmat turi ko'rsatilgan bo'lsa, bular xodim tanlashda asosiy dalil bo'lsin.
+     - dalilni o'ylab topma; faqat yuklangan hujjatda mavjud iborani keltir.
+     MUHIM QOIDA — YUKLAMANI MUVOZANATLASH:
+     - Har xodimning "Yuklama" ko'rsatkichiga e'tibor ber.
+     - Agar eng mos xodimda 5 va undan ko'p ochiq topshiriq bo'lsa, xuddi shu sektordagi kamroq yuklangan xodimni tanlashni ko'rib chiq.
+     - "bo'sh" (0 ta) yoki kam topshiriqlı xodimlarni afzal ko'r — agar ularning kalit so'zlari ham mos bo'lsa.
+     - Yuklama faqat bir xil darajada mos xodimlar o'rtasida ikkilamchi mezon. Vakolati mos bo'lmagan xodimni yuklamasi kamligi uchun tanlama.
+  4. MUDDAT: agar hujjatda aniq muddat, sana, "falon kungacha", "zudlik bilan", "3 kun ichida" kabi talab bo'lsa, shu asosda muddat qo'y. Agar muddat umuman topilmasa, murakkabroq/topshiriqli hujjatga 12 ish kuni (${fmtDate(deadline12)}), oddiy murojaat yoki standart xatga 10 ish kuni (${fmtDate(deadline10)}) qo'y.
+  5. Hujjatdan kimga tegishli ekanini, asosiy talabni, raqam/sana/tashkilotni imkon qadar ajrat.
+  6. Qisqa xulosa va rasmiy rezolutsiya yoz.
+  7. Yakunda ichki tekshiruv o'tkaz: xodimning vakolati hujjat daliliga to'g'ridan-to'g'ri mos kelmasa, boshqa xodimni tanla va ishonchni sun'iy oshirma.
 
 Bugungi sana: ${todayStr}
 
@@ -8791,11 +9054,24 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
   "muddat_asosi": "hujjatda ko'rsatilgan",
   "xulosa": "2-3 jumlalik xulosa",
   "rezolutsiya": "Kimga, nima vazifa, qaysi muddatgacha bajarilishi rasmiy matni",
-  "hujjat_raqami": "topilsa",
-  "hujjat_sanasi": "topilsa KK.OO.YYYY",
-  "kimdan": "topilsa tashkilot yoki shaxs",
-  "ishonch": 85
-}`;
+    "hujjat_raqami": "topilsa",
+    "hujjat_sanasi": "topilsa KK.OO.YYYY",
+    "kimdan": "topilsa tashkilot yoki shaxs",
+    "hujjat_dalili": "hujjatdan aynan olingan band yoki 8-45 so'zli ibora",
+    "xodim_vakolati": "tanlangan xodim profilidagi aynan mos tizim yoki vazifa",
+    "moslik_asosi": "nega hujjatdagi shu band aynan ushbu xodim vakolatiga kirishi haqida aniq izoh",
+    "moslik_bandlari": [
+      {
+        "hujjat_bandi": "hujjatdan aniq ibora",
+        "xodim_vakolati": "profilning mos vakolati",
+        "izoh": "band va vakolat o'rtasidagi bog'lanish",
+        "ball": 90
+      }
+    ],
+    "alternativ_xodim": "ikkinchi eng mos xodim yoki bo'sh satr",
+    "alternativ_sababi": "nega asosiy xodimdan keyin turishi",
+    "ishonch": 85
+  }`;
 
   const instructionText = type === 'file' && filePart
     ? `${fileName} faylini ko'rib/OCR qilib tahlil qil. PDF yoki screenshot ichidagi barcha ko'rinadigan matn, jadval, muhr/sana va rezolutsiya belgilarini inobatga ol.`
@@ -8839,9 +9115,27 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
                   hujjat_raqami: { type: 'STRING' },
                   hujjat_sanasi: { type: 'STRING' },
                   kimdan: { type: 'STRING' },
+                  hujjat_dalili: { type: 'STRING' },
+                  xodim_vakolati: { type: 'STRING' },
+                  moslik_asosi: { type: 'STRING' },
+                  moslik_bandlari: {
+                    type: 'ARRAY',
+                    items: {
+                      type: 'OBJECT',
+                      properties: {
+                        hujjat_bandi: { type: 'STRING' },
+                        xodim_vakolati: { type: 'STRING' },
+                        izoh: { type: 'STRING' },
+                        ball: { type: 'NUMBER' }
+                      },
+                      required: ['hujjat_bandi','xodim_vakolati','izoh','ball']
+                    }
+                  },
+                  alternativ_xodim: { type: 'STRING' },
+                  alternativ_sababi: { type: 'STRING' },
                   ishonch: { type: 'NUMBER' }
                 },
-                required: ['sektor','xodim','muddat','muddat_asosi','xulosa','rezolutsiya','ishonch']
+                required: ['sektor','xodim','muddat','muddat_asosi','xulosa','rezolutsiya','hujjat_dalili','xodim_vakolati','moslik_asosi','moslik_bandlari','ishonch']
               }
             }
           };
@@ -8933,10 +9227,15 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
 
   let result = parseAIJson(resultText);
   result = normalizeAIResult(result);
+  if(result) result = enrichFishkaMatchResult(result, rawText);
 
   if(!result) {
     console.warn('AI raw response:', resultText);
     if(aiStatus) aiStatus.innerHTML=`<div class="ai-error">❌ AI javobini o'qishda xatolik. Qaytadan urinib ko'ring.<br><small>Javob JSON formatda kelmadi. Konsolda xom javob saqlandi.</small></div>`;
+    return;
+  }
+  if(result._matchError) {
+    if(aiStatus) aiStatus.innerHTML=`<div class="ai-error">❌ ${escH(result._matchError)}<br><small>Xodimlar bazasini yangilang yoki tahlilni qayta bajaring.</small></div>`;
     return;
   }
 
@@ -8954,6 +9253,14 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
           <div><span class="ai-label">📆 Hujjat sanasi</span><span class="ai-val">${escH(result.hujjat_sanasi||'—')}</span></div>
         </div>
         ${result.kimdan?`<div style="font-size:11px;background:#ecfdf5;border-radius:6px;padding:8px 12px;margin-bottom:10px;color:#065f46;">🏛️ "${escH(result.kimdan)}" tashkiloti avtomatik ro'yxatga qo'shiladi</div>`:''}
+        <div class="fishka-match-evidence">
+          <div class="fishka-match-title">Nega aynan ${escH(result.xodim || 'shu xodim')}?</div>
+          ${result.hujjat_dalili ? `<div class="fishka-match-row"><span>Hujjatdagi dalil</span><b>“${escH(result.hujjat_dalili)}”</b></div>` : ''}
+          ${result.xodim_vakolati ? `<div class="fishka-match-row"><span>Xodim vakolati</span><b>${escH(result.xodim_vakolati)}</b></div>` : ''}
+          ${result.moslik_asosi ? `<div class="fishka-match-row"><span>Moslik izohi</span><b>${escH(result.moslik_asosi)}</b></div>` : ''}
+          ${Array.isArray(result.moslik_bandlari) && result.moslik_bandlari.length > 1 ? `<div class="fishka-match-bands">${result.moslik_bandlari.slice(1).map((band, index) => `<div><strong>${index + 2}-dalil:</strong> ${escH(band.hujjat_bandi || '')}${band.izoh ? ` — ${escH(band.izoh)}` : ''}</div>`).join('')}</div>` : ''}
+          ${result.alternativ_xodim ? `<div class="fishka-match-alt"><span>Muqobil xodim:</span> ${escH(result.alternativ_xodim)}${result.alternativ_sababi ? ` — ${escH(result.alternativ_sababi)}` : ''}</div>` : ''}
+        </div>
         <div class="ai-xulosa">${escH(result.xulosa||'')}</div>
         <div class="ai-rezolutsiya">"${escH(result.rezolutsiya||'')}"</div>
         <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
@@ -9028,6 +9335,14 @@ window.saveFishka = async (resultJson, fileName) => {
       hujjat_raqami: result.hujjat_raqami||'',
       hujjat_sanasi: result.hujjat_sanasi||'',
       kimdan: result.kimdan||'',
+      hujjat_dalili: result.hujjat_dalili||'',
+      xodim_vakolati: result.xodim_vakolati||'',
+      moslik_asosi: result.moslik_asosi||'',
+      moslik_bandlari: Array.isArray(result.moslik_bandlari) ? result.moslik_bandlari : [],
+      alternativ_xodim: result.alternativ_xodim||'',
+      alternativ_sababi: result.alternativ_sababi||'',
+      xodim_profili: result.xodim_profili||{},
+      dalil_tasdiqlangan: result.dalil_tasdiqlangan ?? null,
       status: 'Yangi',
       createdBy: currentUser?.uid||'',
       createdByName: currentUserData?.fullName||'',
