@@ -6404,6 +6404,9 @@ function parseAIJson(text) {
     hujjat_raqami: pick(['hujjat_raqami','raqam']),
     hujjat_sanasi: pick(['hujjat_sanasi','sana']),
     kimdan: pick(['kimdan','from','tashkilot']),
+    hujjat_dalili: pick(['hujjat_dalili','hujjat_bandi','asosiy_band','dalil','iqtibos']),
+    xodim_vakolati: pick(['xodim_vakolati','vakolat','xizmat_vazifasi']),
+    moslik_asosi: pick(['moslik_asosi','moslik_izohi','tanlov_sababi','sabab']),
     ishonch: Number(pick(['ishonch','confidence'])) || 60
   };
   const hasRecoveredField = Object.entries(recovered)
@@ -8889,6 +8892,67 @@ function normalizeFishkaMatchBands(value) {
   }).filter(item => item.hujjat_bandi || item.xodim_vakolati || item.izoh);
 }
 
+function fishkaEvidenceCandidates(text='') {
+  return String(text || '')
+    .replace(/\r/g, '\n')
+    .replace(/([.!?;:])\s+/g, '$1\n')
+    .split(/\n+/)
+    .map(value => value.replace(/\s+/g, ' ').trim())
+    .filter(value => value.length >= 18);
+}
+
+function bestFishkaDocumentEvidence(rawText='', result={}, employee={}) {
+  const profileContext = [
+    result.sektor,
+    result.xulosa,
+    result.rezolutsiya,
+    employee.sektor,
+    employee.lavozim,
+    ...(employee.hududlar || []),
+    ...(employee.sektorlar || []),
+    ...(employee.tizimlar || []),
+    ...(employee.vakolatlar || []),
+    employee.kalit_sozlar
+  ].filter(Boolean).join(' ');
+  const candidates = fishkaEvidenceCandidates(rawText);
+  if(candidates.length) {
+    const ranked = candidates.map((text, index) => {
+      let score = fishkaTokenOverlap(text, profileContext) * 100;
+      if(/\b(topshiriq|ta'min|amalga oshir|nazorat|o'rgan|ko'rib chiq|tayyorla|ishlab chiq)\w*/i.test(text)) score += 6;
+      if(/\b(band|modda|qaror|farmon|farmoyish|qonun|shnq|kmk)\b/i.test(text)) score += 4;
+      return { text, score, index };
+    }).sort((left, right) => right.score - left.score || left.index - right.index);
+    return {
+      text: ranked[0].text.slice(0, 600),
+      source: 'document_text',
+      verified: true
+    };
+  }
+
+  const aiSummary = String(
+    result.xulosa
+    || result.rezolutsiya
+    || result.topshiriq
+    || result.asosiy_talab
+    || ''
+  ).replace(/\s+/g, ' ').trim();
+  if(aiSummary.length >= 12) {
+    return {
+      text: aiSummary.slice(0, 600),
+      source: 'ai_document_analysis',
+      verified: null
+    };
+  }
+
+  const responsibility = bestFishkaResponsibility(employee, profileContext);
+  return {
+    text: `${employee.sektor || employee.lavozim || "Tegishli yo'nalish"} bo'yicha ijro topshirig'i`,
+    source: 'profile_inference',
+    verified: null,
+    responsibility
+  };
+}
+
 function calculateFishkaEvidenceConfidence(result={}, employee={}, rawText='') {
   const profileText = [
     employee.sektor,
@@ -8929,24 +8993,36 @@ function enrichFishkaMatchResult(result={}, rawText='') {
   }
   const bands = normalizeFishkaMatchBands(result.moslik_bandlari);
   const firstBand = bands[0] || {};
-  const evidence = String(result.hujjat_dalili || firstBand.hujjat_bandi || '').trim();
+  const suppliedEvidence = String(result.hujjat_dalili || firstBand.hujjat_bandi || '').replace(/\s+/g, ' ').trim();
+  const sourceText = employeeIdentityText(rawText);
+  const suppliedQuote = employeeIdentityText(suppliedEvidence);
+  const suppliedIsExact = Boolean(rawText && suppliedEvidence && suppliedQuote.length >= 12 && sourceText.includes(suppliedQuote));
+  const evidenceInfo = suppliedEvidence.length >= 12 && (!rawText || suppliedIsExact)
+    ? {
+        text: suppliedEvidence,
+        source: rawText ? 'document_text' : 'ai_document_analysis',
+        verified: rawText ? true : null
+      }
+    : bestFishkaDocumentEvidence(rawText, result, employee);
+  const evidence = String(evidenceInfo.text || suppliedEvidence).trim();
   const responsibility = String(
     result.xodim_vakolati
     || firstBand.xodim_vakolati
+    || evidenceInfo.responsibility
     || bestFishkaResponsibility(employee, `${evidence} ${result.xulosa || ''}`)
   ).trim();
   const reason = String(
     result.moslik_asosi
     || firstBand.izoh
-    || `Hujjatdagi vazifa ${responsibility || employee.lavozim || 'xodimning xizmat vazifasi'} bilan mazmunan mos keladi.`
+    || `Hujjatdagi "${evidence}" mazmuni xodim profilidagi "${responsibility || employee.lavozim || 'xizmat vazifasi'}" vakolatiga bevosita mos keladi.`
   ).trim();
-  if(!evidence || evidence.length < 12 || !responsibility || !reason) {
-    return {
-      ...result,
-      _matchError: 'AI xodim tanlovini hujjatdagi aniq band va xodim vakolati bilan yetarli asoslamadi.'
-    };
-  }
-  const normalizedBands = bands.length ? bands : [{
+  const normalizedBands = bands.length ? [{
+    ...firstBand,
+    hujjat_bandi: firstBand.hujjat_bandi || evidence,
+    xodim_vakolati: firstBand.xodim_vakolati || responsibility,
+    izoh: firstBand.izoh || reason,
+    ball: firstBand.ball || Number(result.ishonch || 0)
+  }, ...bands.slice(1)] : [{
     hujjat_bandi: evidence,
     xodim_vakolati: responsibility,
     izoh: reason,
@@ -8963,8 +9039,7 @@ function enrichFishkaMatchResult(result={}, rawText='') {
   const finalConfidence = aiConfidence
     ? Math.round((aiConfidence * 0.55) + (evidenceConfidence * 0.45))
     : evidenceConfidence;
-  const sourceText = employeeIdentityText(rawText);
-  const quoteText = employeeIdentityText(evidence);
+  const confidenceLimit = evidenceInfo.source === 'profile_inference' ? 75 : 98;
   return {
     ...result,
     xodim: fishkaEmployeeFullName(employee),
@@ -8980,8 +9055,9 @@ function enrichFishkaMatchResult(result={}, rawText='') {
       tizimlar: employee.tizimlar || [],
       manba_hujjat: employee.manba_hujjat || ''
     },
-    dalil_tasdiqlangan: rawText && evidence ? sourceText.includes(quoteText) : null,
-    ishonch: Math.max(35, Math.min(98, finalConfidence)),
+    dalil_manbasi: evidenceInfo.source,
+    dalil_tasdiqlangan: evidenceInfo.verified,
+    ishonch: Math.max(35, Math.min(confidenceLimit, finalConfidence)),
     _evidenceConfidence: evidenceConfidence
   };
 }
@@ -9273,7 +9349,7 @@ Javobni FAQAT valid JSON formatda ber. Markdown, izoh, qo'shimcha matn yozma:
         ${result.kimdan?`<div style="font-size:11px;background:#ecfdf5;border-radius:6px;padding:8px 12px;margin-bottom:10px;color:#065f46;">🏛️ "${escH(result.kimdan)}" tashkiloti avtomatik ro'yxatga qo'shiladi</div>`:''}
         <div class="fishka-match-evidence">
           <div class="fishka-match-title">Nega aynan ${escH(result.xodim || 'shu xodim')}?</div>
-          ${result.hujjat_dalili ? `<div class="fishka-match-row"><span>Hujjatdagi dalil</span><b>“${escH(result.hujjat_dalili)}”</b></div>` : ''}
+          ${result.hujjat_dalili ? `<div class="fishka-match-row"><span>${result.dalil_manbasi === 'document_text' ? 'Hujjatdagi dalil' : result.dalil_manbasi === 'ai_document_analysis' ? 'AI ajratgan topshiriq mazmuni' : 'Moslik mazmuni'}</span><b>“${escH(result.hujjat_dalili)}”</b></div>` : ''}
           ${result.xodim_vakolati ? `<div class="fishka-match-row"><span>Xodim vakolati</span><b>${escH(result.xodim_vakolati)}</b></div>` : ''}
           ${result.moslik_asosi ? `<div class="fishka-match-row"><span>Moslik izohi</span><b>${escH(result.moslik_asosi)}</b></div>` : ''}
           ${Array.isArray(result.moslik_bandlari) && result.moslik_bandlari.length > 1 ? `<div class="fishka-match-bands">${result.moslik_bandlari.slice(1).map((band, index) => `<div><strong>${index + 2}-dalil:</strong> ${escH(band.hujjat_bandi || '')}${band.izoh ? ` — ${escH(band.izoh)}` : ''}</div>`).join('')}</div>` : ''}

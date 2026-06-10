@@ -36,6 +36,8 @@ const functionNames = [
   'fishkaTokenOverlap',
   'bestFishkaResponsibility',
   'normalizeFishkaMatchBands',
+  'fishkaEvidenceCandidates',
+  'bestFishkaDocumentEvidence',
   'calculateFishkaEvidenceConfidence',
   'enrichFishkaMatchResult'
 ];
@@ -145,6 +147,25 @@ const missingEvidence = runtime.enrichFishkaMatchResult({
   moslik_asosi:'',
   ishonch:95
 }, "Arxitektura-rejalashtirish topshirig'i ishlab chiqilsin.");
-assert.match(missingEvidence._matchError, /aniq band/i);
+assert.equal(missingEvidence._matchError, undefined, missingEvidence._matchError);
+assert.match(missingEvidence.hujjat_dalili, /Arxitektura-rejalashtirish/i);
+assert.equal(missingEvidence.dalil_manbasi, 'document_text');
+assert.equal(missingEvidence.dalil_tasdiqlangan, true);
+assert.ok(missingEvidence.xodim_vakolati.length >= 10);
+assert.ok(missingEvidence.moslik_asosi.length >= 35);
 
-console.log(`Fishka xodim mosligi: ${profiles.length} profil va ${scenarios.length} dalilli ssenariy muvaffaqiyatli tekshirildi.`);
+const scannedEvidence = runtime.enrichFishkaMatchResult({
+  xodim:'Quvondiqov Asilbek',
+  hujjat_dalili:'',
+  xodim_vakolati:'',
+  moslik_asosi:'',
+  xulosa:"Skaner hujjatda arxitektura-rejalashtirish topshirig'ini ishlab chiqish vazifasi belgilangan.",
+  ishonch:91
+}, '');
+assert.equal(scannedEvidence._matchError, undefined, scannedEvidence._matchError);
+assert.equal(scannedEvidence.dalil_manbasi, 'ai_document_analysis');
+assert.equal(scannedEvidence.dalil_tasdiqlangan, null);
+assert.match(scannedEvidence.hujjat_dalili, /arxitektura-rejalashtirish/i);
+assert.ok(scannedEvidence.xodim_vakolati.length >= 10);
+
+console.log(`Fishka xodim mosligi: ${profiles.length} profil, ${scenarios.length} dalilli va 2 fallback ssenariy muvaffaqiyatli tekshirildi.`);
