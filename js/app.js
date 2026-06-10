@@ -5817,10 +5817,10 @@ function mergeEmployeeProfile(base={}, extra={}) {
     id: base.id || extra.id,
     familiya: base.familiya || extra.familiya,
     ism: extraIsDetailed && !baseIsDetailed ? extra.ism : (base.ism || extra.ism),
-    lavozim: (extra.lavozim || '').length > (base.lavozim || '').length ? extra.lavozim : (base.lavozim || extra.lavozim),
-    sektor: base.sektor || extra.sektor,
-    email: base.email || extra.email,
-    telefon: base.telefon || extra.telefon,
+    lavozim: (extra.lavozim || '').length > (base.lavozim || '').length ? (extra.lavozim || '') : (base.lavozim || extra.lavozim || ''),
+    sektor: base.sektor || extra.sektor || '',
+    email: base.email || extra.email || '',
+    telefon: base.telefon || extra.telefon || '',
     hududlar,
     sektorlar,
     tizimlar,
@@ -5830,6 +5830,22 @@ function mergeEmployeeProfile(base={}, extra={}) {
     biriktirilgan_hujjatlar: hujjatlar,
     faol: base.faol !== false && extra.faol !== false
   };
+}
+
+function firestoreSafeEmployeeData(value) {
+  if(Array.isArray(value)) {
+    return value
+      .filter(item => item !== undefined)
+      .map(item => firestoreSafeEmployeeData(item));
+  }
+  if(value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, firestoreSafeEmployeeData(item)])
+    );
+  }
+  return value;
 }
 
 function mergeEmployeeProfiles(profiles=[]) {
@@ -6023,15 +6039,17 @@ window.importIjroXodimlar = async () => {
       const existing = xodimlarCache.find(e => sameEmployeeProfile(e, x));
       if (existing) {
         const { id: _existingId, ...mergedProfile } = mergeEmployeeProfile(existing, x);
+        const safeProfile = firestoreSafeEmployeeData(mergedProfile);
         await updateDoc(doc(db,'xodimlar',existing.id), {
-          ...mergedProfile,
+          ...safeProfile,
           faol: existing.faol !== false,
           updatedAt: serverTimestamp()
         });
         xodimUpdated++;
       } else {
+        const safeProfile = firestoreSafeEmployeeData(x);
         await addDoc(collection(db,'xodimlar'), {
-          ...x, faol: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+          ...safeProfile, faol: true, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         });
         xodimSaved++;
       }

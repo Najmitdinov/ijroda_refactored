@@ -26,6 +26,7 @@ const functionNames = [
   'sameEmployeeProfile',
   'mergeUniqueProfileValues',
   'mergeEmployeeProfile',
+  'firestoreSafeEmployeeData',
   'mergeEmployeeProfiles',
   'allIjroEmployeeProfiles',
   'fishkaEmployeeCandidates',
@@ -50,6 +51,8 @@ const runtime = new Function(
       allIjroEmployeeProfiles,
       fishkaEmployeeCandidates,
       findFishkaEmployeeCandidate,
+      mergeEmployeeProfile,
+      firestoreSafeEmployeeData,
       enrichFishkaMatchResult
     };
   `
@@ -58,6 +61,16 @@ const runtime = new Function(
 const profiles = runtime.allIjroEmployeeProfiles();
 assert.ok(profiles.length >= 65, `Birlashtirilgan profil soni kutilganidan kam: ${profiles.length}`);
 assert.ok(profiles.length < IJRO_XODIMLAR.length + IJRO_TIZIM_XODIMLAR.length, 'Dublikat profillar birlashtirilmadi');
+
+const emailMissingProfile = runtime.mergeEmployeeProfile(
+  { id:'existing-id', familiya:'Mamanov', ism:'Toxir', email:undefined, telefon:undefined },
+  { familiya:'Mamanov', ism:"Toxir Alisher o'g'li", lavozim:'Mutaxassis', nested:{ optional:undefined } }
+);
+const firestorePayload = runtime.firestoreSafeEmployeeData(emailMissingProfile);
+assert.equal(firestorePayload.email, '', 'Email yo‘q bo‘lsa bo‘sh satrga aylanishi kerak');
+assert.equal(firestorePayload.telefon, '', 'Telefon yo‘q bo‘lsa bo‘sh satrga aylanishi kerak');
+assert.equal(Object.hasOwn(firestorePayload.nested, 'optional'), false, 'Ichki undefined maydon Firestore payloadidan olib tashlanishi kerak');
+assert.doesNotMatch(JSON.stringify(firestorePayload), /undefined/, 'Firestore payloadida undefined qolmasligi kerak');
 
 const oydinov = runtime.findFishkaEmployeeCandidate("Oydinov Shoxruz Ilhomiddin o'g'li", profiles);
 assert.ok(oydinov, 'Oydinov Shoxruz profili topilmadi');
