@@ -24,6 +24,7 @@ const envSchema = z.object({
   TELEGRAM_WEBHOOK_URL: z.string().optional(),
   PUBLIC_BACKEND_URL: z.string().optional(),
   RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
+  FIREBASE_PROJECT_ID: z.string().default('ijroda-tizimi'),
   OPENROUTER_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional()

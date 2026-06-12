@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import http from 'node:http';
+import jwt from 'jsonwebtoken';
 
 const schemaSql = await readFile(new URL('../database/migrations/002_telegram_bot_schema.sql', import.meta.url), 'utf8');
 for (const table of ['organizations', 'letters', 'notification_logs', 'bot_settings']) {
@@ -10,11 +12,16 @@ const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8
 assert.match(appSource, /function buildTelegramDatabasePayload/);
 assert.match(appSource, /callTelegramBackend\('\/sync'/);
 assert.match(appSource, /applyTelegramLetterStatuses/);
+assert.match(appSource, /currentUser\.getIdToken\(\)/);
+assert.doesNotMatch(appSource, /id="tg-admin-secret"/);
 
 const updateHandlerSource = await readFile(new URL('../backend/src/services/telegram-update-handler.ts', import.meta.url), 'utf8');
 assert.match(updateHandlerSource, /\/settings/);
 assert.match(updateHandlerSource, /letters/);
 assert.match(updateHandlerSource, /length\(regexp_replace\(\$3,[\s\S]*\)\) >= 7/);
+
+const telegramRoutesSource = await readFile(new URL('../backend/src/routes/telegram.routes.ts', import.meta.url), 'utf8');
+assert.match(telegramRoutesSource, /verifyFirebaseAdminToken/);
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -66,10 +73,12 @@ process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-with-at-least-24-character
 process.env.TELEGRAM_BOT_TOKEN = 'TEST_TOKEN';
 process.env.TELEGRAM_API_BASE = fakeTelegramBase;
 process.env.TELEGRAM_ADMIN_SECRET = 'admin secret containing spaces';
+process.env.FIREBASE_PROJECT_ID = 'ijroda-tizimi';
 delete process.env.TELEGRAM_WEBHOOK_SECRET;
 process.env.PUBLIC_BACKEND_URL = 'https://example.railway.app';
 
 const telegramService = await import('../backend/src/services/telegram-service.ts');
+const firebaseAuth = await import('../backend/src/services/firebase-auth.ts');
 const { pool } = await import('../backend/src/db/pool.ts');
 const telegramRouter = (await import('../backend/src/routes/telegram.routes.ts')).default;
 const express = (await import('express')).default;
@@ -102,6 +111,58 @@ assert.equal((await publicStatusResponse.json()).data.bot.username, 'ijro_test_b
 
 const protectedStatusResponse = await fetch(`${apiBase}/api/telegram/status`);
 assert.equal(protectedStatusResponse.status, 403);
+
+const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const firebaseToken = jwt.sign(
+  { email: 'admin@example.uz' },
+  privateKey.export({ type: 'pkcs1', format: 'pem' }),
+  {
+    algorithm: 'RS256',
+    audience: 'ijroda-tizimi',
+    issuer: 'https://securetoken.google.com/ijroda-tizimi',
+    subject: 'firebase-admin-uid',
+    keyid: 'test-firebase-kid',
+    expiresIn: '10m'
+  }
+);
+const originalFetch = globalThis.fetch;
+let firebaseRole = 'superadmin';
+globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  if (url.includes('/metadata/x509/securetoken@system.gserviceaccount.com')) {
+    return new Response(JSON.stringify({
+      'test-firebase-kid': publicKey.export({ type: 'pkcs1', format: 'pem' })
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' }
+    });
+  }
+  if (url.includes('/documents/users/firebase-admin-uid')) {
+    return new Response(JSON.stringify({
+      fields: {
+        role: { stringValue: firebaseRole },
+        blocked: { booleanValue: false }
+      }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+  return originalFetch(input, init);
+};
+
+const verifiedFirebaseAdmin = await firebaseAuth.verifyFirebaseAdminToken(firebaseToken);
+assert.equal(verifiedFirebaseAdmin.uid, 'firebase-admin-uid');
+assert.equal(verifiedFirebaseAdmin.role, 'superadmin');
+
+const firebaseAdminResponse = await fetch(`${apiBase}/api/telegram/webhook/validate`, {
+  headers: { authorization: `Bearer ${firebaseToken}` }
+});
+assert.equal(firebaseAdminResponse.status, 200);
+
+firebaseRole = 'viewer';
+const firebaseViewerResponse = await fetch(`${apiBase}/api/telegram/webhook/validate`, {
+  headers: { authorization: `Bearer ${firebaseToken}` }
+});
+assert.equal(firebaseViewerResponse.status, 403);
+globalThis.fetch = originalFetch;
 
 const rejectedWebhookResponse = await fetch(`${apiBase}/api/telegram/webhook/update`, {
   method: 'POST',

@@ -20,6 +20,7 @@ import {
 import { handleTelegramUpdate } from '../services/telegram-update-handler.js';
 import { syncTelegramBotData } from '../services/telegram-sync.js';
 import { query } from '../db/pool.js';
+import { verifyFirebaseAdminToken } from '../services/firebase-auth.js';
 
 const router = Router();
 const adminLimiter = rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false });
@@ -41,9 +42,18 @@ function requireTelegramAdmin(req: Request, res: Response, next: NextFunction) {
     try {
       const user = jwt.verify(token, env.JWT_SECRET) as { role?: string };
       if (['SUPER_ADMIN', 'RAHBAR'].includes(user.role || '')) return next();
-    } catch {
-      return res.status(401).json({ error: 'INVALID_TOKEN' });
-    }
+    } catch {}
+    void verifyFirebaseAdminToken(token)
+      .then((user) => {
+        res.locals.telegramAdmin = user;
+        next();
+      })
+      .catch((error) => {
+        const code = error instanceof Error ? error.message : 'INVALID_TOKEN';
+        const forbidden = ['FIREBASE_ADMIN_REQUIRED', 'FIREBASE_USER_BLOCKED'].includes(code);
+        res.status(forbidden ? 403 : 401).json({ error: code });
+      });
+    return;
   }
 
   if (env.NODE_ENV === 'production' && !env.TELEGRAM_ADMIN_SECRET) {

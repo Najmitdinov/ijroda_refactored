@@ -3013,7 +3013,7 @@ window.renderIntegrationsPanel = () => {
       </div>
       <div class="form-grid">
         <label class="field"><span>Backend API URL</span><input id="tg-api-base" value="${escH(tg.apiBase || '')}" placeholder="https://api.example.uz yoki http://localhost:8080"></label>
-        <label class="field"><span>Admin secret</span><input id="tg-admin-secret" type="password" value="${escH(tg.adminSecret || '')}" placeholder="Railway .env dagi haqiqiy TELEGRAM_ADMIN_SECRET"></label>
+        <label class="field"><span>Autentifikatsiya</span><input type="text" value="${isAdmin() ? 'Firebase Admin orqali himoyalangan' : 'Admin huquqi talab qilinadi'}" readonly></label>
         <label class="field"><span>Test chat ID</span><input id="tg-chat-id" value="${escH(tg.chatId || '')}" placeholder="1165868975"></label>
         <label class="field"><span>Webhook URL</span><input id="tg-webhook-url" value="${escH(tgWebhookUrl)}" placeholder="https://api.example.uz/api/telegram/webhook/update"></label>
         <label class="toggle-row"><input type="checkbox" id="tg-enabled" ${tg.enabled?'checked':''}> <span>Telegram integratsiyani yoqish</span></label>
@@ -3033,7 +3033,7 @@ window.renderIntegrationsPanel = () => {
         <button class="btn btn-danger" onclick="clearTelegramSettings()">O'chirish</button>
       </div>
       <div id="tg-status-details" style="margin-top:12px;font-size:12px;color:var(--muted);line-height:1.7;">
-        Backend .env: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET va TELEGRAM_ADMIN_SECRET to'ldiriladi. /start orqali xodim employee_id bilan ulanadi.
+        Maxfiy kalitlar faqat Railway serverida saqlanadi. Boshqaruv amallari Firebase Admin sessiyasi orqali himoyalangan. /start orqali xodim ID, telefon yoki F.I.Sh. bilan ulanadi.
       </div>
     </div>
 
@@ -3421,7 +3421,6 @@ function getTelegramSettings() {
   const defaults = {
     enabled: false,
     apiBase: localStorage.getItem('IJRO_BACKEND_API_BASE') || DEFAULT_TELEGRAM_API_BASE,
-    adminSecret: '',
     chatId: '1165868975',
     webhookUrl: '',
     deadlineAlerts: true,
@@ -3431,6 +3430,7 @@ function getTelegramSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(TELEGRAM_CONFIG_KEY) || '{}') || {};
     delete saved['bot' + 'Token'];
+    delete saved.adminSecret;
     return { ...defaults, ...saved };
   } catch(e) {
     return defaults;
@@ -3441,18 +3441,25 @@ function telegramApiBase(cfg = getTelegramSettings()) {
   return String(cfg.apiBase || '').trim().replace(/\/+$/, '');
 }
 
-function telegramAdminSecretMissing(value='') {
-  const secret = String(value || '').trim();
-  return !secret || /^TELEGRAM_ADMIN_SECRET$/i.test(secret);
-}
-
 function telegramBackendErrorMessage(code='') {
   const err = String(code || '').trim();
   if(err === 'TELEGRAM_ADMIN_FORBIDDEN') {
-    return 'Admin secret noto‘g‘ri. Railway backend .env ichidagi TELEGRAM_ADMIN_SECRET qiymatini Admin secret maydoniga aynan kiriting.';
+    return 'Telegram boshqaruvi uchun Admin yoki Super Admin huquqi talab qilinadi.';
   }
   if(err === 'TELEGRAM_ADMIN_SECRET_NOT_CONFIGURED') {
-    return 'Backendda TELEGRAM_ADMIN_SECRET sozlanmagan. Railway Variables ichiga TELEGRAM_ADMIN_SECRET qo‘shib redeploy qiling.';
+    return 'Backend boshqaruv autentifikatsiyasi sozlanmagan.';
+  }
+  if(err === 'FIREBASE_ADMIN_REQUIRED') {
+    return 'Telegram boshqaruvi faqat Admin yoki Super Admin uchun ruxsat etilgan.';
+  }
+  if(err === 'FIREBASE_USER_BLOCKED') {
+    return 'Ushbu foydalanuvchi bloklangan.';
+  }
+  if(err === 'INVALID_FIREBASE_TOKEN' || err === 'FIREBASE_CERTIFICATE_NOT_FOUND') {
+    return 'Firebase sessiyasi tasdiqlanmadi. Tizimdan chiqib qayta kiring.';
+  }
+  if(err.startsWith('FIREBASE_USER_HTTP_')) {
+    return 'Firebase foydalanuvchi roli tekshirilmadi. Tizimdan chiqib qayta kiring.';
   }
   if(err === 'TELEGRAM_BOT_TOKEN_MISSING') {
     return 'Backendda TELEGRAM_BOT_TOKEN sozlanmagan. Railway Variables ichiga bot tokenni qo‘shing.';
@@ -3484,10 +3491,8 @@ async function callTelegramBackend(path, options = {}) {
   const base = telegramApiBase(cfg);
   if(!base) throw new Error('Backend API URL kiritilmagan');
   const headers = { 'Content-Type': 'application/json' };
-  if(telegramAdminSecretMissing(cfg.adminSecret)) {
-    throw new Error('Admin secret kiritilmagan. Railway backend .env ichidagi TELEGRAM_ADMIN_SECRET qiymatini Admin secret maydoniga kiriting.');
-  }
-  headers['x-telegram-admin-secret'] = String(cfg.adminSecret || '').trim();
+  if(!currentUser) throw new Error('Telegram boshqaruvi uchun tizimga qayta kiring.');
+  headers.Authorization = `Bearer ${await currentUser.getIdToken()}`;
   const response = await fetch(`${base}/api/telegram${path}`, {
     method: options.method || 'GET',
     headers,
@@ -3678,8 +3683,12 @@ async function applyTelegramLetterStatuses() {
 
 window.syncTelegramDatabase = async function(options = {}) {
   const cfg = getTelegramSettings();
-  if(!telegramIsConfigured(cfg) || telegramAdminSecretMissing(cfg.adminSecret)) {
-    if(!options.silent) showToast('Telegram integratsiyasi va Admin secret sozlanmagan', 'error');
+  if(!telegramIsConfigured(cfg)) {
+    if(!options.silent) showToast('Telegram integratsiyasi yoqilmagan', 'error');
+    return { skipped:true };
+  }
+  if(!isAdmin()) {
+    if(!options.silent) showToast('DB sinxronlash uchun Admin yoki Super Admin huquqi kerak', 'error');
     return { skipped:true };
   }
   try {
@@ -3741,7 +3750,10 @@ window.refreshTelegramBackendStatus = async function() {
     try {
       status = await callTelegramBackend('/status');
     } catch(e) {
-      if(telegramAdminSecretMissing(cfg.adminSecret) || ['TELEGRAM_ADMIN_FORBIDDEN','TELEGRAM_ADMIN_SECRET_NOT_CONFIGURED'].includes(e.code)) {
+      if(
+        ['TELEGRAM_ADMIN_FORBIDDEN','TELEGRAM_ADMIN_SECRET_NOT_CONFIGURED','INVALID_FIREBASE_TOKEN'].includes(e.code)
+        || String(e.code || '').startsWith('FIREBASE_')
+      ) {
         status = await callTelegramPublicBackend('/public-status');
         adminAccess = false;
       } else {
@@ -3763,11 +3775,11 @@ window.refreshTelegramBackendStatus = async function() {
     const queue = status.queue || {};
     const webhookOk = !!status.webhookActive;
     updateTelegramStatusBadge('ok', `${botName} ulangan`);
-    setTelegramCard('tg-backend-card','tg-backend-badge', dbHealth.ok !== false, `API: <code>${escH(telegramApiBase(cfg))}</code>${adminAccess ? `<br>DB latency: <b>${escH(dbHealth.latencyMs ?? '-')} ms</b>` : '<br>Admin secret kiritilmagan: faqat ochiq status ko‘rsatildi.'}`, dbHealth.ok === false ? 'DB xato' : 'OK');
+    setTelegramCard('tg-backend-card','tg-backend-badge', dbHealth.ok !== false, `API: <code>${escH(telegramApiBase(cfg))}</code>${adminAccess ? `<br>Firebase Admin tasdiqlandi<br>DB latency: <b>${escH(dbHealth.latencyMs ?? '-')} ms</b>` : '<br>Faqat ochiq status ko‘rsatildi.'}`, dbHealth.ok === false ? 'DB xato' : 'OK');
     setTelegramCard('tg-webhook-card','tg-webhook-badge', webhookOk, `<code>${escH(webhookUrl)}</code><br>Pending updates: <b>${pending}</b>${status.webhook?.last_error_message?`<br>Xato: ${escH(status.webhook.last_error_message)}`:''}`, webhookOk ? 'active' : 'tekshiring');
     setTelegramCard('tg-bot-card','tg-bot-badge', true, `Bot: <b>${escH(botName)}</b><br>Configured: <b>ha</b>`, 'online');
     setTelegramCard('tg-realtime-card','tg-realtime-badge', true, `Tashkilotlar: <b>${db.organizations || 0}</b>, xatlar: <b>${db.letters || 0}</b><br>Queue sent: <b>${queue.sent || 0}</b>, failed: <b>${queue.failed || 0}</b><br>Pending notifications: <b>${db.pendingNotifications || 0}</b>`, queue.failed ? 'xato bor' : 'ready');
-    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code>${adminAccess ? `<br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Tashkilotlar: <b>${db.organizations || 0}</b>, xatlar: <b>${db.letters || 0}</b>, notification log: <b>${db.notificationLogs || 0}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>` : '<br>To‘liq boshqaruv va test xabari uchun Railway’dagi Admin secretni kiriting.'}`);
+    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code>${adminAccess ? `<br>Firebase Admin: <b>tasdiqlangan</b><br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Tashkilotlar: <b>${db.organizations || 0}</b>, xatlar: <b>${db.letters || 0}</b>, notification log: <b>${db.notificationLogs || 0}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>` : '<br>To‘liq boshqaruv uchun Admin yoki Super Admin sifatida qayta kiring.'}`);
     return status;
   } catch(e) {
     updateTelegramStatusBadge('fail', 'Backend ulanmagan');
@@ -3809,7 +3821,6 @@ window.saveTelegramSettings = function(options = {}) {
   const cfg = {
     enabled: options.forceEnabled ? true : !!document.getElementById('tg-enabled')?.checked,
     apiBase: sanitize(document.getElementById('tg-api-base')?.value || '', 220).replace(/\/+$/, ''),
-    adminSecret: sanitize(document.getElementById('tg-admin-secret')?.value || '', 160),
     chatId: sanitize(document.getElementById('tg-chat-id')?.value || '', 80),
     webhookUrl: sanitize(document.getElementById('tg-webhook-url')?.value || '', 260),
     deadlineAlerts: !!document.getElementById('tg-deadline')?.checked,
