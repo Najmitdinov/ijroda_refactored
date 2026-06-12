@@ -11,6 +11,7 @@ import taskRoutes from './routes/task.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import telegramRoutes from './routes/telegram.routes.js';
+import { ensureTelegramWebhook } from './services/telegram-service.js';
 
 const app = express();
 
@@ -56,4 +57,7 @@ app.use(errorHandler);
 
 app.listen(env.API_PORT, () => {
   console.log(`[api] listening on :${env.API_PORT}`);
+  void ensureTelegramWebhook()
+    .then((result) => console.log('[telegram] startup webhook check', result))
+    .catch((error) => console.error('[telegram] startup webhook setup failed', error));
 });

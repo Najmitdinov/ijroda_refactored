@@ -3,7 +3,7 @@ builder = "NIXPACKS"
 buildCommand = "npm --workspace backend run build"
 
 [deploy]
-startCommand = "npm --workspace backend run start"
+startCommand = "npm --workspace backend run migrate:prod && npm --workspace backend run start"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"

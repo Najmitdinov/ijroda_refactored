@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { env, getPublicBackendUrl } from '../config/env.js';
 import { checkDatabase, query } from '../db/pool.js';
 
 const telegramBase = () => {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN_MISSING');
-  return `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
+  const apiBase = (env.TELEGRAM_API_BASE || 'https://api.telegram.org').replace(/\/+$/, '');
+  return `${apiBase}/bot${env.TELEGRAM_BOT_TOKEN}`;
 };
 
 type TelegramApiResponse<T> = {
@@ -106,9 +108,43 @@ export async function getTelegramStatus() {
     webhook,
     webhookExpectedUrl: expectedWebhookUrl,
     webhookActive: Boolean((webhook as { url?: string })?.url && (!expectedWebhookUrl || (webhook as { url?: string }).url === expectedWebhookUrl)),
+    webhookSecretConfigured: Boolean(getTelegramWebhookSecret()),
+    adminSecretConfigured: Boolean(env.TELEGRAM_ADMIN_SECRET),
     database,
     databaseHealth: dbHealth,
     queue: queueStats
+  };
+}
+
+export async function getTelegramPublicStatus() {
+  const configured = Boolean(env.TELEGRAM_BOT_TOKEN);
+  const expectedWebhookUrl = getTelegramWebhookUrl();
+  if (!configured) {
+    return {
+      configured: false,
+      webhookActive: false,
+      webhookExpectedUrl: expectedWebhookUrl,
+      webhookSecretConfigured: Boolean(getTelegramWebhookSecret())
+    };
+  }
+  const [bot, webhook] = await Promise.all([
+    telegramApi<{ username?: string; first_name?: string }>('getMe'),
+    telegramApi<{ url?: string; last_error_message?: string; pending_update_count?: number }>('getWebhookInfo')
+  ]);
+  return {
+    configured: true,
+    bot: {
+      username: bot?.username,
+      first_name: bot?.first_name
+    },
+    webhook: {
+      url: webhook?.url,
+      pending_update_count: webhook?.pending_update_count,
+      last_error_message: webhook?.last_error_message
+    },
+    webhookExpectedUrl: expectedWebhookUrl,
+    webhookActive: Boolean(webhook?.url && (!expectedWebhookUrl || webhook.url === expectedWebhookUrl)),
+    webhookSecretConfigured: Boolean(getTelegramWebhookSecret())
   };
 }
 
@@ -119,17 +155,41 @@ export function getTelegramWebhookUrl(url?: string) {
   return publicUrl ? `${publicUrl}/api/telegram/webhook/update` : '';
 }
 
+export function getTelegramWebhookSecret() {
+  const secret = (env.TELEGRAM_WEBHOOK_SECRET || env.TELEGRAM_ADMIN_SECRET || '').trim();
+  if (!secret) return '';
+  if (/^[A-Za-z0-9_-]{1,256}$/.test(secret)) return secret;
+  return createHash('sha256').update(secret).digest('hex');
+}
+
 export async function setTelegramWebhook(url?: string) {
   const webhookUrl = getTelegramWebhookUrl(url);
   if (!webhookUrl) throw new Error('WEBHOOK_URL_REQUIRED');
   if (!webhookUrl.startsWith('https://')) throw new Error('Webhook URL https:// bilan boshlanishi kerak');
+  const webhookSecret = getTelegramWebhookSecret();
+  if (!webhookSecret) throw new Error('TELEGRAM_WEBHOOK_SECRET_NOT_CONFIGURED');
   return telegramApi('setWebhook', {
     url: webhookUrl,
-    secret_token: env.TELEGRAM_WEBHOOK_SECRET || undefined,
+    secret_token: webhookSecret,
     allowed_updates: ['message', 'callback_query'],
     drop_pending_updates: false,
     max_connections: 40
   });
+}
+
+export async function ensureTelegramWebhook() {
+  if (!env.TELEGRAM_BOT_TOKEN) return { skipped: true, reason: 'TELEGRAM_BOT_TOKEN_MISSING' };
+  const webhookUrl = getTelegramWebhookUrl();
+  if (!webhookUrl) return { skipped: true, reason: 'WEBHOOK_URL_REQUIRED' };
+  if (!getTelegramWebhookSecret()) return { skipped: true, reason: 'TELEGRAM_WEBHOOK_SECRET_NOT_CONFIGURED' };
+
+  const current = await telegramApi<{ url?: string; last_error_message?: string }>('getWebhookInfo');
+  if (current?.url === webhookUrl && !current.last_error_message) {
+    return { configured: true, changed: false, webhookUrl };
+  }
+  await setTelegramWebhook(webhookUrl);
+  const validation = await validateTelegramWebhook(webhookUrl);
+  return { configured: validation.ok, changed: true, webhookUrl, validation };
 }
 
 export async function deleteTelegramWebhook() {

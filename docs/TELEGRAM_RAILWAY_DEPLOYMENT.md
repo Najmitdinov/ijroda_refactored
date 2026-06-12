@@ -20,12 +20,17 @@ TELEGRAM_WEBHOOK_URL=https://YOUR-RAILWAY-DOMAIN/api/telegram/webhook/update
 
 `JWT_SECRET`, `JWT_REFRESH_SECRET`, `TELEGRAM_WEBHOOK_SECRET`, and `TELEGRAM_ADMIN_SECRET` must be long random strings.
 
+If `TELEGRAM_WEBHOOK_SECRET` is omitted, the backend derives a Telegram-compatible webhook secret from
+`TELEGRAM_ADMIN_SECRET`. On every production start the backend validates the current Telegram webhook and
+automatically restores it when it is missing, points to an old URL, or Telegram reports an error.
+
 ## Deploy
 
 Railway uses `railway.toml`:
 
 ```sh
 npm --workspace backend run build
+npm --workspace backend run migrate:prod
 npm --workspace backend run start
 ```
 
@@ -80,3 +85,9 @@ curl "https://YOUR-RAILWAY-DOMAIN/api/telegram/status" \
 ```
 
 The status response reports bot info, webhook URL, webhook activity, database health, linked Telegram employees, sessions, pending notifications, and queue errors.
+
+The read-only endpoint below does not require the admin secret and is used by the frontend status cards:
+
+```sh
+curl "https://YOUR-RAILWAY-DOMAIN/api/telegram/public-status"
+```

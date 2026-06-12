@@ -3401,6 +3401,7 @@ async function writeAIRequestLog(data={}) {
 // ===== TELEGRAM BOT + SECURITY RULES INTEGRATION =====
 const TELEGRAM_CONFIG_KEY = 'ijroda_telegram_bot_config_v1';
 const TELEGRAM_SENT_KEY = 'ijroda_telegram_sent_v1';
+const DEFAULT_TELEGRAM_API_BASE = 'https://ijrodarefactored-production.up.railway.app';
 
 function simpleHash(input='') {
   let hash = 0;
@@ -3415,7 +3416,7 @@ function simpleHash(input='') {
 function getTelegramSettings() {
   const defaults = {
     enabled: false,
-    apiBase: localStorage.getItem('IJRO_BACKEND_API_BASE') || '',
+    apiBase: localStorage.getItem('IJRO_BACKEND_API_BASE') || DEFAULT_TELEGRAM_API_BASE,
     adminSecret: '',
     chatId: '1165868975',
     webhookUrl: '',
@@ -3487,6 +3488,22 @@ async function callTelegramBackend(path, options = {}) {
     method: options.method || 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const data = await response.json().catch(()=>({}));
+  if(!response.ok) {
+    const error = new Error(telegramBackendErrorMessage(data.error || data.message || `Backend HTTP ${response.status}`));
+    error.code = data.error || data.message || `HTTP_${response.status}`;
+    throw error;
+  }
+  return data.data ?? data;
+}
+
+async function callTelegramPublicBackend(path) {
+  const base = telegramApiBase();
+  if(!base) throw new Error('Backend API URL kiritilmagan');
+  const response = await fetch(`${base}/api/telegram${path}`, {
+    method:'GET',
+    headers:{ 'Accept':'application/json' }
   });
   const data = await response.json().catch(()=>({}));
   if(!response.ok) throw new Error(telegramBackendErrorMessage(data.error || data.message || `Backend HTTP ${response.status}`));
@@ -3583,7 +3600,18 @@ window.refreshTelegramBackendStatus = async function() {
   }
   try {
     updateTelegramStatusBadge('warn', 'Tekshirilmoqda...');
-    const status = await callTelegramBackend('/status');
+    let adminAccess = true;
+    let status;
+    try {
+      status = await callTelegramBackend('/status');
+    } catch(e) {
+      if(telegramAdminSecretMissing(cfg.adminSecret) || ['TELEGRAM_ADMIN_FORBIDDEN','TELEGRAM_ADMIN_SECRET_NOT_CONFIGURED'].includes(e.code)) {
+        status = await callTelegramPublicBackend('/public-status');
+        adminAccess = false;
+      } else {
+        throw e;
+      }
+    }
     if(!status.configured) {
       updateTelegramStatusBadge('fail', 'TELEGRAM_BOT_TOKEN yoq');
       updateTelegramStatusDetails('Backend ishlayapti, lekin .env ichida TELEGRAM_BOT_TOKEN topilmadi. Tokenni serverga qoyib qayta deploy qiling.');
@@ -3599,11 +3627,11 @@ window.refreshTelegramBackendStatus = async function() {
     const queue = status.queue || {};
     const webhookOk = !!status.webhookActive;
     updateTelegramStatusBadge('ok', `${botName} ulangan`);
-    setTelegramCard('tg-backend-card','tg-backend-badge', dbHealth.ok !== false, `API: <code>${escH(telegramApiBase(cfg))}</code><br>DB latency: <b>${escH(dbHealth.latencyMs ?? '-')} ms</b>`, dbHealth.ok === false ? 'DB xato' : 'OK');
+    setTelegramCard('tg-backend-card','tg-backend-badge', dbHealth.ok !== false, `API: <code>${escH(telegramApiBase(cfg))}</code>${adminAccess ? `<br>DB latency: <b>${escH(dbHealth.latencyMs ?? '-')} ms</b>` : '<br>Admin secret kiritilmagan: faqat ochiq status ko‘rsatildi.'}`, dbHealth.ok === false ? 'DB xato' : 'OK');
     setTelegramCard('tg-webhook-card','tg-webhook-badge', webhookOk, `<code>${escH(webhookUrl)}</code><br>Pending updates: <b>${pending}</b>${status.webhook?.last_error_message?`<br>Xato: ${escH(status.webhook.last_error_message)}`:''}`, webhookOk ? 'active' : 'tekshiring');
     setTelegramCard('tg-bot-card','tg-bot-badge', true, `Bot: <b>${escH(botName)}</b><br>Configured: <b>ha</b>`, 'online');
     setTelegramCard('tg-realtime-card','tg-realtime-badge', true, `Queue sent: <b>${queue.sent || 0}</b>, failed: <b>${queue.failed || 0}</b><br>Pending notifications: <b>${db.pendingNotifications || 0}</b>`, queue.failed ? 'xato bor' : 'ready');
-    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code><br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>`);
+    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code>${adminAccess ? `<br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>` : '<br>To‘liq boshqaruv va test xabari uchun Railway’dagi Admin secretni kiriting.'}`);
     return status;
   } catch(e) {
     updateTelegramStatusBadge('fail', 'Backend ulanmagan');
