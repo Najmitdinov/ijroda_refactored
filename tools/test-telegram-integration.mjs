@@ -1,5 +1,20 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import http from 'node:http';
+
+const schemaSql = await readFile(new URL('../database/migrations/002_telegram_bot_schema.sql', import.meta.url), 'utf8');
+for (const table of ['organizations', 'letters', 'notification_logs', 'bot_settings']) {
+  assert.match(schemaSql, new RegExp(`create table if not exists ${table}\\b`, 'i'), `${table} jadvali migratsiyada topilmadi`);
+}
+const appSource = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
+assert.match(appSource, /function buildTelegramDatabasePayload/);
+assert.match(appSource, /callTelegramBackend\('\/sync'/);
+assert.match(appSource, /applyTelegramLetterStatuses/);
+
+const updateHandlerSource = await readFile(new URL('../backend/src/services/telegram-update-handler.ts', import.meta.url), 'utf8');
+assert.match(updateHandlerSource, /\/settings/);
+assert.match(updateHandlerSource, /letters/);
+assert.match(updateHandlerSource, /length\(regexp_replace\(\$3,[\s\S]*\)\) >= 7/);
 
 function listen(server) {
   return new Promise((resolve, reject) => {

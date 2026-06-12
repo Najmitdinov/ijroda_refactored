@@ -18,6 +18,8 @@ import {
   validateTelegramWebhook
 } from '../services/telegram-service.js';
 import { handleTelegramUpdate } from '../services/telegram-update-handler.js';
+import { syncTelegramBotData } from '../services/telegram-sync.js';
+import { query } from '../db/pool.js';
 
 const router = Router();
 const adminLimiter = rateLimit({ windowMs: 60_000, limit: 40, standardHeaders: true, legacyHeaders: false });
@@ -70,6 +72,23 @@ router.get('/public-status', publicStatusLimiter, asyncRoute(async (_req, res) =
   res.json({ data: await getTelegramPublicStatus() });
 }));
 
+router.get('/schema-status', publicStatusLimiter, asyncRoute(async (_req, res) => {
+  const result = await query<{
+    organizations: boolean;
+    letters: boolean;
+    notification_logs: boolean;
+    bot_settings: boolean;
+  }>(
+    `select
+       to_regclass('public.organizations') is not null as organizations,
+       to_regclass('public.letters') is not null as letters,
+       to_regclass('public.notification_logs') is not null as notification_logs,
+       to_regclass('public.bot_settings') is not null as bot_settings`
+  );
+  const tables = result.rows[0];
+  res.json({ data: { ready: Boolean(tables && Object.values(tables).every(Boolean)), tables } });
+}));
+
 router.get('/status', adminLimiter, requireTelegramAdmin, asyncRoute(async (_req, res) => {
   res.json({ data: await getTelegramStatus() });
 }));
@@ -99,6 +118,64 @@ router.post('/digest', adminLimiter, requireTelegramAdmin, asyncRoute(async (req
 router.post('/notifications/flush', adminLimiter, requireTelegramAdmin, asyncRoute(async (req, res) => {
   const input = z.object({ limit: z.coerce.number().min(1).max(200).optional() }).parse(req.body ?? {});
   res.json({ data: await flushPendingTelegramNotifications(input.limit ?? 50) });
+}));
+
+router.post('/sync', adminLimiter, requireTelegramAdmin, asyncRoute(async (req, res) => {
+  const organizationSchema = z.object({
+    externalId: z.string().optional(),
+    name: z.string().min(1),
+    address: z.string().optional()
+  });
+  const employeeSchema = z.object({
+    externalId: z.string().optional(),
+    organizationExternalId: z.string().optional(),
+    organizationName: z.string().optional(),
+    fullName: z.string().min(1),
+    phone: z.string().optional(),
+    position: z.string().optional(),
+    department: z.string().optional(),
+    active: z.boolean().optional()
+  });
+  const letterSchema = z.object({
+    externalId: z.string().min(1),
+    organizationExternalId: z.string().optional(),
+    organizationName: z.string().optional(),
+    employeeExternalId: z.string().optional(),
+    executorName: z.string().optional(),
+    letterNumber: z.string().optional(),
+    subject: z.string().min(1),
+    body: z.string().optional(),
+    deadline: z.string().optional(),
+    status: z.enum(['NEW', 'IN_PROGRESS', 'DONE', 'OVERDUE', 'CANCELLED']).optional(),
+    urgency: z.enum(['LOW', 'NORMAL', 'IMPORTANT', 'URGENT', 'CRITICAL']).optional(),
+    sourceOrganization: z.string().optional()
+  });
+  const input = z.object({
+    organizations: z.array(organizationSchema).max(500).optional(),
+    employees: z.array(employeeSchema).max(1000).optional(),
+    letters: z.array(letterSchema).max(2000).optional(),
+    flushNotifications: z.boolean().default(true)
+  }).parse(req.body ?? {});
+
+  const synced = await syncTelegramBotData(input);
+  const notificationResult = input.flushNotifications && synced.queuedNotifications
+    ? await flushPendingTelegramNotifications(Math.min(200, synced.queuedNotifications))
+    : { queued: synced.queuedNotifications, sent: 0 };
+  res.json({ data: { ...synced, notifications: notificationResult } });
+}));
+
+router.get('/letters/statuses', adminLimiter, requireTelegramAdmin, asyncRoute(async (req, res) => {
+  const updatedAfter = typeof req.query.updatedAfter === 'string' ? req.query.updatedAfter : null;
+  const result = await query(
+    `select external_id, status, updated_at
+     from letters
+     where external_id is not null
+       and ($1::timestamptz is null or updated_at > $1::timestamptz)
+     order by updated_at desc
+     limit 2000`,
+    [updatedAfter]
+  );
+  res.json({ data: result.rows });
 }));
 
 router.post('/webhook', adminLimiter, requireTelegramAdmin, asyncRoute(async (req, res) => {

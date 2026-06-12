@@ -31,13 +31,45 @@ router.post('/', audit('task.create'), async (req, res) => {
     title: z.string(),
     summary: z.string(),
     deadline: z.string().optional(),
-    priority: z.enum(['LOW', 'NORMAL', 'IMPORTANT', 'URGENT', 'CRITICAL']).default('NORMAL')
+    priority: z.enum(['LOW', 'NORMAL', 'IMPORTANT', 'URGENT', 'CRITICAL']).default('NORMAL'),
+    external_id: z.string().optional(),
+    letter_number: z.string().optional(),
+    source_organization: z.string().optional(),
+    organization_id: z.string().uuid().optional()
   }).parse(req.body);
 
   const result = await query(
     `insert into tasks (document_id, executor_employee_id, department_id, title, summary, deadline, priority)
      values ($1,$2,$3,$4,$5,$6,$7) returning *`,
     [input.document_id, input.executor_employee_id ?? null, input.department_id ?? null, input.title, input.summary, input.deadline ?? null, input.priority]
+  );
+  const task = result.rows[0];
+  const letter = await query<{ letter_id: string }>(
+    `insert into letters
+       (organization_id, employee_id, document_id, task_id, external_id, letter_number, subject, body, deadline, status, urgency, source_organization)
+     values ($1,$2,$3,$4,nullif($5,''),$6,$7,$8,$9,'NEW',$10,$11)
+     on conflict (external_id) do update set
+       employee_id = excluded.employee_id,
+       task_id = excluded.task_id,
+       subject = excluded.subject,
+       body = excluded.body,
+       deadline = excluded.deadline,
+       urgency = excluded.urgency,
+       updated_at = now()
+     returning letter_id`,
+    [
+      input.organization_id ?? null,
+      input.executor_employee_id ?? null,
+      input.document_id,
+      task.task_id,
+      input.external_id ?? '',
+      input.letter_number ?? '',
+      input.title,
+      input.summary,
+      input.deadline ?? null,
+      input.priority,
+      input.source_organization ?? ''
+    ]
   );
   if (input.executor_employee_id) {
     await enqueueNotification({
@@ -46,10 +78,10 @@ router.post('/', audit('task.create'), async (req, res) => {
       title: 'Yangi topshiriq',
       body: input.summary,
       priority: input.priority,
-      metadata: { task_id: result.rows[0].task_id }
+      metadata: { task_id: task.task_id, letter_id: letter.rows[0]?.letter_id }
     });
   }
-  res.status(201).json({ data: result.rows[0] });
+  res.status(201).json({ data: { ...task, letter_id: letter.rows[0]?.letter_id } });
 });
 
 router.patch('/:taskId/status', audit('task.status'), async (req, res) => {
@@ -60,6 +92,7 @@ router.patch('/:taskId/status', audit('task.status'), async (req, res) => {
     `update tasks set status = $1, updated_at = now() where task_id = $2 returning *`,
     [input.status, req.params.taskId]
   );
+  await query('update letters set status = $1, updated_at = now() where task_id = $2', [input.status, req.params.taskId]);
   res.json({ data: result.rows[0] });
 });
 

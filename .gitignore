@@ -8,3 +8,4 @@ frontend/dist/
 backend/dist/
 bot/dist/
 ai/dist/
+*.tsbuildinfo

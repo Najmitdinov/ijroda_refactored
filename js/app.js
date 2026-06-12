@@ -1724,6 +1724,7 @@ window.saveDocs = async (rows) => {
   showLoading(`${rows.length} ta hujjat saqlanmoqda...`);
   try {
     const batch = [];
+    const telegramSyncRows = [];
     for(const row of rows) {
       const id = `${currentUser.uid}_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
       const orgName = normalizeOrgName(getOrgText(row) || currentUserData?.org || '');
@@ -1739,9 +1740,11 @@ window.saveDocs = async (rows) => {
         ...row
       };
       batch.push(setDoc(doc(db,'documents',id), data));
+      telegramSyncRows.push({ _id:id, ...data, createdAt:new Date().toISOString() });
     }
     await Promise.all(batch);
     await syncTashkilotlarFromDocs(rows);
+    syncTelegramDatabase({ rows:telegramSyncRows, silent:true }).catch(e => console.warn('Telegram DB sync skipped:', e));
     await writeAudit('task.bulk_create', { count: rows.length, source: rows[0]?.source || 'manual' });
     await loadUserDocs();
     showToast(`✅ ${rows.length} ta hujjat saqlandi!`, 'success');
@@ -3024,6 +3027,7 @@ window.renderIntegrationsPanel = () => {
         <button class="btn btn-danger" onclick="disconnectTelegramIntegration()">Disconnect Telegram</button>
         <button class="btn btn-success" onclick="testTelegramBot()">Test Message</button>
         <button class="btn btn-outline" onclick="sendTelegramDeadlineDigest()">Daily digest</button>
+        <button class="btn btn-outline" onclick="syncTelegramDatabase()">DB sinxronlash</button>
         <button class="btn btn-outline" onclick="setupTelegramWebhook()">Setup Webhook</button>
         <button class="btn btn-outline" onclick="refreshTelegramBackendStatus()">Status yangilash</button>
         <button class="btn btn-danger" onclick="clearTelegramSettings()">O'chirish</button>
@@ -3565,6 +3569,138 @@ async function notifyTelegramDeadlines(notices=[], force=false) {
   return { sent: result.sent || 0, recipients: result.recipients || 0 };
 }
 
+function telegramEmployeeExternalId(employee={}) {
+  const fullName = `${employee.familiya || ''} ${employee.ism || employee.name || ''}`.replace(/\s+/g, ' ').trim();
+  return String(employee.id || employee.employee_id || `profile_${simpleHash(employeeIdentityText(fullName))}`);
+}
+
+function telegramBackendDate(value) {
+  const date = parseDate(value);
+  if(!date || Number.isNaN(date.getTime())) return undefined;
+  return `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;
+}
+
+function telegramBackendStatus(row={}) {
+  const status = normalizeDocStatus(row).key;
+  if(status === 'done') return 'DONE';
+  if(status === 'proc') return 'IN_PROGRESS';
+  if(status === 'fail') return 'OVERDUE';
+  return 'NEW';
+}
+
+function telegramBackendUrgency(row={}) {
+  const risk = row.riskLevel || taskRiskLevel(row);
+  if(risk === 'critical') return 'CRITICAL';
+  if(risk === 'high') return 'URGENT';
+  if(risk === 'medium') return 'IMPORTANT';
+  return 'NORMAL';
+}
+
+function buildTelegramDatabasePayload(rows=allDocs) {
+  const profiles = fishkaEmployeeCandidates();
+  const employees = profiles.map(employee => ({
+    externalId: telegramEmployeeExternalId(employee),
+    organizationExternalId: orgKey(employee.tashkilot || employee.org || currentUserData?.org || ''),
+    organizationName: employee.tashkilot || employee.org || currentUserData?.org || 'Navoiy viloyati Qurilish bosh boshqarmasi',
+    fullName: `${employee.familiya || ''} ${employee.ism || employee.name || ''}`.replace(/\s+/g, ' ').trim(),
+    phone: employee.telefon || employee.phone || '',
+    position: employee.lavozim || '',
+    department: employee.sektor || employee.bolim || '',
+    active: employee.faol !== false
+  })).filter(employee => employee.fullName);
+
+  const organizationsMap = new Map();
+  const addOrganization = (name, externalId='', address='') => {
+    const cleanName = normalizeOrgName(name);
+    if(!isValidOrgName(cleanName)) return;
+    const key = orgKey(cleanName);
+    if(!organizationsMap.has(key)) organizationsMap.set(key, { externalId:externalId || key, name:cleanName, address:address || '' });
+  };
+  addOrganization(currentUserData?.org || 'Navoiy viloyati Qurilish bosh boshqarmasi');
+  tashkilotlarCache.forEach(org => addOrganization(org.nom, org.id || org.local_id || orgKey(org.nom), org.manzil));
+  rows.forEach(row => addOrganization(getOrgText(row)));
+
+  const letters = (rows || []).slice(0, 2000).map((row, index) => {
+    const executorName = String(row.executor || row.ijrochi || row.masul || '').trim();
+    const employee = findFishkaEmployeeCandidate(executorName, profiles);
+    const sourceOrganization = normalizeOrgName(getOrgText(row));
+    const subject = String(row.docName || row.mavzu || row.nom || row.taskText || row.mazmun || `Hujjat ${index + 1}`).trim();
+    return {
+      externalId: String(row._id || row.id || `${currentUser?.uid || 'user'}_${simpleHash(`${subject}|${row.docNum || ''}|${row.deadline || ''}`)}`),
+      organizationExternalId: orgKey(currentUserData?.org || ''),
+      organizationName: currentUserData?.org || 'Navoiy viloyati Qurilish bosh boshqarmasi',
+      employeeExternalId: employee ? telegramEmployeeExternalId(employee) : undefined,
+      executorName,
+      letterNumber: String(row.docNum || row.hujjat_raqami || row.orgOutNum || '').trim(),
+      subject,
+      body: String(row.taskText || row.mazmun || row.resolution || '').trim(),
+      deadline: telegramBackendDate(row.deadline),
+      status: telegramBackendStatus(row),
+      urgency: telegramBackendUrgency(row),
+      sourceOrganization
+    };
+  });
+
+  return {
+    organizations:[...organizationsMap.values()].slice(0, 500),
+    employees:employees.slice(0, 1000),
+    letters
+  };
+}
+
+async function applyTelegramLetterStatuses() {
+  const statuses = await callTelegramBackend('/letters/statuses');
+  const statusMap = new Map((Array.isArray(statuses) ? statuses : []).map(item => [String(item.external_id || ''), item]));
+  const firestoreStatus = {
+    NEW:'Yangi',
+    IN_PROGRESS:'Jarayonda',
+    OVERDUE:'Bajarilmadi',
+    DONE:'Bajarildi',
+    CANCELLED:'Qaytarilgan'
+  };
+  const updates = [];
+  for(const row of allDocs) {
+    const remote = statusMap.get(String(row._id || row.id || ''));
+    if(!remote || !firestoreStatus[remote.status]) continue;
+    if(normalizeDocStatus(row).key === normalizeDocStatus(firestoreStatus[remote.status]).key) continue;
+    updates.push(updateDoc(doc(db,'documents',row._id), {
+      status:firestoreStatus[remote.status],
+      workflowStatus:remote.status === 'DONE' ? 'approved' : remote.status === 'CANCELLED' ? 'returned' : 'in_review',
+      telegramStatusUpdatedAt:serverTimestamp()
+    }));
+  }
+  if(updates.length) {
+    await Promise.all(updates);
+    await loadUserDocs();
+  }
+  return updates.length;
+}
+
+window.syncTelegramDatabase = async function(options = {}) {
+  const cfg = getTelegramSettings();
+  if(!telegramIsConfigured(cfg) || telegramAdminSecretMissing(cfg.adminSecret)) {
+    if(!options.silent) showToast('Telegram integratsiyasi va Admin secret sozlanmagan', 'error');
+    return { skipped:true };
+  }
+  try {
+    if(!xodimlarCache.length) await loadXodimlar();
+    if(!tashkilotlarCache.length) await loadTashkilotlar();
+    const result = await callTelegramBackend('/sync', {
+      method:'POST',
+      body:{ ...buildTelegramDatabasePayload(options.rows || allDocs), flushNotifications:true }
+    });
+    const appliedStatuses = options.pullStatuses === false ? 0 : await applyTelegramLetterStatuses();
+    if(!options.silent) {
+      showToast(`Telegram DB: ${result.organizations || 0} tashkilot, ${result.employees || 0} xodim, ${result.letters || 0} xat sinxronlandi`, 'success');
+      await refreshTelegramBackendStatus();
+    }
+    return { ...result, appliedStatuses };
+  } catch(e) {
+    if(!options.silent) showToast('Telegram DB sinxronlanmadi: ' + e.message, 'error');
+    throw e;
+  }
+};
+
 function updateTelegramStatusBadge(type, text) {
   const badge = document.getElementById('tg-live-status');
   if(!badge) return;
@@ -3630,8 +3766,8 @@ window.refreshTelegramBackendStatus = async function() {
     setTelegramCard('tg-backend-card','tg-backend-badge', dbHealth.ok !== false, `API: <code>${escH(telegramApiBase(cfg))}</code>${adminAccess ? `<br>DB latency: <b>${escH(dbHealth.latencyMs ?? '-')} ms</b>` : '<br>Admin secret kiritilmagan: faqat ochiq status ko‘rsatildi.'}`, dbHealth.ok === false ? 'DB xato' : 'OK');
     setTelegramCard('tg-webhook-card','tg-webhook-badge', webhookOk, `<code>${escH(webhookUrl)}</code><br>Pending updates: <b>${pending}</b>${status.webhook?.last_error_message?`<br>Xato: ${escH(status.webhook.last_error_message)}`:''}`, webhookOk ? 'active' : 'tekshiring');
     setTelegramCard('tg-bot-card','tg-bot-badge', true, `Bot: <b>${escH(botName)}</b><br>Configured: <b>ha</b>`, 'online');
-    setTelegramCard('tg-realtime-card','tg-realtime-badge', true, `Queue sent: <b>${queue.sent || 0}</b>, failed: <b>${queue.failed || 0}</b><br>Pending notifications: <b>${db.pendingNotifications || 0}</b>`, queue.failed ? 'xato bor' : 'ready');
-    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code>${adminAccess ? `<br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>` : '<br>To‘liq boshqaruv va test xabari uchun Railway’dagi Admin secretni kiriting.'}`);
+    setTelegramCard('tg-realtime-card','tg-realtime-badge', true, `Tashkilotlar: <b>${db.organizations || 0}</b>, xatlar: <b>${db.letters || 0}</b><br>Queue sent: <b>${queue.sent || 0}</b>, failed: <b>${queue.failed || 0}</b><br>Pending notifications: <b>${db.pendingNotifications || 0}</b>`, queue.failed ? 'xato bor' : 'ready');
+    updateTelegramStatusDetails(`Bot: <b>${escH(botName)}</b><br>Webhook: <code>${escH(webhookUrl)}</code><br>Expected webhook: <code>${escH(status.webhookExpectedUrl || '')}</code>${adminAccess ? `<br>Database: <b>${dbHealth.ok === false ? 'xato' : 'ulangan'}</b><br>Tashkilotlar: <b>${db.organizations || 0}</b>, xatlar: <b>${db.letters || 0}</b>, notification log: <b>${db.notificationLogs || 0}</b><br>Telegram ulangan xodimlar: <b>${db.linkedEmployees || 0}</b>, sessiyalar: <b>${db.sessions || 0}</b>, pending notification: <b>${db.pendingNotifications || 0}</b>` : '<br>To‘liq boshqaruv va test xabari uchun Railway’dagi Admin secretni kiriting.'}`);
     return status;
   } catch(e) {
     updateTelegramStatusBadge('fail', 'Backend ulanmagan');
@@ -10261,13 +10397,28 @@ window.saveMuhimTopshiriq = async () => {
   if(!muddat) { showToast('Muddat kiritilmagan','error'); return; }
   showLoading('Saqlanmoqda...');
   try {
-    await addDoc(collection(db,'muhim_topshiriqlar'),{
+    const savedRef = await addDoc(collection(db,'muhim_topshiriqlar'),{
       nom, ijrochi:ijrochi||'', daraja, muddat, mazmun:mazmun||'',
       manba:manba||'', hujjat_raqam:hujjat_raqam||'',
       status:'Yangi', createdBy:currentUser?.uid||'',
       createdByName:currentUserData?.fullName||'',
       createdAt:serverTimestamp(), updatedAt:serverTimestamp()
     });
+    syncTelegramDatabase({
+      rows:[{
+        _id:`muhim_${savedRef.id}`,
+        docName:nom,
+        taskText:mazmun || '',
+        executor:ijrochi || '',
+        deadline:muddat,
+        fromOrg:manba || '',
+        docNum:hujjat_raqam || '',
+        status:'Yangi',
+        riskLevel:daraja === 'yuqori' ? 'critical' : daraja === "o'rta" ? 'high' : 'medium'
+      }],
+      silent:true,
+      pullStatuses:false
+    }).catch(e => console.warn('Muhim topshiriq Telegram DB ga yozilmadi:', e));
     hideLoading();
     showToast('✅ Muhim topshiriq qo\'shildi','success');
     clearMuhimForm();

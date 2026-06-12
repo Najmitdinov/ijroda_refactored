@@ -11,7 +11,7 @@ import taskRoutes from './routes/task.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import telegramRoutes from './routes/telegram.routes.js';
-import { ensureTelegramWebhook } from './services/telegram-service.js';
+import { ensureTelegramWebhook, sendScheduledTelegramDigests } from './services/telegram-service.js';
 
 const app = express();
 
@@ -60,4 +60,13 @@ app.listen(env.API_PORT, () => {
   void ensureTelegramWebhook()
     .then((result) => console.log('[telegram] startup webhook check', result))
     .catch((error) => console.error('[telegram] startup webhook setup failed', error));
+  const runTelegramSchedule = () => {
+    void sendScheduledTelegramDigests()
+      .then((result) => {
+        if (result.due) console.log('[telegram] scheduled digest', result);
+      })
+      .catch((error) => console.error('[telegram] scheduled digest failed', error));
+  };
+  setTimeout(runTelegramSchedule, 15_000);
+  setInterval(runTelegramSchedule, 60_000).unref();
 });

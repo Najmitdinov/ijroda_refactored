@@ -233,18 +233,46 @@ export function inlineKeyboard(rows: InlineKeyboardButton[][]) {
 export async function sendTelegramDailyDigest(chatId?: string) {
   const rows = (await query<{
     telegram_id: string;
+    employee_id: string;
+    item_id: string;
+    item_type: string;
+    letter_number: string;
     title: string;
     priority: string;
     deadline: string | null;
     status: string;
   }>(`
-    select e.telegram_id, t.title, t.priority, t.deadline::text, t.status
-    from tasks t
-    join employees e on e.employee_id = t.executor_employee_id
-    where e.telegram_id is not null
-      and t.status in ('NEW','IN_PROGRESS','OVERDUE')
-      and ($1::text is null or e.telegram_id = $1)
-    order by e.telegram_id, t.priority desc, t.deadline nulls last
+    select *
+    from (
+      select e.telegram_id, e.employee_id, l.letter_id::text as item_id, 'LETTER'::text as item_type,
+             l.letter_number, l.subject as title, l.urgency::text as priority,
+             l.deadline::text, l.status
+      from letters l
+      join employees e on e.employee_id = l.employee_id
+      left join bot_settings bs on bs.employee_id = e.employee_id
+      where e.telegram_id is not null
+        and e.active = true
+        and coalesce(bs.active, true) = true
+        and l.status not in ('DONE','CANCELLED')
+        and ($1::text is null or e.telegram_id = $1)
+
+      union all
+
+      select e.telegram_id, e.employee_id, t.task_id::text as item_id, 'TASK'::text as item_type,
+             ''::text as letter_number, t.title, t.priority::text,
+             t.deadline::date::text, t.status::text
+      from tasks t
+      join employees e on e.employee_id = t.executor_employee_id
+      left join letters l on l.task_id = t.task_id
+      left join bot_settings bs on bs.employee_id = e.employee_id
+      where l.letter_id is null
+        and e.telegram_id is not null
+        and e.active = true
+        and coalesce(bs.active, true) = true
+        and t.status in ('NEW','IN_PROGRESS','OVERDUE')
+        and ($1::text is null or e.telegram_id = $1)
+    ) items
+    order by telegram_id, priority desc, deadline nulls last
     limit 200
   `, [chatId || null])).rows;
 
@@ -261,10 +289,28 @@ export async function sendTelegramDailyDigest(chatId?: string) {
       `Shoshilinch: <b>${critical}</b>`,
       `Kechikkan: <b>${overdue}</b>`,
       '',
-      ...tasks.slice(0, 12).map((task, index) => `${index + 1}. [${task.priority}] ${escapeHtml(task.title)} - ${task.deadline ?? 'muddatsiz'}`)
+      ...tasks.slice(0, 12).map((task, index) => {
+        const number = task.letter_number ? `№ ${escapeHtml(task.letter_number)} — ` : '';
+        return `${index + 1}. [${task.priority}] ${number}${escapeHtml(task.title)} - ${task.deadline ?? 'muddatsiz'}`;
+      })
     ].join('\n');
-    await sendTelegramMessage(telegramId, body);
-    sent += 1;
+    try {
+      const message = await sendTelegramMessage(telegramId, body) as { message_id?: number };
+      await recordNotificationLog({
+        employeeId: tasks[0]?.employee_id,
+        type: 'DAILY_DIGEST',
+        successful: true,
+        telegramMessageId: message?.message_id
+      });
+      sent += 1;
+    } catch (error) {
+      await recordNotificationLog({
+        employeeId: tasks[0]?.employee_id,
+        type: 'DAILY_DIGEST',
+        successful: false,
+        error
+      });
+    }
   }
   return { recipients: grouped.size, sent };
 }
@@ -272,41 +318,111 @@ export async function sendTelegramDailyDigest(chatId?: string) {
 export async function flushPendingTelegramNotifications(limit = 50) {
   const rows = (await query<{
     notification_id: string;
+    employee_id: string;
     telegram_id: string;
     title: string;
     body: string;
+    letter_id: string | null;
   }>(`
-    select n.notification_id, e.telegram_id, n.title, n.body
+    select n.notification_id, n.employee_id, e.telegram_id, n.title, n.body,
+           coalesce(
+             n.letter_id,
+             case
+               when coalesce(n.metadata->>'letter_id', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+               then (n.metadata->>'letter_id')::uuid
+               else null
+             end
+           ) as letter_id
     from notifications n
     join employees e on e.employee_id = n.employee_id
+    left join bot_settings bs on bs.employee_id = e.employee_id
     where n.channel = 'TELEGRAM'
       and n.sent_at is null
       and e.telegram_id is not null
+      and e.active = true
+      and coalesce(bs.active, true) = true
     order by n.created_at
     limit $1
   `, [limit])).rows;
 
   let sent = 0;
   for (const row of rows) {
-    await sendTelegramMessage(row.telegram_id, `<b>${escapeHtml(row.title)}</b>\n${escapeHtml(row.body)}`);
-    await query('update notifications set sent_at = now() where notification_id = $1', [row.notification_id]);
-    sent += 1;
+    try {
+      const message = await sendTelegramMessage(row.telegram_id, `<b>${escapeHtml(row.title)}</b>\n${escapeHtml(row.body)}`) as { message_id?: number };
+      await query('update notifications set sent_at = now() where notification_id = $1', [row.notification_id]);
+      await recordNotificationLog({
+        employeeId: row.employee_id,
+        letterId: row.letter_id,
+        notificationId: row.notification_id,
+        type: 'LETTER_ASSIGNED',
+        successful: true,
+        telegramMessageId: message?.message_id
+      });
+      sent += 1;
+    } catch (error) {
+      await recordNotificationLog({
+        employeeId: row.employee_id,
+        letterId: row.letter_id,
+        notificationId: row.notification_id,
+        type: 'LETTER_ASSIGNED',
+        successful: false,
+        error
+      });
+    }
   }
   return { queued: rows.length, sent };
+}
+
+export async function sendScheduledTelegramDigests(now = new Date()) {
+  const hhmm = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Tashkent',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(now);
+  const recipients = await query<{ telegram_id: string }>(
+    `select e.telegram_id
+     from employees e
+     join bot_settings bs on bs.employee_id = e.employee_id
+     where e.telegram_id is not null
+       and e.active = true
+       and bs.active = true
+       and to_char(bs.reminder_time, 'HH24:MI') = $1
+       and not exists (
+         select 1 from notification_logs nl
+         where nl.employee_id = e.employee_id
+           and nl.notification_type = 'DAILY_DIGEST'
+           and nl.successful = true
+           and (nl.sent_at at time zone bs.timezone)::date = (now() at time zone bs.timezone)::date
+       )`,
+    [hhmm]
+  );
+  let sent = 0;
+  for (const recipient of recipients.rows) {
+    const result = await sendTelegramDailyDigest(recipient.telegram_id);
+    sent += result.sent;
+  }
+  return { due: recipients.rows.length, sent };
 }
 
 async function getTelegramDatabaseStats() {
   type CountRow = { count: number };
   try {
-    const [linkedEmployees, sessions, pendingNotifications] = await Promise.all([
+    const [linkedEmployees, sessions, pendingNotifications, organizations, letters, notificationLogs] = await Promise.all([
       query<CountRow>('select count(*)::int as count from employees where telegram_id is not null'),
       query<CountRow>('select count(*)::int as count from telegram_sessions'),
-      query<CountRow>("select count(*)::int as count from notifications where channel = 'TELEGRAM' and sent_at is null")
+      query<CountRow>("select count(*)::int as count from notifications where channel = 'TELEGRAM' and sent_at is null"),
+      query<CountRow>('select count(*)::int as count from organizations'),
+      query<CountRow>('select count(*)::int as count from letters'),
+      query<CountRow>('select count(*)::int as count from notification_logs')
     ]);
     return {
       linkedEmployees: linkedEmployees.rows[0]?.count ?? 0,
       sessions: sessions.rows[0]?.count ?? 0,
-      pendingNotifications: pendingNotifications.rows[0]?.count ?? 0
+      pendingNotifications: pendingNotifications.rows[0]?.count ?? 0,
+      organizations: organizations.rows[0]?.count ?? 0,
+      letters: letters.rows[0]?.count ?? 0,
+      notificationLogs: notificationLogs.rows[0]?.count ?? 0
     };
   } catch (error) {
     console.warn('[telegram] database stats unavailable', error);
@@ -314,8 +430,40 @@ async function getTelegramDatabaseStats() {
       linkedEmployees: 0,
       sessions: 0,
       pendingNotifications: 0,
+      organizations: 0,
+      letters: 0,
+      notificationLogs: 0,
       databaseUnavailable: true
     };
+  }
+}
+
+async function recordNotificationLog(input: {
+  employeeId?: string | null;
+  letterId?: string | null;
+  notificationId?: string | null;
+  type: string;
+  successful: boolean;
+  telegramMessageId?: number | string;
+  error?: unknown;
+}) {
+  try {
+    await query(
+      `insert into notification_logs
+         (employee_id, letter_id, notification_id, notification_type, successful, telegram_message_id, error_message)
+       values ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        input.employeeId || null,
+        input.letterId || null,
+        input.notificationId || null,
+        input.type,
+        input.successful,
+        input.telegramMessageId ? String(input.telegramMessageId) : null,
+        input.error ? (input.error instanceof Error ? input.error.message : String(input.error)) : ''
+      ]
+    );
+  } catch (error) {
+    console.warn('[telegram] notification log unavailable', error);
   }
 }
 
