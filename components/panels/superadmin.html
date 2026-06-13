@@ -1,82 +1,48 @@
 <div class="panel" id="panel-superadmin">
-        <div class="page-hdr"><h2>🔴 Super Admin — Boshqaruv markazi</h2><p>Tizim bo'yicha to'liq nazorat</p></div>
+  <div class="page-hdr pro-page-hdr">
+    <div><h2>Super Admin boshqaruv markazi</h2><p>Foydalanuvchilar, rollar va tizim darajasidagi nazorat</p></div>
+    <div class="pro-page-actions">
+      <button class="btn btn-outline" onclick="showPanel('saas')">SaaS monitoring</button>
+      <button class="btn btn-primary" onclick="loadAllUsers();loadSuperAdminStats()">Yangilash</button>
+    </div>
+  </div>
 
-        <!-- Live stats -->
-        <div id="sa-stats" class="stat-grid-5" style="margin-bottom:18px;">
-          <div class="stat-box blue"><div class="sv" id="sa-total-users">—</div><div class="sl">Jami foydalanuvchi</div></div>
-          <div class="stat-box green"><div class="sv" id="sa-active-users">—</div><div class="sl">Faol (30 kun)</div></div>
-          <div class="stat-box red"><div class="sv" id="sa-blocked-users">—</div><div class="sl">Bloklangan</div></div>
-          <div class="stat-box navy"><div class="sv" id="sa-total-docs">—</div><div class="sl">Jami hujjat</div></div>
-          <div class="stat-box yellow"><div class="sv" id="sa-admins">—</div><div class="sl">Adminlar</div></div>
-        </div>
+  <div id="sa-stats" class="stat-grid-5">
+    <div class="stat-box blue"><div class="sv" id="sa-total-users">—</div><div class="sl">Jami foydalanuvchi</div></div>
+    <div class="stat-box green"><div class="sv" id="sa-active-users">—</div><div class="sl">Faol (30 kun)</div></div>
+    <div class="stat-box red"><div class="sv" id="sa-blocked-users">—</div><div class="sl">Bloklangan</div></div>
+    <div class="stat-box navy"><div class="sv" id="sa-total-docs">—</div><div class="sl">Jami hujjat</div></div>
+    <div class="stat-box yellow"><div class="sv" id="sa-admins">—</div><div class="sl">Adminlar</div></div>
+  </div>
 
-        <!-- Auth method breakdown -->
-        <div class="card">
-          <div class="card-title">🔐 Kirish usullari statistikasi</div>
-          <div id="sa-auth-stats" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
-        </div>
+  <section class="card">
+    <div class="card-title">Kirish usullari statistikasi</div>
+    <div id="sa-auth-stats" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+  </section>
 
-        <!-- All users table -->
-        <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-            <div class="card-title" style="margin-bottom:0;">👥 Barcha foydalanuvchilar</div>
-            <div style="display:flex;gap:8px;">
-              <input id="sa-search" placeholder="Qidirish..." style="padding:6px 12px;border:1px solid var(--border2);border-radius:7px;font-size:12px;outline:none;" oninput="renderAdminUsers()">
-              <button class="btn btn-sm btn-outline" onclick="loadAllUsers()">🔄</button>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="admin-table">
-              <thead><tr><th>Foydalanuvchi</th><th>Kontakt</th><th>Tashkilot</th><th>Rol</th><th>Usul</th><th>So'nggi kirish</th><th>Holat</th><th>Amallar</th></tr></thead>
-              <tbody data-users-tbody><tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Yuklanmoqda...</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-
-      <!-- SAAS COMMAND CENTER -->
-      <div class="panel" id="panel-saas">
-        <div class="page-hdr"><h2>⚙️ SaaS Boshqaruv Markazi</h2><p>AI, analytics, subscription, security, monitoring va production sozlamalar</p></div>
-        <div class="stat-grid-5" style="margin-bottom:18px;">
-          <div class="stat-box blue"><div class="sv" id="saas-dau">—</div><div class="sl">Daily active</div></div>
-          <div class="stat-box green"><div class="sv" id="saas-online">—</div><div class="sl">Online</div></div>
-          <div class="stat-box navy"><div class="sv" id="saas-ai">—</div><div class="sl">AI requests</div></div>
-          <div class="stat-box red"><div class="sv" id="saas-failed">—</div><div class="sl">Failed AI</div></div>
-          <div class="stat-box yellow"><div class="sv" id="saas-uploads">—</div><div class="sl">Uploads</div></div>
-        </div>
-        <div class="stat-grid-5" style="margin-bottom:18px;">
-          <div class="stat-box green"><div class="sv" id="saas-premium">—</div><div class="sl">Premium</div></div>
-          <div class="stat-box blue"><div class="sv" id="saas-reports">—</div><div class="sl">Reports</div></div>
-          <div class="stat-box navy"><div class="sv" id="saas-subs">—</div><div class="sl">Subscriptions</div></div>
-        </div>
-        <div class="dash-grid">
-          <div class="card"><div class="card-title">🩺 System monitoring</div><div id="saas-health" class="health-list"></div></div>
-          <div class="card"><div class="card-title">🔐 Security hardening</div><div class="security-list"><span>Firestore role validation</span><span>Audit logs</span><span>Rate limiting</span><span>XSS sanitize</span><span>Provider fallback</span></div></div>
-        </div>
-        <div class="card">
-          <div class="card-title">🔧 Feature toggles &amp; limits</div>
-          <div id="saas-settings-form"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">🤖 AI request logs</div>
-          <div class="table-wrap"><table class="admin-table"><thead><tr><th>Vaqt</th><th>Provider</th><th>Status</th><th>Xato</th><th>Token</th></tr></thead><tbody id="saas-ai-logs"><tr><td colspan="5">Yuklanmoqda...</td></tr></tbody></table></div>
-        </div>
+  <section class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <div class="card-title" style="margin-bottom:0;">Barcha foydalanuvchilar</div>
+      <div style="display:flex;gap:8px;">
+        <input id="sa-search" placeholder="Qidirish..." style="padding:6px 12px;border:1px solid var(--border2);border-radius:7px;font-size:12px;outline:none;" oninput="renderAdminUsers()">
+        <button class="btn btn-sm btn-outline" onclick="loadAllUsers()">Yangilash</button>
       </div>
-        <!-- System info -->
-        <div class="card">
-          <div class="card-title">ℹ️ Tizim ma'lumotlari</div>
-          <div style="font-size:12px;color:var(--muted);line-height:2;">
-            <b>Firebase Project:</b> ijroda-tizimi<br>
-            <b>Auth methods:</b> Google, Phone (SMS), Email/Password<br>
-            <b>Database:</b> Firestore (asia-southeast1)<br>
-            <b>Versiya:</b> 2.1.0 — Gemini AI Edition
-          </div>
-          <div style="margin-top:12px;padding:12px;background:#fff8e1;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;font-size:12px;">
-            <b>⚠️ Muhim: Firestore Security Rules</b><br>
-            Firebase Console &gt; Firestore &gt; Rules bo'limida qoidalar o'rnatilganligini tekshiring:<br>
-            <code style="background:var(--border);padding:2px 6px;border-radius:4px;font-size:11px;">match /users/{uid} { allow write: if request.auth.uid == uid || get(/users/$(request.auth.uid)).data.role in ['admin','superadmin']; }</code><br>
-            Aks holda oddiy foydalanuvchilar o'zlarini admin qilib olishi mumkin!
-          </div>
-        </div>
-      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Foydalanuvchi</th><th>Kontakt</th><th>Tashkilot</th><th>Rol</th><th>Usul</th><th>So‘nggi kirish</th><th>Holat</th><th>Amallar</th></tr></thead>
+        <tbody data-users-tbody><tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);">Yuklanmoqda...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 
-      
+  <section class="card">
+    <div class="card-title">Tizim ma’lumotlari</div>
+    <div style="font-size:12px;color:var(--muted);line-height:2;">
+      <b>Firebase Project:</b> ijroda-tizimi<br>
+      <b>Auth usullari:</b> Google, telefon, email/parol<br>
+      <b>Ma’lumotlar bazasi:</b> Firestore<br>
+      <b>SaaS versiyasi:</b> 3.1.0
+    </div>
+  </section>
+</div>

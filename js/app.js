@@ -1889,7 +1889,7 @@ window.changePlan = async (uid, plan) => {
     await setDoc(doc(db,'subscriptions',uid), { uid, plan, status:'active', updatedAt: serverTimestamp(), updatedBy: currentUser?.uid||'' }, { merge:true });
     await writeAudit('subscription.change', { uid, plan });
     showToast('✅ Tarif yangilandi','success');
-    loadAllUsers(); renderSaasConsole();
+    loadAllUsers(); renderSaasConsole(true);
   } catch(e) { showToast('Tarif xatoligi: '+e.message,'error'); }
 };window.deleteUser = async (uid, email) => {
   if(!requirePermission('user.block', "Foydalanuvchini o'chirish")) return;
@@ -3361,7 +3361,7 @@ function updateBadges(){
 function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ===== PROFESSIONAL SAAS CORE =====
-const SAAS_VERSION = '3.0.0-premium-saas';
+const SAAS_VERSION = '3.1.0-operations-console';
 const SAAS_COLLECTIONS = ['users','chats','messages','analytics','logs','subscriptions','reports','settings','aiUsage','aiLogs','documents','fishkalar'];
 const DEFAULT_FEATURES = { aiChat:true, fileAnalysis:true, fishka:true, exports:true, voice:false, maintenance:false, providerPriority:['Gemini','Groq','OpenRouter'], freeHourlyLimit:20, premiumHourlyLimit:120 };
 let appSettingsCache = { ...DEFAULT_FEATURES };
@@ -5531,60 +5531,469 @@ async function loadAppSettings() {
 
 window.saveAppSettings = async () => {
   if(!isSuperAdmin()) { showToast('Faqat Super Admin sozlamalarni o\'zgartira oladi','error'); return; }
+  const nextMaintenance = document.getElementById('set-maintenance')?.checked ?? false;
+  if(nextMaintenance && !appSettingsCache.maintenance && !confirm('Maintenance rejimi yoqilsinmi? Oddiy foydalanuvchilar uchun tizim vaqtincha cheklanadi.')) return;
   const data = {
     aiChat: document.getElementById('set-aiChat')?.checked ?? true,
     fileAnalysis: document.getElementById('set-fileAnalysis')?.checked ?? true,
     fishka: document.getElementById('set-fishka')?.checked ?? true,
     exports: document.getElementById('set-exports')?.checked ?? true,
-    maintenance: document.getElementById('set-maintenance')?.checked ?? false,
-    freeHourlyLimit: Number(document.getElementById('set-freeLimit')?.value || 20),
-    premiumHourlyLimit: Number(document.getElementById('set-premiumLimit')?.value || 120),
+    voice: document.getElementById('set-voice')?.checked ?? false,
+    maintenance: nextMaintenance,
+    freeHourlyLimit: Math.max(1, Math.min(1000, Number(document.getElementById('set-freeLimit')?.value || 20))),
+    premiumHourlyLimit: Math.max(1, Math.min(5000, Number(document.getElementById('set-premiumLimit')?.value || 120))),
     announcement: sanitize(document.getElementById('set-announcement')?.value || '', 300),
     updatedAt: serverTimestamp(), updatedBy: currentUser?.uid || ''
   };
-  await setDoc(doc(db,'settings','app'), data, { merge:true });
-  appSettingsCache = { ...appSettingsCache, ...data };
-  await writeAudit('settings.update', data);
-  showToast('✅ SaaS sozlamalari saqlandi','success');
-  renderSaasConsole();
+  try {
+    await setDoc(doc(db,'settings','app'), data, { merge:true });
+    appSettingsCache = { ...appSettingsCache, ...data };
+    await writeAudit('settings.update', data);
+    showToast('✅ SaaS sozlamalari saqlandi','success');
+    renderSaasConsole(true);
+  } catch(error) {
+    console.error('SaaS settings save error:',error);
+    showToast(`Sozlamalar saqlanmadi: ${error.message||error}`,'error');
+  }
 };
 
 function renderSettingsForm() {
   const el = document.getElementById('saas-settings-form');
   if(!el) return;
+  const featureRows = [
+    ['aiChat','AI yordamchi','Yuridik va ijro AI suhbatlari'],
+    ['fileAnalysis','Fayl tahlili','PDF, Word va Excel hujjatlarini tahlil qilish'],
+    ['fishka','Rezolyutsiya / Fishka','Mas’ul xodimni AI orqali aniqlash'],
+    ['exports','Eksport','Word, Excel va hisobotlarni yuklab olish'],
+    ['voice','Ovozli funksiyalar','Ovozli kiritish va transkripsiya'],
+    ['maintenance','Maintenance rejimi','Oddiy foydalanuvchilar kirishini vaqtincha cheklash']
+  ];
   el.innerHTML = `
-    <div class="settings-grid">
-      ${['aiChat','fileAnalysis','fishka','exports','maintenance'].map(k=>`<label class="toggle-row"><input type="checkbox" id="set-${k}" ${appSettingsCache[k]?'checked':''}> <span>${k}</span></label>`).join('')}
-      <label class="field"><span>Free limit / soat</span><input id="set-freeLimit" type="number" min="1" value="${escH(appSettingsCache.freeHourlyLimit)}"></label>
-      <label class="field"><span>Premium limit / soat</span><input id="set-premiumLimit" type="number" min="1" value="${escH(appSettingsCache.premiumHourlyLimit)}"></label>
-      <label class="field wide"><span>Announcement</span><input id="set-announcement" value="${escH(appSettingsCache.announcement||'')}" placeholder="Tizim bo'yicha e'lon..."></label>
+    <div class="saas-feature-grid">
+      ${featureRows.map(([key,title,description])=>`
+        <label class="saas-feature-toggle ${key==='maintenance'?'critical':''}">
+          <span><b>${title}</b><small>${description}</small></span>
+          <input type="checkbox" id="set-${key}" ${appSettingsCache[key]?'checked':''}>
+        </label>`).join('')}
     </div>
-    <button class="btn btn-primary" onclick="saveAppSettings()">💾 Sozlamalarni saqlash</button>`;
+    <div class="saas-settings-row">
+      <label class="field"><span>Free tarif: soatlik AI limiti</span><input id="set-freeLimit" type="number" min="1" max="1000" value="${escH(appSettingsCache.freeHourlyLimit)}"></label>
+      <label class="field"><span>Premium tarif: soatlik AI limiti</span><input id="set-premiumLimit" type="number" min="1" max="5000" value="${escH(appSettingsCache.premiumHourlyLimit)}"></label>
+      <label class="field saas-announcement-field"><span>Tizim e’loni</span><input id="set-announcement" value="${escH(appSettingsCache.announcement||'')}" placeholder="Barcha foydalanuvchilar uchun qisqa e’lon"></label>
+      <button class="btn btn-primary" onclick="saveAppSettings()">Sozlamalarni saqlash</button>
+    </div>`;
 }
 
-async function renderSaasConsole() {
-  if(!isAdmin()) return;
+let saasConsoleCache = {
+  users:[], documents:[], usage:[], aiLogs:[], reports:[], subscriptions:[], organizations:[], auditLogs:[],
+  organizationRows:[], readErrors:[], loadedAt:0
+};
+let saasReadErrors = [];
+
+function saasTimestampMs(value) {
+  if(!value) return 0;
+  if(value?.toDate) return value.toDate().getTime();
+  if(typeof value === 'object' && Number.isFinite(value.seconds)) return value.seconds * 1000;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function saasUserActivityMs(user={}) {
+  return Math.max(
+    saasTimestampMs(user.lastSeen),
+    saasTimestampMs(user.lastLogin),
+    saasTimestampMs(user.lastSeenLocal),
+    saasTimestampMs(user.updatedAt)
+  );
+}
+
+function saasFormatNumber(value=0) {
+  return new Intl.NumberFormat('uz-UZ').format(Number(value) || 0);
+}
+
+function saasFormatDate(value) {
+  const ms = saasTimestampMs(value);
+  return ms ? new Date(ms).toLocaleString('uz-UZ', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+}
+
+function saasTimeAgo(value) {
+  const ms = saasTimestampMs(value);
+  if(!ms) return 'vaqt ko‘rsatilmagan';
+  const minutes = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+  if(minutes < 1) return 'hozir';
+  if(minutes < 60) return `${minutes} daqiqa oldin`;
+  if(minutes < 1440) return `${Math.floor(minutes/60)} soat oldin`;
+  return `${Math.floor(minutes/1440)} kun oldin`;
+}
+
+function saasPlan(user={}) {
+  const plan = String(user.plan || user.subscription || '').toLowerCase();
+  if(plan === 'premium') return 'premium';
+  if(plan === 'admin' || ['admin','superadmin','org_admin'].includes(user.role)) return 'admin';
+  return 'free';
+}
+
+async function saasReadSnapshot(ref, name, fallbackRef=null) {
+  try {
+    const snap = await getDocs(ref);
+    return snap.docs.map(item=>({ id:item.id, ...item.data() }));
+  } catch(error) {
+    console.warn(`SaaS ${name} collection o‘qilmadi:`, error);
+    if(fallbackRef) {
+      try {
+        const fallbackSnap = await getDocs(fallbackRef);
+        return fallbackSnap.docs.map(item=>({ id:item.id, ...item.data() }));
+      } catch(fallbackError) {
+        console.warn(`SaaS ${name} zaxira so‘rovi ham o‘qilmadi:`, fallbackError);
+      }
+    }
+    saasReadErrors.push(name);
+    return [];
+  }
+}
+
+function saasSetText(id, value) {
+  const element = document.getElementById(id);
+  if(element) element.textContent = value;
+}
+
+function saasRenderPlanBreakdown(users=[]) {
+  const element = document.getElementById('saas-plan-breakdown');
+  if(!element) return;
+  const total = Math.max(1, users.length);
+  const rows = [
+    ['free','Free',users.filter(user=>saasPlan(user)==='free').length],
+    ['premium','Premium',users.filter(user=>saasPlan(user)==='premium').length],
+    ['admin','Admin',users.filter(user=>saasPlan(user)==='admin').length]
+  ];
+  element.innerHTML = rows.map(([key,label,count])=>`
+    <div class="saas-breakdown-row">
+      <div><b>${label}</b><span>${saasFormatNumber(count)} foydalanuvchi</span></div>
+      <div class="saas-breakdown-meter"><i class="${key}" style="width:${Math.round(count/total*100)}%"></i></div>
+      <strong>${Math.round(count/total*100)}%</strong>
+    </div>`).join('');
+}
+
+function saasBuildOrganizationRows(users=[], documents=[], organizations=[]) {
+  const rows = new Map();
+  const ensure = name => {
+    const clean = normalizeOrgName(name) || 'Tashkilot ko‘rsatilmagan';
+    const key = orgKey(clean) || 'unknown';
+    if(!rows.has(key)) rows.set(key, { key, name:clean, users:0, active:0, documents:0, premium:0 });
+    return rows.get(key);
+  };
+  organizations.forEach(org=>ensure(org.nom || org.name));
+  users.forEach(user=>{
+    const row = ensure(user.org);
+    row.users += 1;
+    if(Date.now() - saasUserActivityMs(user) <= 30*86400000) row.active += 1;
+    if(saasPlan(user)==='premium') row.premium += 1;
+  });
+  documents.forEach(document=>{
+    ensure(document.userOrg || document.org || getOrgText(document)).documents += 1;
+  });
+  return [...rows.values()].sort((a,b)=>(b.users+b.documents)-(a.users+a.documents) || a.name.localeCompare(b.name));
+}
+
+function saasOrganizationStatus(row) {
+  if(!row.users && row.documents) return ['warning','Profil yo‘q'];
+  if(!row.users) return ['neutral','Bo‘sh'];
+  const activity = row.active / row.users;
+  if(activity >= .65) return ['success','Faol'];
+  if(activity >= .25) return ['warning','Sust'];
+  return ['danger','Nazorat'];
+}
+
+function renderSaasOrganizationRows(rows=saasConsoleCache.organizationRows) {
+  const tbody = document.getElementById('saas-org-rows');
+  if(!tbody) return;
+  const queryText = normalizeText(document.getElementById('saas-org-search')?.value || '');
+  const filtered = rows.filter(row=>!queryText || normalizeText(row.name).includes(queryText)).slice(0, 30);
+  tbody.innerHTML = filtered.map(row=>{
+    const [statusClass,status] = saasOrganizationStatus(row);
+    return `<tr>
+      <td><b>${escH(row.name)}</b></td>
+      <td class="td-mono">${saasFormatNumber(row.users)}</td>
+      <td class="td-mono">${saasFormatNumber(row.active)}</td>
+      <td class="td-mono">${saasFormatNumber(row.documents)}</td>
+      <td class="td-mono">${saasFormatNumber(row.premium)}</td>
+      <td><span class="saas-status ${statusClass}">${status}</span></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="saas-empty-cell">Tashkilot topilmadi</td></tr>';
+}
+window.filterSaasOrganizations = () => renderSaasOrganizationRows();
+
+function saasRenderAiChart(aiLogs=[]) {
+  const chart = document.getElementById('saas-ai-chart');
+  if(!chart) return;
+  const days = [];
+  for(let offset=6; offset>=0; offset--) {
+    const date = new Date();
+    date.setHours(0,0,0,0);
+    date.setDate(date.getDate()-offset);
+    const next = new Date(date); next.setDate(next.getDate()+1);
+    const logs = aiLogs.filter(log=>{
+      const ms = saasTimestampMs(log.createdAt || log.createdAtLocal);
+      return ms >= date.getTime() && ms < next.getTime();
+    });
+    days.push({
+      label:date.toLocaleDateString('uz-UZ',{weekday:'short'}).replace('.',''),
+      total:logs.length,
+      failed:logs.filter(log=>log.ok===false).length
+    });
+  }
+  const max = Math.max(1,...days.map(day=>day.total));
+  chart.innerHTML = days.map(day=>`
+    <div class="saas-chart-column">
+      <div class="saas-chart-value">${day.total}</div>
+      <div class="saas-chart-track">
+        <i style="height:${Math.max(day.total ? 10 : 2, Math.round(day.total/max*100))}%"></i>
+        ${day.failed ? `<em style="height:${Math.max(5,Math.round(day.failed/max*100))}%"></em>` : ''}
+      </div>
+      <span>${escH(day.label)}</span>
+    </div>`).join('');
+  saasSetText('saas-ai-total-week', `${days.reduce((sum,day)=>sum+day.total,0)} so‘rov`);
+}
+
+function saasRenderProviderBreakdown(aiLogs=[]) {
+  const element = document.getElementById('saas-provider-breakdown');
+  const select = document.getElementById('saas-log-provider');
+  const providers = {};
+  aiLogs.forEach(log=>{
+    const key = String(log.provider || 'Noma’lum');
+    providers[key] ||= { total:0, failed:0 };
+    providers[key].total += 1;
+    if(log.ok===false) providers[key].failed += 1;
+  });
+  const rows = Object.entries(providers).sort((a,b)=>b[1].total-a[1].total);
+  if(element) element.innerHTML = rows.slice(0,4).map(([provider,data])=>{
+    const success = data.total ? Math.round((data.total-data.failed)/data.total*100) : 0;
+    return `<div><span><b>${escH(provider)}</b><small>${data.total} so‘rov</small></span><strong>${success}%</strong></div>`;
+  }).join('') || '<div class="saas-empty-inline">AI provider ma’lumoti yo‘q</div>';
+  if(select) {
+    const selected = select.value;
+    select.innerHTML = '<option value="">Barcha providerlar</option>' + rows.map(([provider])=>`<option value="${escH(provider)}">${escH(provider)}</option>`).join('');
+    select.value = selected;
+  }
+}
+
+function renderSaasAiLogs() {
+  const tbody = document.getElementById('saas-ai-logs');
+  if(!tbody) return;
+  const status = document.getElementById('saas-log-status')?.value || '';
+  const provider = document.getElementById('saas-log-provider')?.value || '';
+  const queryText = normalizeText(document.getElementById('saas-log-search')?.value || '');
+  const logs = saasConsoleCache.aiLogs
+    .filter(log=>{
+      if(status==='ok' && log.ok===false) return false;
+      if(status==='failed' && log.ok!==false) return false;
+      if(provider && String(log.provider||'')!==provider) return false;
+      const haystack = normalizeText(`${log.provider||''} ${log.model||''} ${log.error||''}`);
+      return !queryText || haystack.includes(queryText);
+    })
+    .sort((a,b)=>saasTimestampMs(b.createdAt||b.createdAtLocal)-saasTimestampMs(a.createdAt||a.createdAtLocal))
+    .slice(0,100);
+  tbody.innerHTML = logs.map(log=>`
+    <tr>
+      <td class="td-mono">${escH(saasFormatDate(log.createdAt || log.createdAtLocal))}</td>
+      <td><b>${escH(log.provider||'—')}</b><small class="saas-table-sub">${escH(log.model||'Model ko‘rsatilmagan')}</small></td>
+      <td><span class="saas-status ${log.ok===false?'danger':'success'}">${log.ok===false?'Xatolik':'Muvaffaqiyatli'}</span></td>
+      <td class="td-mono">${saasFormatNumber(log.tokensApprox||0)}</td>
+      <td class="saas-log-detail">${escH(log.error || `${saasFormatNumber(log.chars||0)} belgi qayta ishlandi`)}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="saas-empty-cell">Mos AI log topilmadi</td></tr>';
+}
+window.filterSaasAiLogs = renderSaasAiLogs;
+
+function saasRenderActivity(auditLogs=[]) {
+  const element = document.getElementById('saas-activity-list');
+  if(!element) return;
+  const rows = [...auditLogs]
+    .sort((a,b)=>saasTimestampMs(b.createdAt||b.createdAtLocal)-saasTimestampMs(a.createdAt||a.createdAtLocal))
+    .slice(0,8);
+  element.innerHTML = rows.map(log=>`
+    <div class="saas-activity-row">
+      <i></i>
+      <div><b>${escH(log.action || log.type || 'Tizim amali')}</b><span>${escH(log.userName || log.org || 'Tizim')} · ${escH(saasTimeAgo(log.createdAt || log.createdAtLocal))}</span></div>
+    </div>`).join('') || '<div class="saas-empty-inline">Audit hodisalari hali mavjud emas</div>';
+}
+
+function saasRenderRisks({blocked, failed24, stale, orphanDocs, maintenance, readFailures}) {
+  const element = document.getElementById('saas-risk-list');
+  const badge = document.getElementById('saas-risk-badge');
+  const risks = [
+    { level:blocked?'danger':'success', title:'Bloklangan foydalanuvchilar', value:blocked, note:blocked?'Profil holatini ko‘rib chiqing':'Bloklangan profil yo‘q', action:"showPanel('admin')" },
+    { level:failed24>5?'danger':failed24?'warning':'success', title:'24 soatdagi AI xatolari', value:failed24, note:failed24?'Provider va API limitlarini tekshiring':'AI xatolari aniqlanmadi', action:"showPanel('providers')" },
+    { level:stale?'warning':'success', title:'30 kundan beri faol bo‘lmaganlar', value:stale, note:stale?'Faollashtirish yoki arxivlash talab etiladi':'Barcha profillar faol', action:"showPanel('admin')" },
+    { level:orphanDocs?'warning':'success', title:'Tashkilotsiz hujjatlar', value:orphanDocs, note:orphanDocs?'Tashkilot maydonini to‘ldiring':'Barcha hujjatlar bog‘langan', action:"showPanel('docs')" },
+    { level:readFailures?'danger':'success', title:'Ma’lumot manbalari', value:readFailures||'OK', note:readFailures?'Firestore ruxsatlari yoki ulanishini tekshiring':'Barcha manbalar o‘qildi', action:"showPanel('security')" },
+    { level:maintenance?'danger':'success', title:'Maintenance rejimi', value:maintenance?'ON':'OFF', note:maintenance?'Oddiy foydalanuvchilar cheklangan':'Production rejimi faol', action:"showPanel('saas')" }
+  ];
+  const active = risks.filter(risk=>risk.level!=='success').length;
+  if(badge) {
+    badge.className = `badge ${active?'badge-fail':'badge-done'}`;
+    badge.textContent = active ? `${active} signal` : 'Barqaror';
+  }
+  if(element) element.innerHTML = risks.map(risk=>`
+    <button class="saas-risk-row ${risk.level}" onclick="${risk.action}">
+      <span><b>${escH(risk.title)}</b><small>${escH(risk.note)}</small></span>
+      <strong>${escH(risk.value)}</strong>
+    </button>`).join('');
+  return active;
+}
+
+async function saasRefreshTelegramHealth() {
+  const row = document.getElementById('saas-health-telegram');
+  if(!row) return;
+  try {
+    const status = await callTelegramPublicBackend('/public-status');
+    const active = status.configured && status.webhookActive;
+    row.className = `saas-health-row ${active?'ok':'warn'}`;
+    row.innerHTML = `<span><i></i><b>Telegram bot</b></span><strong>${active?'Faol':'Tekshirish kerak'}</strong>`;
+  } catch(error) {
+    row.className = 'saas-health-row warn';
+    row.innerHTML = '<span><i></i><b>Telegram bot</b></span><strong>Ulanmadi</strong>';
+  }
+}
+
+async function renderSaasConsole(force=false) {
+  if(!isSuperAdmin()) return;
+  const panel = document.getElementById('panel-saas');
+  if(!panel) return;
   await loadAppSettings();
   renderSettingsForm();
+  if(!force && saasConsoleCache.loadedAt && Date.now()-saasConsoleCache.loadedAt < 30000) {
+    renderSaasOrganizationRows();
+    renderSaasAiLogs();
+    return;
+  }
+  panel.classList.add('is-loading');
   try {
-    const [usersSnap, docsSnap, usageSnap, logsSnap, reportsSnap, subsSnap] = await Promise.all([ getDocs(collection(db,'users')), getDocs(collection(db,'documents')), getDocs(collection(db,'aiUsage')), getDocs(collection(db,'aiLogs')), getDocs(collection(db,'reports')), getDocs(collection(db,'subscriptions')) ]);
-    const users = usersSnap.docs.map(d=>({id:d.id,...d.data()}));
-    const usage = usageSnap.docs.map(d=>d.data());
-    const logs = logsSnap.docs.map(d=>({id:d.id,...d.data()}));
-    const totalAi = usage.reduce((s,d)=>s+(d.requests||0),0);
-    const failed = logs.filter(l=>!l.ok).length;
-    const online = users.filter(u=>u.online).length;
-    const premium = users.filter(u=>(u.plan||u.subscription)==='premium').length;
-    const set = (id,v)=>{ const e=document.getElementById(id); if(e)e.textContent=v; };
-    set('saas-dau', users.filter(u=>u.lastSeen?.toDate && (Date.now()-u.lastSeen.toDate().getTime())<86400000).length);
-    set('saas-online', online); set('saas-ai', totalAi); set('saas-failed', failed); set('saas-uploads', docsSnap.size); set('saas-premium', premium); set('saas-reports', reportsSnap.size); set('saas-subs', subsSnap.size);
+    saasReadErrors = [];
+    const [users, documents, usage, aiLogs, reports, subscriptions, organizations, auditLogs] = await Promise.all([
+      saasReadSnapshot(collection(db,'users'),'users'),
+      saasReadSnapshot(collection(db,'documents'),'documents'),
+      saasReadSnapshot(collection(db,'aiUsage'),'aiUsage'),
+      saasReadSnapshot(query(collection(db,'aiLogs'), orderBy('createdAt','desc'), limit(250)),'aiLogs',collection(db,'aiLogs')),
+      saasReadSnapshot(collection(db,'reports'),'reports'),
+      saasReadSnapshot(collection(db,'subscriptions'),'subscriptions'),
+      saasReadSnapshot(collection(db,'tashkilotlar'),'tashkilotlar'),
+      saasReadSnapshot(query(collection(db,'logs'), orderBy('createdAt','desc'), limit(100)),'logs',collection(db,'logs'))
+    ]);
+    const now = Date.now();
+    const active24 = users.filter(user=>now-saasUserActivityMs(user)<=86400000).length;
+    const active30 = users.filter(user=>now-saasUserActivityMs(user)<=30*86400000).length;
+    const online = users.filter(user=>user.online && now-saasUserActivityMs(user)<=20*60000).length;
+    const totalAi = usage.reduce((sum,item)=>sum+(Number(item.requests)||0),0) || aiLogs.length;
+    const failed = aiLogs.filter(log=>log.ok===false).length;
+    const successRate = aiLogs.length ? Math.round((aiLogs.length-failed)/aiLogs.length*100) : 100;
+    const failed24 = aiLogs.filter(log=>log.ok===false && now-saasTimestampMs(log.createdAt||log.createdAtLocal)<=86400000).length;
+    const blocked = users.filter(user=>user.blocked).length;
+    const stale = users.filter(user=>{
+      const activity = saasUserActivityMs(user);
+      return activity && now-activity>30*86400000 && !user.blocked;
+    }).length;
+    const orphanDocs = documents.filter(document=>!normalizeOrgName(document.userOrg || document.org || getOrgText(document))).length;
+    const organizationRows = saasBuildOrganizationRows(users,documents,organizations);
+    const readErrors = [...new Set(saasReadErrors)];
+    saasConsoleCache = { users,documents,usage,aiLogs,reports,subscriptions,organizations,auditLogs,organizationRows,readErrors,loadedAt:now };
+
+    saasSetText('saas-users',saasFormatNumber(users.length));
+    saasSetText('saas-users-note',`${online} hozir onlayn`);
+    saasSetText('saas-dau',saasFormatNumber(active24));
+    saasSetText('saas-dau-note',`${users.length?Math.round(active24/users.length*100):0}% faollik`);
+    saasSetText('saas-orgs',saasFormatNumber(organizationRows.filter(row=>row.name!=='Tashkilot ko‘rsatilmagan').length));
+    saasSetText('saas-orgs-note',`${organizationRows.filter(row=>row.active).length} faol tenant`);
+    saasSetText('saas-ai',saasFormatNumber(totalAi));
+    saasSetText('saas-ai-note',`${successRate}% muvaffaqiyat`);
+    saasSetText('saas-uploads',saasFormatNumber(documents.length));
+    saasSetText('saas-docs-note',`${reports.length} ta hisobot`);
+
+    const riskCount = saasRenderRisks({
+      blocked,
+      failed24,
+      stale,
+      orphanDocs,
+      maintenance:!!appSettingsCache.maintenance,
+      readFailures:readErrors.length
+    });
+    saasSetText('saas-risk-count',riskCount);
+    saasSetText('saas-risk-note',riskCount?'Ko‘rib chiqish zarur':'Platforma barqaror');
+    const alert = document.getElementById('saas-alert-strip');
+    if(alert) {
+      alert.className = `saas-alert-strip ${riskCount?'warning':'success'}`;
+      alert.innerHTML = riskCount
+        ? `<b>${riskCount} ta nazorat signali mavjud</b><span>Xavf va nazorat bo‘limidagi tavsiyalarni ko‘rib chiqing.</span>`
+        : '<b>Platforma barqaror ishlamoqda</b><span>Faol kritik signal aniqlanmadi.</span>';
+    }
+
     const health = document.getElementById('saas-health');
-    if(health) health.innerHTML = `<div class="health-row ok"><b>Firebase</b><span>Operational</span></div><div class="health-row ${failed>5?'warn':'ok'}"><b>AI failures</b><span>${failed}</span></div><div class="health-row ok"><b>Collections</b><span>${SAAS_COLLECTIONS.length} mapped</span></div><div class="health-row ${appSettingsCache.maintenance?'warn':'ok'}"><b>Maintenance</b><span>${appSettingsCache.maintenance?'ON':'OFF'}</span></div>`;
-    const logEl = document.getElementById('saas-ai-logs');
-    if(logEl) logEl.innerHTML = logs.slice(-12).reverse().map(l=>`<tr><td>${escH(l.createdAtLocal||'—')}</td><td>${escH(l.provider||'—')}</td><td>${l.ok?'✅':'❌'}</td><td>${escH(l.error||'—')}</td><td>${l.tokensApprox||0}</td></tr>`).join('') || '<tr><td colspan="5">Loglar yo\'q</td></tr>';
-  } catch(e) { console.error(e); }
+    if(health) health.innerHTML = `
+      <div class="saas-health-row ${readErrors.length?'danger':'ok'}"><span><i></i><b>Firebase / Firestore</b></span><strong>${readErrors.length?`${readErrors.length} manba o‘qilmadi`:'Faol'}</strong></div>
+      <div class="saas-health-row ${successRate>=90?'ok':successRate>=75?'warn':'danger'}"><span><i></i><b>AI providerlar</b></span><strong>${successRate}% success</strong></div>
+      <div id="saas-health-telegram" class="saas-health-row neutral"><span><i></i><b>Telegram bot</b></span><strong>Tekshirilmoqda</strong></div>
+      <div class="saas-health-row ${appSettingsCache.maintenance?'danger':'ok'}"><span><i></i><b>Production rejimi</b></span><strong>${appSettingsCache.maintenance?'Maintenance':'Faol'}</strong></div>
+      <div class="saas-health-row ${active30?'ok':'warn'}"><span><i></i><b>30 kunlik faollik</b></span><strong>${active30}/${users.length}</strong></div>`;
+    const healthBadge = document.getElementById('saas-health-badge');
+    if(healthBadge) {
+      healthBadge.className = `badge ${riskCount?'badge-proc':'badge-done'}`;
+      healthBadge.textContent = riskCount?'Nazoratda':'Operational';
+    }
+    saasRenderPlanBreakdown(users);
+    renderSaasOrganizationRows(organizationRows);
+    saasRenderAiChart(aiLogs);
+    saasRenderProviderBreakdown(aiLogs);
+    renderSaasAiLogs();
+    saasRenderActivity(auditLogs);
+    saasSetText('saas-last-refresh',`Yangilandi: ${new Date().toLocaleTimeString('uz-UZ',{hour:'2-digit',minute:'2-digit'})}`);
+    void saasRefreshTelegramHealth();
+  } catch(error) {
+    console.error('SaaS console error:',error);
+    const alert = document.getElementById('saas-alert-strip');
+    if(alert) {
+      alert.className = 'saas-alert-strip danger';
+      alert.innerHTML = `<b>Ma’lumotlar yuklanmadi</b><span>${escH(error.message||String(error))}</span>`;
+    }
+  } finally {
+    panel.classList.remove('is-loading');
+  }
 }
 window.renderSaasConsole = renderSaasConsole;
+
+window.exportSaasSnapshot = function() {
+  if(!saasConsoleCache.loadedAt) { showToast('Avval SaaS ma’lumotlarini yangilang','error'); return; }
+  const users = saasConsoleCache.users;
+  const logs = saasConsoleCache.aiLogs;
+  const snapshot = {
+    generatedAt:new Date().toISOString(),
+    version:SAAS_VERSION,
+    totals:{
+      users:users.length,
+      organizations:saasConsoleCache.organizationRows.length,
+      documents:saasConsoleCache.documents.length,
+      reports:saasConsoleCache.reports.length,
+      subscriptions:saasConsoleCache.subscriptions.length,
+      aiRequests:saasConsoleCache.usage.reduce((sum,item)=>sum+(Number(item.requests)||0),0) || logs.length,
+      aiFailures:logs.filter(log=>log.ok===false).length
+    },
+    plans:{
+      free:users.filter(user=>saasPlan(user)==='free').length,
+      premium:users.filter(user=>saasPlan(user)==='premium').length,
+      admin:users.filter(user=>saasPlan(user)==='admin').length
+    },
+    organizations:saasConsoleCache.organizationRows,
+    dataHealth:{
+      readErrors:saasConsoleCache.readErrors
+    }
+  };
+  const blob = new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `saas_snapshot_${new Date().toISOString().slice(0,10)}.json`;
+  anchor.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  writeAudit('saas.snapshot_export',{ totals:snapshot.totals }).catch(()=>{});
+};
 
 // ===== UI =====
 function showApp(){
@@ -5640,6 +6049,7 @@ window.showPanel = (name) => {
   if (name === 'roles') renderRolesPanel();
   if (name === 'audit') renderAuditPanel();
   if (name === 'integrations') renderIntegrationsPanel();
+  if (name === 'saas') renderSaasConsole();
   if (name === 'legal-ai') window.initLegalAiPanel?.();
   if (name === 'docs') renderTable();
   if (name === 'filter') renderTable();

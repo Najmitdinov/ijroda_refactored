@@ -1,28 +1,117 @@
 <div class="panel" id="panel-saas">
-        <div class="page-hdr"><h2>⚙️ SaaS Boshqaruv Markazi</h2><p>AI, analytics, subscription, security, monitoring va production sozlamalar</p></div>
-        <div class="stat-grid-5" style="margin-bottom:18px;">
-          <div class="stat-box blue"><div class="sv" id="saas-dau">—</div><div class="sl">Daily active</div></div>
-          <div class="stat-box green"><div class="sv" id="saas-online">—</div><div class="sl">Online</div></div>
-          <div class="stat-box navy"><div class="sv" id="saas-ai">—</div><div class="sl">AI requests</div></div>
-          <div class="stat-box red"><div class="sv" id="saas-failed">—</div><div class="sl">Failed AI</div></div>
-          <div class="stat-box yellow"><div class="sv" id="saas-uploads">—</div><div class="sl">Uploads</div></div>
-        </div>
-        <div class="stat-grid-5" style="margin-bottom:18px;">
-          <div class="stat-box green"><div class="sv" id="saas-premium">—</div><div class="sl">Premium</div></div>
-          <div class="stat-box blue"><div class="sv" id="saas-reports">—</div><div class="sl">Reports</div></div>
-          <div class="stat-box navy"><div class="sv" id="saas-subs">—</div><div class="sl">Subscriptions</div></div>
-        </div>
-        <div class="dash-grid">
-          <div class="card"><div class="card-title">🩺 System monitoring</div><div id="saas-health" class="health-list"></div></div>
-          <div class="card"><div class="card-title">🔐 Security hardening</div><div class="security-list"><span>Firestore role validation</span><span>Audit logs</span><span>Rate limiting</span><span>XSS sanitize</span><span>Provider fallback</span></div></div>
-        </div>
-        <div class="card">
-          <div class="card-title">🔧 Feature toggles &amp; limits</div>
-          <div id="saas-settings-form"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">🤖 AI request logs</div>
-          <div class="table-wrap"><table class="admin-table"><thead><tr><th>Vaqt</th><th>Provider</th><th>Status</th><th>Xato</th><th>Token</th></tr></thead><tbody id="saas-ai-logs"><tr><td colspan="5">Yuklanmoqda...</td></tr></tbody></table></div>
-        </div>
+  <div class="saas-command-header">
+    <div>
+      <span class="saas-eyebrow">Super Admin</span>
+      <h2>SaaS boshqaruv markazi</h2>
+      <p>Platforma faolligi, tashkilotlar, tariflar, AI sarfi va production sozlamalarini yagona oynadan boshqaring.</p>
+    </div>
+    <div class="saas-header-actions">
+      <span id="saas-last-refresh" class="saas-refresh-time">Hali yangilanmagan</span>
+      <button class="btn btn-outline" onclick="exportSaasSnapshot()">Eksport</button>
+      <button class="btn btn-primary" onclick="renderSaasConsole(true)">Yangilash</button>
+    </div>
+  </div>
+
+  <div id="saas-alert-strip" class="saas-alert-strip neutral">
+    <b>Platforma tekshirilmoqda</b>
+    <span>Foydalanuvchi, AI va hujjat ko‘rsatkichlari yuklanmoqda.</span>
+  </div>
+
+  <div class="saas-kpi-grid">
+    <div class="saas-kpi accent"><span>Jami foydalanuvchi</span><b id="saas-users">—</b><small id="saas-users-note">Hisoblanmoqda</small></div>
+    <div class="saas-kpi success"><span>24 soat faol</span><b id="saas-dau">—</b><small id="saas-dau-note">Faollik ulushi</small></div>
+    <div class="saas-kpi teal"><span>Tashkilotlar</span><b id="saas-orgs">—</b><small id="saas-orgs-note">Faol tenantlar</small></div>
+    <div class="saas-kpi violet"><span>AI so‘rovlari</span><b id="saas-ai">—</b><small id="saas-ai-note">Muvaffaqiyat darajasi</small></div>
+    <div class="saas-kpi warning"><span>Hujjatlar</span><b id="saas-uploads">—</b><small id="saas-docs-note">Hisobotlar bilan</small></div>
+    <div class="saas-kpi danger"><span>Diqqat talab qiladi</span><b id="saas-risk-count">—</b><small id="saas-risk-note">Faol xavf signallari</small></div>
+  </div>
+
+  <div class="saas-grid saas-grid-health">
+    <section class="saas-surface">
+      <div class="saas-section-head">
+        <div><h3>Platforma holati</h3><p>Asosiy xizmatlar va ish rejimi</p></div>
+        <span id="saas-health-badge" class="badge badge-new">Tekshirilmoqda</span>
       </div>
-        
+      <div id="saas-health" class="saas-health-list"></div>
+    </section>
+
+    <section class="saas-surface">
+      <div class="saas-section-head">
+        <div><h3>Tariflar taqsimoti</h3><p>Foydalanuvchilar kesimida</p></div>
+        <button class="saas-link-btn" onclick="showPanel('admin')">Foydalanuvchilar</button>
+      </div>
+      <div id="saas-plan-breakdown" class="saas-breakdown"></div>
+    </section>
+  </div>
+
+  <div class="saas-grid saas-grid-main">
+    <section class="saas-surface">
+      <div class="saas-section-head">
+        <div><h3>Tashkilotlar portfeli</h3><p>Foydalanuvchi va hujjat yuklamasi</p></div>
+        <input id="saas-org-search" class="saas-search" placeholder="Tashkilotni qidirish" oninput="filterSaasOrganizations()">
+      </div>
+      <div class="table-wrap saas-table-wrap">
+        <table class="admin-table saas-table">
+          <thead><tr><th>Tashkilot</th><th>Foydalanuvchi</th><th>Faol</th><th>Hujjat</th><th>Premium</th><th>Holat</th></tr></thead>
+          <tbody id="saas-org-rows"><tr><td colspan="6">Yuklanmoqda...</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="saas-surface">
+      <div class="saas-section-head">
+        <div><h3>7 kunlik AI faolligi</h3><p>Kunlik so‘rovlar dinamikasi</p></div>
+        <span id="saas-ai-total-week" class="saas-metric-pill">—</span>
+      </div>
+      <div id="saas-ai-chart" class="saas-chart"></div>
+      <div id="saas-provider-breakdown" class="saas-provider-list"></div>
+    </section>
+  </div>
+
+  <section class="saas-surface">
+    <div class="saas-section-head">
+      <div><h3>Production sozlamalari</h3><p>Funksiyalar, limitlar va tizim e’loni</p></div>
+      <span class="saas-secure-label">Faqat Super Admin</span>
+    </div>
+    <div id="saas-settings-form"></div>
+  </section>
+
+  <div class="saas-grid saas-grid-operations">
+    <section class="saas-surface">
+      <div class="saas-section-head">
+        <div><h3>Xavf va nazorat</h3><p>Amaliy chorani talab qiladigan holatlar</p></div>
+        <span id="saas-risk-badge" class="badge badge-new">—</span>
+      </div>
+      <div id="saas-risk-list" class="saas-risk-list"></div>
+    </section>
+
+    <section class="saas-surface">
+      <div class="saas-section-head">
+        <div><h3>So‘nggi boshqaruv amallari</h3><p>Audit jurnalidan oxirgi hodisalar</p></div>
+        <button class="saas-link-btn" onclick="showPanel('audit');renderAuditPanel()">Audit log</button>
+      </div>
+      <div id="saas-activity-list" class="saas-activity-list"></div>
+    </section>
+  </div>
+
+  <section class="saas-surface">
+    <div class="saas-section-head saas-log-head">
+      <div><h3>AI so‘rovlar jurnali</h3><p>Provider, natija va sarf bo‘yicha nazorat</p></div>
+      <div class="saas-log-filters">
+        <select id="saas-log-status" onchange="filterSaasAiLogs()">
+          <option value="">Barcha holatlar</option>
+          <option value="ok">Muvaffaqiyatli</option>
+          <option value="failed">Xatolik</option>
+        </select>
+        <select id="saas-log-provider" onchange="filterSaasAiLogs()"><option value="">Barcha providerlar</option></select>
+        <input id="saas-log-search" placeholder="Model yoki xato bo‘yicha qidirish" oninput="filterSaasAiLogs()">
+      </div>
+    </div>
+    <div class="table-wrap saas-table-wrap">
+      <table class="admin-table saas-table saas-log-table">
+        <thead><tr><th>Vaqt</th><th>Provider / model</th><th>Natija</th><th>Token</th><th>Tafsilot</th></tr></thead>
+        <tbody id="saas-ai-logs"><tr><td colspan="5">Yuklanmoqda...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
