@@ -38,6 +38,7 @@ const functionNames = [
   'parseAiResponsePayload',
   'normalizeAiConfidence',
   'responseBodyLooksIncomplete',
+  'responseBodyLooksLikePromptOrInstructions',
   'cleanGeneratedResponseBody',
   'enforceRequiredResponseOpening',
   'validateAiResponseDocument',
@@ -106,6 +107,60 @@ assert.equal(runtime.responseBodyLooksIncomplete(
 assert.equal(runtime.responseBodyLooksIncomplete(
   "Mazkur topshiriq yuzasidan (obyekt o'rganildi."
 ), true);
+
+const leakedPrompt = `O'ZBEKISTON RESPUBLIKASI QURILISH VA UY-JOY KOMMUNAL XO'JALIGI VAZIRLIGI
+
+### **1. Hejli Topshiriq Mazmuniga**
+
+**Foydalanuvchi "Yangi xat yaratish" tugmasini bosadi:**
+
+- **"Xat raqamini kiriting"** - Tizim avval "Xat raqamini kiriting" oynasini chiqaradi.
+- **"Yangi xat yaratish"** - Tizim avval "Yangi xat yaratish" qoidasidagi o'zgarishni bajaradi.
+
+TIZIM LOGIKASI:
+AI VAZIFASI:
+FAQAT JSON qaytar.`;
+assert.equal(runtime.responseBodyLooksLikePromptOrInstructions(leakedPrompt), true);
+assert.equal(runtime.isLikelyAiResponseBody(leakedPrompt), false, 'Ichki prompt matni javob body sifatida qabul qilinmasin');
+assert.equal(runtime.parseAiResponsePayload(leakedPrompt), null, 'Raw prompt/reja AI javobi sifatida parse qilinmasin');
+assert.equal(
+  runtime.validateAiResponseDocument({ body:leakedPrompt, confidence_score:95 }, task, '', '', []).ok,
+  false,
+  'JSON ichida kelgan prompt/reja ham rad etilishi kerak'
+);
+
+runtime.setMockAiResponses([
+  {
+    text:leakedPrompt,
+    provider:'Gemini',
+    model:'gemini-test',
+    finishReason:'STOP',
+    truncated:false
+  },
+  {
+    text:JSON.stringify({ body, confidence_score:95 }),
+    provider:'Gemini',
+    model:'gemini-test',
+    finishReason:'STOP',
+    truncated:false
+  }
+]);
+const recoveredAfterPromptLeak = await runtime.createAiOnlyResponseDocument(
+  'Toza rasmiy javob xati yarat.',
+  null,
+  task,
+  '',
+  '',
+  [],
+  '',
+  ''
+);
+assert.equal(runtime.getMockAiCalls(), 2, 'Prompt/reja sizib chiqqanda AI qayta chaqirilishi kerak');
+assert.equal(
+  runtime.compactResponseText(recoveredAfterPromptLeak.body),
+  runtime.compactResponseText(body),
+  'Prompt/reja rad etilgandan keyin faqat toza body qabul qilinishi kerak'
+);
 
 const truncatedPayload = {
   body:"Nurota tumanidagi obyektning loyiha-smeta hujjatlari o'rganildi va",

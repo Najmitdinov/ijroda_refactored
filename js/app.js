@@ -8527,6 +8527,7 @@ function isLikelyAiResponseBody(text='') {
   const clean = compactResponseText(text);
   if(clean.length < 40 || /^[{[]/.test(clean)) return false;
   if(/^(xato|error|uzr|kechirasiz|i cannot|i can't|unable to)/i.test(clean)) return false;
+  if(responseBodyLooksLikePromptOrInstructions(clean)) return false;
   const professional = /(topshiriq|xat|talabnoma|qaror|ijro|ma['‘’ʻʼ`]?lum|taqdim|qurilish|obyekt|loyiha|hujjat|nazorat|o['‘’ʻʼ`]?rgan|bartaraf|amalga\s+oshir|qabul\s+qil)/i.test(clean);
   return professional && (/[.!?]\s+/.test(clean) || clean.length >= 100);
 }
@@ -8578,6 +8579,7 @@ function validateAiResponseDocument(parsed, qualitySeed='', legalContext='', lea
   body = cleanGeneratedResponseBody(body);
   body = enforceRequiredResponseOpening(body, requiredOpening);
   if(body.length < 40) return { ok:false, reason:`body matni juda qisqa (${body.length} belgi)`, body, confidence:0 };
+  if(responseBodyLooksLikePromptOrInstructions(body)) return { ok:false, reason:'AI javobida tizim prompti yoki ichki ko‘rsatma matni chiqib ketgan', body, confidence:0 };
   if(responseBodyLooksIncomplete(body, parsed._generation || {})) return { ok:false, reason:'body matni oxirigacha tugallanmagan yoki AI token limitida to‘xtagan', body, confidence:0 };
   if(responseBodyLooksGeneric(body, qualitySeed)) return { ok:false, reason:'body umumiy yoki shablon matnga o‘xshaydi', body, confidence:0 };
   if(responseMissesRequiredExtra(body, requiredExtra)) return { ok:false, reason:'body qo‘shimcha ma’lumotdagi asosiy dalillarni aks ettirmadi', body, confidence:0 };
@@ -8600,6 +8602,12 @@ function extractValidatedResponseBody(parsed, qualitySeed='', legalContext='') {
 function cleanGeneratedResponseBody(text, meta={}) {
   let s = String(text || '').replace(/\r/g, '\n').replace(/\u00a0/g, ' ').trim();
   if(!s) return '';
+  s = s
+    .replace(/^\s*```(?:json|markdown|text)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .replace(/^\s*#{1,6}\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .trim();
   const firstOpening = s.search(/\b(Sizning|Mazkur|Ushbu|O['‘`ʻ]rganish|Shu\s+munosabat\s+bilan|Yuqoridagilarni\s+inobatga\s+olib|Ma['‘`ʻ]lum\s+qilamiz)\b/i);
   const firstHeaderNoise = s.search(/O['‘`ʻ]?ZBEKISTON\s+RESPUBLIKASI|QURILISH\s+VA\s+UY-JOY|BOSH\s+BOSHQARMASI|210100|Zarapetyan|navqurilish|MAVZU\s*:/i);
   if(firstOpening > 0 && /O\S?ZBEKISTON\s+RESPUBLIKASI|210100|Zarapetyan|navqurilish@|(?:^|\n)\s*(?:MAVZU|Tel|Faks|E-?mail|Sayt)\s*:/i.test(s.slice(0, firstOpening))) {
@@ -8624,6 +8632,46 @@ function cleanGeneratedResponseBody(text, meta={}) {
     return true;
   });
   return cleanedLines.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function responseBodyLooksLikePromptOrInstructions(text='') {
+  const raw = String(text || '');
+  const clean = compactResponseText(raw);
+  const norm = normalizeText(clean);
+  if(!clean) return false;
+  const hardMarkers = [
+    'tizim logikasi',
+    'ai vazifasi',
+    'majburiy talablar',
+    'avtomatik maydonlar',
+    'hujjat structure',
+    'kirish ma lumotlari',
+    'faqat json qaytar',
+    'body maydonida',
+    'auto date',
+    'auto number',
+    'quality self check',
+    'learning qoidasi',
+    'blanka learning',
+    'javob yozish algoritmi',
+    'foydalanuvchi yangi xat yaratish tugmasini bosadi',
+    'xat raqamini kiriting',
+    'tizim avval',
+    'qizil hudud',
+    'yashil hudud',
+    'sabzi rang',
+    'kok hudud',
+    'ko k hudud',
+    'sariq hudud'
+  ];
+  if(hardMarkers.some(marker => norm.includes(marker))) return true;
+  const markdownSignal = (/^\s*#{1,6}\s+\S+/m.test(raw) || /\*\*[^*\n]{3,80}\*\*/.test(raw));
+  const stepSignal = /(foydalanuvchi|tizim|ai)\s+.{0,80}(bosadi|chiqaradi|qaytar|yozsin|yaratadi|tekshir)/i.test(clean);
+  if(markdownSignal && stepSignal) return true;
+  const technicalLines = raw.split(/\r?\n/).filter(line =>
+    /^\s*(?:[-*]|\d+[.)])\s*.*\b(?:tizim|foydalanuvchi|json|body|prompt|auto_|xat raqamini|yangi xat yaratish)\b/i.test(line)
+  ).length;
+  return technicalLines >= 2;
 }
 
 function normalizeResponseRecipientName(name='') {
@@ -8845,6 +8893,7 @@ QAT'IY TALAB:
 - Learning blankadan matn ko'chirma, faqat uslub va mantiqdan ilhomlan.
 - Body matni aynan topshiriq mazmunidan kelib chiqsin.
 - Body ichiga sana, chiquvchi raqam, qabul qiluvchi, header, manzil, MAVZU yoki imzo blokini yozma; faqat asosiy javob matni bo'lsin.
+- Body ichiga TIZIM LOGIKASI, AI VAZIFASI, MAJBURIY TALABLAR, "Yangi xat yaratish", "Xat raqamini kiriting", JSON namunasi yoki promptdagi texnik ko'rsatmalarni yozma.
 - Body birinchi gapi aynan shu kirish formulasi bilan boshlansin: "${requiredOpening} ...".
 - ${compactResponseText(requiredExtra) ? `Qo'shimcha ma'lumotdagi quyidagi faktlar body ichida aniq aks etsin: ${compactResponseText(requiredExtra).slice(0, 700)}` : `Qo'shimcha ma'lumot kiritilmagan; javobni faqat topshiriq hujjati va blanka uslubidan kelib chiqib shakllantir.`}
 - Topshiriqdagi muhim rekvizitlar, obyekt, hudud, qaror/xat raqami, so'ralgan harakat va yakuniy natija body ichida aniq aks etsin.
@@ -8997,6 +9046,7 @@ MAJBURIY TALABLAR:
 - Qo'shimcha ma'lumot kiritilgan bo'lsa, body matni shu ma'lumotga tayanib tuzilsin; kiritilmagan bo'lsa, AI topshiriq hujjatidan mazmunni o'zi aniqlasin.
 - BODY maydoniga sana, chiquvchi raqam, qabul qiluvchi tashkilot, vazirlik/boshqarma headeri, manzil, telefon, email, sayt, MAVZU, imzo bloki yoki ijrochi telefoni yozilmasin. Bu rekvizitlar tizim tomonidan alohida qo'yiladi.
 - BODY faqat asosiy javob xati matni bo'lsin.
+- BODY ichiga ushbu promptdagi texnik bo'lim nomlari yoki foydalanuvchi interfeysi ko'rsatmalari ("TIZIM LOGIKASI", "AI VAZIFASI", "Yangi xat yaratish", "Xat raqamini kiriting", "AUTO_DATE", "AUTO_NUMBER", "FAQAT JSON qaytar") umuman kiritilmasin.
 - BODY birinchi gapi blankalardagi kabi boshlansin va quyidagi formulani buzmasdan ishlatsin: "${requiredOpening} ...". Kelgan sana va raqam blankadan/topshiriqdan ajratilgan, chiquvchi raqam bilan almashtirma.
 - AUTO_DATE va AUTO_NUMBER body ichida ishlatilmasin; ular faqat tepada rekvizit sifatida chiqadi.
 
@@ -9124,6 +9174,12 @@ confidence_score 85 dan past bo'lmasin.`;
       date: officialDate
     });
     parsed.body = enforceRequiredResponseOpening(parsed.body, requiredOpening);
+    const finalCheck = validateAiResponseDocument(parsed, qualitySeed, legalRagContext, learningRagContext, previousBodies, requiredOpening, extra);
+    if(!finalCheck.ok) {
+      throw new Error(`AI javobi yakuniy sifat tekshiruvidan o'tmadi: ${finalCheck.reason}. Hujjat saqlanmadi.`);
+    }
+    parsed.body = finalCheck.body;
+    parsed.confidence_score = finalCheck.confidence;
     if(responseBodyLooksIncomplete(parsed.body, parsed._generation || {})) {
       throw new Error('AI javob xatini oxirigacha tugatmadi. Hujjat saqlanmadi; qayta yaratishda to‘liq yakunlangan xat talab qilinadi.');
     }
