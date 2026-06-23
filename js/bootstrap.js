@@ -1,4 +1,4 @@
-const APP_BUILD = '20260623-response-guard1';
+const APP_BUILD = '20260623-response-body1';
 
 function withBuild(url) {
   const join = url.includes('?') ? '&' : '?';

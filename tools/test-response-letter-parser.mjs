@@ -75,6 +75,10 @@ const body = [
 
 const providerFormats = [
   JSON.stringify({ body, confidence_score:91 }),
+  JSON.stringify({ final_text:body, confidence_score:89 }),
+  JSON.stringify({ official_letter:{ text:body }, confidence_score:88 }),
+  JSON.stringify({ result_text:body, confidence_score:90 }),
+  JSON.stringify({ yakuniy_javob:body, confidence_score:90 }),
   JSON.stringify({ result:{ document:{ main_text:body } }, confidence:0.91 }),
   JSON.stringify({ output:{ response_letter:{ paragraphs:body.split('\n') } }, confidence_score:'91' }),
   JSON.stringify({ choices:[{ message:{ content:JSON.stringify({ javob_matni:body, confidence_score:92 }) } }] }),
@@ -160,6 +164,43 @@ assert.equal(
   runtime.compactResponseText(recoveredAfterPromptLeak.body),
   runtime.compactResponseText(body),
   'Prompt/reja rad etilgandan keyin faqat toza body qabul qilinishi kerak'
+);
+
+runtime.setMockAiResponses([
+  {
+    text:JSON.stringify({
+      title:'Nurota tumani obyekti yuzasidan',
+      task_analysis:{ answer_strategy:"Topshiriqni o'rganish va ma'lumot berish" },
+      confidence_score:90
+    }),
+    provider:'Gemini',
+    model:'gemini-test',
+    finishReason:'STOP',
+    truncated:false
+  },
+  {
+    text:JSON.stringify({ final_text:body, confidence_score:92 }),
+    provider:'Gemini',
+    model:'gemini-test',
+    finishReason:'STOP',
+    truncated:false
+  }
+]);
+const recoveredAfterMissingBody = await runtime.createAiOnlyResponseDocument(
+  'Toza rasmiy javob xati yarat.',
+  null,
+  task,
+  '',
+  '',
+  [],
+  '',
+  ''
+);
+assert.equal(runtime.getMockAiCalls(), 2, 'Body bo‘sh kelganda AI qayta chaqirilishi kerak');
+assert.equal(
+  runtime.compactResponseText(recoveredAfterMissingBody.body),
+  runtime.compactResponseText(body),
+  'Qayta urinishda final_text ichidagi toza body qabul qilinishi kerak'
 );
 
 const truncatedPayload = {

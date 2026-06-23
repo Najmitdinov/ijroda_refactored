@@ -8436,6 +8436,9 @@ function aiResponseTextValue(value, depth=0) {
     'body', 'main_body', 'letter_body', 'answer_text', 'response_body', 'javob_matni',
     'javob_xati_matni', 'xat_matni', 'asosiy_matn', 'matn', 'javob_xati', 'javob',
     'main_text', 'generated_text', 'response_text', 'letter_text', 'official_response',
+    'final_text', 'result_text', 'text_body', 'main_response', 'final_answer',
+    'official_letter', 'draft', 'draft_letter', 'generated_letter', 'xat_body',
+    'asosiy_javob', 'javob_matni_asosiy', 'yakuniy_javob', 'rasmiy_javob',
     'opening', 'introduction', 'main', 'closing', 'conclusion',
     'paragraphs', 'sections', 'answer', 'response', 'final', 'output', 'result',
     'document', 'letter', 'generated_document', 'response_letter', 'message',
@@ -8467,7 +8470,11 @@ function extractAiResponseBody(parsed) {
     parsed.javob_xati_matni, parsed.xat_matni, parsed.asosiy_matn, parsed.matn,
     parsed.javob_xati, parsed.javob, parsed.main_body, parsed.letter_body,
     parsed.main_text, parsed.generated_text, parsed.response_text, parsed.letter_text,
-    parsed.official_response, parsed.answer, parsed.final, parsed.output, parsed.result,
+    parsed.official_response, parsed.final_text, parsed.result_text, parsed.text_body,
+    parsed.main_response, parsed.final_answer, parsed.official_letter, parsed.draft,
+    parsed.draft_letter, parsed.generated_letter, parsed.xat_body, parsed.asosiy_javob,
+    parsed.javob_matni_asosiy, parsed.yakuniy_javob, parsed.rasmiy_javob,
+    parsed.answer, parsed.final, parsed.output, parsed.result,
     parsed.document, parsed.letter, parsed.generated_document, parsed.response_letter,
     parsed.message, parsed.content, parsed.text, parsed.data, parsed.payload,
     parsed.choices, parsed.html, parsed.summary
@@ -8507,7 +8514,7 @@ function decodeAiQuotedValue(value='') {
 function extractAiBodyFromLabeledText(text='') {
   const source = stripAiResponseWrapper(text);
   if(!source) return '';
-  const keys = 'body|answer_text|response_body|javob_matni|javob_xati|javob|main_text|generated_text|response_text|letter_text|official_response|final_answer';
+  const keys = 'body|answer_text|response_body|javob_matni|javob_xati|javob|main_text|generated_text|response_text|letter_text|official_response|final_text|result_text|text_body|main_response|final_answer|official_letter|draft|draft_letter|generated_letter|xat_body|asosiy_javob|javob_matni_asosiy|yakuniy_javob|rasmiy_javob';
   const quoted = source.match(new RegExp(`["']?(?:${keys})["']?\\s*[:\uFF1A]\\s*("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')`, 'i'));
   if(quoted?.[1]) {
     const decoded = decodeAiQuotedValue(quoted[1]);
@@ -8902,7 +8909,7 @@ QAT'IY TALAB:
 - Topshiriqda bandlar ko'p bo'lsa, ularning har birini mantiqiy ketma-ketlikda yorit; matnni o'rtada uzma.
 - Body yakuniy xulosa yoki aniq natijani bildiruvchi to'liq gap bilan tugasin va oxiriga nuqta qo'yilsin.
 - JSON sintaktik jihatdan to'liq yopilsin. Token limitiga yetmaslik uchun keraksiz izohlarni qisqartir, lekin topshiriq bandlarini tashlab ketma.
-- confidence_score kamida 85 bo'lsin; bunga ishonching yetmasa xatni qayta yoz.
+- Body hech qachon bo'sh qolmasin; confidence_score real baholansin va past bo'lsa ham topshiriqqa mos ehtiyotkor, to'liq rasmiy javob yoz.
 - FAQAT JSON qaytar.`;
     let parsed = null;
     try {
@@ -9118,7 +9125,7 @@ BLANKA LEARNING AMALGA OSHIRISH KETMA-KETLIGI:
 3. Qo'shimcha ma'lumot kiritilgan bo'lsa, uni body mazmunining asosiy yo'nalishi qilib ol.
 4. Blankadan faqat skelet, boshlanish formulasi, obzaslash va professional ohangni ol; jumlani aynan ko'chirma.
 5. Joriy topshiriq bo'yicha yangi, individual va faktlarga mos javob yoz.
-6. Yakuniy JSON ichida confidence_score kamida 85 bo'lsin. Agar 85% ishonch bilan yozolmasang, past confidence qaytar va body'ni bo'sh qoldir.
+6. Yakuniy JSON ichida confidence_score real baholansin, ammo body hech qachon bo'sh qolmasin; noaniqlik bo'lsa ham topshiriq mazmuniga mos ehtiyotkor, to'liq rasmiy javob yoz.
 
 TOPSHIRIQ SEMANTIK PROFILI:
 ${responseTaskProfileText(taskProfile)}
@@ -9165,7 +9172,7 @@ body maydonida FAQAT ko'k hududdagi asosiy javob xati matnini ber: header, sana,
 body birinchi gapi aynan ushbu formula bilan boshlansin: ${requiredOpening}.
 body oxirgi gapi tugallangan rasmiy xulosa bo'lsin va nuqta bilan yakunlansin; matnni o'rtada uzma.
 ${extra ? `body matnida qo'shimcha ma'lumotdagi asosiy dalillar aks etsin: ${extra.slice(0, 900)}` : `qo'shimcha ma'lumot kiritilmagan; body faqat topshiriq matni va blanka skeletoniga tayanib yozilsin.`}
-confidence_score 85 dan past bo'lmasin.`;
+confidence_score 0-100 oralig'ida real baholansin; body esa har qanday holatda to'liq rasmiy javob matni bo'lsin.`;
     const qualitySeed = extra ? `${extra}\n${taskText} ${region}` : `${taskText} ${region}`;
     const parsed = await createAiOnlyResponseDocument(prompt, file ? filePart : null, qualitySeed, legalRagContext, learningRagContext, previousBodies, requiredOpening, extra);
     parsed.body = cleanGeneratedResponseBody(parsed.body || parsed.answer_text || parsed.summary || '', {
